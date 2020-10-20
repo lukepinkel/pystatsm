@@ -288,8 +288,6 @@ def _binom_glmnet(b, X, Xsq, y, la, dla, acs, ix, n, n_iters=2000,
             ffc = ffc * 2
         else:
             b = b_new
-            if ffc>1.0:
-                ffc = 1.0
         if nr_ent:
             acs = acs_new
     return b, acs, fvals[:i]
