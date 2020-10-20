@@ -13,7 +13,7 @@ import scipy as sp # analysis:ignore
 import scipy.stats # analysis:ignore
 import pandas as pd # analysis:ignore
 import matplotlib.pyplot as plt # analysis:ignore
-from pystats.pyglmnet.eln_utils import crossval_mats
+from .eln_utils import crossval_mats
 
 @numba.jit(nopython=True)
 def sft(x, t):
@@ -284,8 +284,12 @@ def _binom_glmnet(b, X, Xsq, y, la, dla, acs, ix, n, n_iters=2000,
             break
         if i>0 and 0<(fvals[i-1]-fvals[i])<dtol:
             break
+        elif i>0 and (fvals[i-1]-fvals[i])<0:
+            ffc = ffc * 2
         else:
             b = b_new
+            if ffc>1.0:
+                ffc = 1.0
         if nr_ent:
             acs = acs_new
     return b, acs, fvals[:i]
