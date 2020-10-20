@@ -35,7 +35,7 @@ def process_cv(fval, lambdas):
     lambda_min = lambdas[summary.idxmin()['mean']]
     return summary, lambda_min
                    
-def plot_elnet_cv(f_path, lambdas):
+def plot_elnet_cv(f_path, lambdas, bfits=None):
     mse = pd.DataFrame(f_path[:, :, 0])
     pen = pd.DataFrame(f_path[:, :, 1])
     pll = pd.DataFrame(f_path[:, :, 2])
@@ -70,5 +70,8 @@ def plot_elnet_cv(f_path, lambdas):
     ax[0].set_ylabel("Deviance", rotation=0, labelpad=50)
     ax[1].set_ylabel("Penalty", rotation=0, labelpad=50)
     ax[2].set_ylabel("Penalized LL", rotation=0, labelpad=50)
+    if bfits is not None:
+        axt = ax[0].twinx()
+        axt.plot(np.log(lambdas), (bfits!=0).sum(axis=1))
     return fig, ax
     
