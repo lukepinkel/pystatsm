@@ -284,8 +284,8 @@ def _binom_glmnet(b, X, Xsq, y, la, dla, acs, ix, n, n_iters=2000,
             break
         if i>0 and 0<(fvals[i-1]-fvals[i])<dtol:
             break
-        elif i>0 and (fvals[i-1]-fvals[i])<0:
-            ffc = ffc * 2
+#        elif i>0 and (fvals[i-1]-fvals[i])<0:
+#            ffc = ffc * 2
         else:
             b = b_new
         if nr_ent:
