@@ -1,7 +1,4 @@
 # pystats
- 
-
-# pystats
 Currently includes rough implementations of 
 - Cumulative link models for ordinal regression.  
 - Factor analytic methods. 
@@ -22,6 +19,18 @@ Currently includes rough implementations of
 - Negative Binomial Models
   - Currently only supports NB2, although plans exist to implement NB1 
 - Random correlation matrix generation via the vine method, onion method, or factor method
+- Nonnegative matrix factorization using the seqNMF algorithm/approach
+- ICA using two different ML algorithms
 
+# Requirements
+All models have been written in python 3.7 using
+- numpy 1.17.2
+- numba 0.45.1
+- scipy 1.5.3
+- tqdm 4.36.1
+- skpsarse 0.4.4
+- Matplotlib 3.3.2
+
+Some of the tests use seaborn 0.11.0
 
 
