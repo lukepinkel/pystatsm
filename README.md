@@ -3,7 +3,7 @@ Currently includes rough implementations of
 - Cumulative link models for ordinal regression.  
 - Structural equation modeling
  - Both exploratory factor analysis (via the FactorAnalysis class) or confirmatory factor analysis (via the MLSEM class)
- - More general Structural equation modeling via the MLSEM class (e.g. path models to full SEM models0
+ - More general Structural equation modeling via the MLSEM class (e.g. path models to full SEM models)
   - Factor rotation using Jennrich/Bernaard's gradient projection algorithms
 - Linear mixed models 
  - LMEC permits flexible random effect covariance and uses a cholesky parameterization.  Analytic gradient and hessian computation is available, but can become prohibitively slow for large models with cross random effects
