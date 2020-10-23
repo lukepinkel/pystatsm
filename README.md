@@ -29,7 +29,7 @@ All models have been written in python 3.7 using
 - scipy 1.5.3
 - tqdm 4.36.1
 - skpsarse 0.4.4
-- Matplotlib 3.3.2
+- matplotlib 3.3.2
 
 Some of the tests use seaborn 0.11.0
 
