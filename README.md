@@ -12,9 +12,7 @@ Currently includes rough implementations of
  - GLMM can fit (so far binomial and poisson) mixed models using PQL.  GLMM inherits LMECs methods to repeadely fit a weighted mixed model.
 	- MixedMCMC can fit normal, binomial, and poisson mixed models using MCMC.  Normal models are be fit through Gibbs sampling, while binary binomial models are fit through Slice within Gibbs, and poisson and nonbinary binomial models are fit using Metropolis Hastings within Gibbs. 
 - Latent variable correlations for handling polychorric, polytomous and tetrachoric correlation
-- Sparse Canonical Correlation 
-   -Using ADMM
-   -Using the penalized matrix decomposition
+- Sparse Canonical Correlation using the penalized matrix decomposition
 - Robust linear regression with Hubers T, Tukeys Bisquare (Biweight), and Hampels function.
 - Generalized Linear Models 
   - Supports Gaussian, Binomial, Gamma, Gaussian, Inverse Gaussian, Poisson and Negative Binomial distributions
