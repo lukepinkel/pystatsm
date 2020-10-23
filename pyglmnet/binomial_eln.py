@@ -115,7 +115,7 @@ def binom_eval(y, eta, b, alpha, lambda_):
     return ll, P, f
 
 @numba.jit(nopython=True)
-def binom_glm_cd(b, X, Xsq, y, w, xv, la, dla, active, index, n, ffc):
+def binom_glm_cd(b, X, Xsq, r, w, xv, la, dla, active, index, n, ffc):
     '''
     Binomial GLM Coordinate descent.  This function performs one cycle
     of coordinate descent
@@ -180,15 +180,17 @@ def binom_glm_cd(b, X, Xsq, y, w, xv, la, dla, active, index, n, ffc):
     active_vars = index[active]
     for j in active_vars:
         bj, xj, xjsq = b[j], X[:, j], Xsq[:, j]
-        wxr = np.sum(w * xj * y) / n
-        xwx = np.sum(w * xjsq)  / n
-        xwxb = xwx * bj
-        v = ffc * xwx + dla
-        b[j] = sft(wxr + ffc * xwxb, la) / v
+        xwx = np.sum(w * xjsq) / n
+        gj = np.sum(r * xj) / n
+        u = gj + xwx * bj
+        b[j] = sft(u, la) / (xwx+dla)
+        d = b[j] - bj
         xv[j] = (b[j] - bj)**2 * xwx
         if abs(b[j]) <= 1e-12:
             b[j] = 0.0
             active[j] = False
+        if abs(d)>0:
+            r = r - d * w * xj
     return b, active, xv
     
   
@@ -267,17 +269,16 @@ def _binom_glmnet(b, X, Xsq, y, la, dla, acs, ix, n, n_iters=2000,
     for i in range(n_iters):
         eta = X.dot(b)
         mu = inv_logit(eta)
-        mlb, mub = (mu<=pmin), (mu>= (1.0 - pmin))
-        mu[mlb] = 0.0
-        mu[mub] = 1.0
+#        mlb, mub = (mu<=pmin), (mu>= (1.0 - pmin))
+#        mu[mlb] = 0.0
+#        mu[mub] = 1.0
         muconj = 1.0 - mu
         w = mu * muconj
-        w[mlb] = pmin
-        w[mub] = pmin
-        yr = y - mu
-        z = yr / w
+#        w[mlb] = pmin
+#        w[mub] = pmin
+        r = y - mu
         fvals[i] = -2.0*np.sum(y * np.log(mu) + np.log(muconj) * yconj)/n
-        b_new, acs_new, xvd = binom_glm_cd(b.copy(), X, Xsq, z, w, xv, la, dla, 
+        b_new, acs_new, xvd = binom_glm_cd(b.copy(), X, Xsq, r, w, xv, la, dla, 
                                       acs.copy(), ix, n, ffc)
         
         if np.max(xvd) < btol:
