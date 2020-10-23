@@ -1,5 +1,5 @@
 # pystats
-This project is recreational and consists of unfinished and unpolished statistical models. Currently includes rough implementations of 
+This project is recreational and consists of unfinished and unpolished programs to fit statistical models. Currently includes rough implementations of 
 - Cumulative link models for ordinal regression.  
 - Structural equation modeling
  - Both exploratory factor analysis (via the FactorAnalysis class) or confirmatory factor analysis (via the MLSEM class)
