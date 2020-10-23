@@ -1,2 +1,29 @@
 # pystats
  
+
+# pystats
+Currently includes rough implementations of 
+- Cumulative link models for ordinal regression.  
+- Factor analytic methods. 
+  Both exploratory(via the FactorAnalysis class) or confirmatory (via the MLSEM class), structural equation modeling fit using analytic gradients/hessians.
+  - Factor rotation using Jennrich/Bernaard's gradient projection algorithms
+- Linear mixed models 
+	- LMEC permits flexible random effect covariance and uses a cholesky parameterization.  Analytic gradient and hessian computation is available, but can become prohibitively slow for large models with cross random effects
+ - GLMM can fit (so far binomial and poisson) mixed models using PQL.  GLMM inherits LMECs methods to repeadely fit a weighted mixed model.
+	- MixedMCMC can fit normal, binomial, and poisson mixed models using MCMC.  Normal models are be fit through Gibbs sampling, while binary binomial models are fit through Slice within Gibbs, and poisson and nonbinary binomial models are fit using Metropolis Hastings within Gibbs. 
+- Latent variable correlations for handling polychorric, polytomous and tetrachoric correlation
+- Sparse Canonical Correlation 
+   -Using ADMM
+   -Using the penalized matrix decomposition
+- Robust linear regression with Hubers T, Tukeys Bisquare (Biweight), and Hampels function.
+- Generalized Linear Models 
+  - Supports Gaussian, Binomial, Gamma, Gaussian, Inverse Gaussian, Poisson and Negative Binomial distributions
+  - Supports Cloglog, Logit, Log, Log Complement, Probit, Negative Binomial and Reciprocal links.
+- Elastic net penalized generalized linear models
+ - Currently only binomial and gaussian models are supported.  So far, provides similar results to glmnet, and at a similar speed, although much functionality needs to be implemented (e.g. intercepts, variable penalties, convergence conditions etc, etc)
+- Negative Binomial Models
+  - Currently only supports NB2, although plans exist to implement NB1 
+- Random correlation matrix generation via the vine method, onion method, or factor method
+
+
+
