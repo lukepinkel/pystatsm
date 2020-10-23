@@ -1,8 +1,9 @@
 # pystats
 Currently includes rough implementations of 
 - Cumulative link models for ordinal regression.  
-- Factor analytic methods. 
-  Both exploratory(via the FactorAnalysis class) or confirmatory (via the MLSEM class), structural equation modeling fit using analytic gradients/hessians.
+- Structural equation modeling
+ - Both exploratory factor analysis (via the FactorAnalysis class) or confirmatory factor analysis (via the MLSEM class)
+ - More general Structural equation modeling via the MLSEM class (e.g. path models to full SEM models0
   - Factor rotation using Jennrich/Bernaard's gradient projection algorithms
 - Linear mixed models 
  - LMEC permits flexible random effect covariance and uses a cholesky parameterization.  Analytic gradient and hessian computation is available, but can become prohibitively slow for large models with cross random effects
@@ -21,7 +22,7 @@ Currently includes rough implementations of
 - Random correlation matrix generation via the vine method, onion method, or factor method
 - Nonnegative matrix factorization using the seqNMF algorithm/approach
 - ICA using two different ML algorithms
-
+- An OLS class conducive to resampling based tests, currently implementing the standard nonparametric bootstrap, and and maxT permutation testing
 # Requirements
 All models have been written in python 3.7 using
 - numpy 1.17.2
