@@ -11,10 +11,10 @@ import numpy as np #analysis:ignorezd
 import scipy as sp #analysis:ignore
 import scipy.stats #analysis:ignore
 import pandas as pd # analysis:ignore
-from utilities.linalg_operations import (_check_np, _check_shape, vec, invec,
+from ..utilities.linalg_operations import (_check_np, _check_shape, vec, invec,
                                         vech, invech)
-from utilities.special_mats import dmat, lmat, nmat, kmat
-from utilities.data_utils import _check_type
+from ..utilities.special_mats import dmat, lmat, nmat, kmat
+from ..utilities.data_utils import _check_type
 def mat_rconj(A):
     return np.eye(A.shape[0]) - A  
 
@@ -348,11 +348,13 @@ class MLSEM:
         U, A = IB.dot(PH).dot(IB.T), LA.dot(IB)
         Q = LA.dot(U)
         Kp, Kq, D, Dp, T = self.Kkp, self.Kq, self.Dk, self.Dp, self.T
+        E = np.zeros_like(T)
         k1, k2, k3, p = self.k1, self.k2, self.k3, self.p
         for i in range(p):
             for j in range(i, p):
                 Hij = np.zeros((len(self.params), len(self.params)))
-                T[i, j] = T[j, i] = 1.
+                E[i, j] = 1.0
+                T = E + E.T
                 TA = T.dot(A)
                 AtTQ = A.T.dot(T).dot(Q)
                 AtTA = A.T.dot(TA)
@@ -362,7 +364,7 @@ class MLSEM:
                       +np.kron(U, AtTA)
                 H12 = (np.kron(U, TA)) + Kp.dot(np.kron(T.dot(Q), IB))
                 H13 =  np.kron(IB, TA).dot(D) 
-                H23 = -D.T.dot(np.kron(IB.T, AtTA))
+                H23 = D.T.dot(np.kron(IB.T, AtTA))
                 Hij[:k1, :k1] = H11
                 Hij[k1:k2, k1:k2] = H22
                 Hij[:k1, k1:k2] = H12
@@ -371,7 +373,7 @@ class MLSEM:
                 Hij[k1:k2, :k1] = H12.T
                 Hij[k2:k3, :k1] = H13.T
                 Hij[k1:k2, k2:k3] = H23.T  
-                T[i, j] = T[j, i] = 0.0
+                E[i, j] = 0.0
                 Hij = Hij[self.idx][:, self.idx]
                 Hpp.append(Hij[:, :, None])
         W = np.linalg.multi_dot([Dp.T, np.kron(Sinv, Sinv), Dp])
