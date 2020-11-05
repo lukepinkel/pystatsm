@@ -82,11 +82,18 @@ def gfi(Sigma, S):
 
 class MLSEM:
     """
-    A little sloppy, but the hessian is finally correct for the full ML model
+
     Structural Equation Model
     
     The class is initialized with 2 Stage Least Squares parameter estimates,
     as the newton-raphson optimization is quite sensitive to starting values.
+    
+    Much of the code here is, as of yet, not optimized or robust (the
+    specification of models is particularly buggy).  As SEM is usually used
+    to model only a handful of variables, the inefficient gradient and 
+    hessian computation does not usually impede single model fitting.  
+    However bootstrapping is not particularly fast, for larger models
+    can be prohibitively slow.  
     
     Parameters
     ----------
