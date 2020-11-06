@@ -17,7 +17,43 @@ from ..utilities.special_mats import dmat, lmat, nmat, kmat
 
 class SEM:
     
-    def __init__(self, Lambda, Beta, Phi, Psi, data=None, S=None, indicator_vars=None):
+    def __init__(self, Lambda, Beta, Phi, Psi, data=None, S=None, 
+                 indicator_vars=None):
+        """
+        Structural Equation Modeling
+        
+        Parameters
+        ----------
+        Lambda : dataframe
+            A dataframe specifying measurement model structure, 
+            with rows corresponding to observed variables and columns
+            corresponding to potential latent variables.
+        
+        Beta : dataframe
+            A dataframe specifying the structural model.  If variable
+            i is being regressed onto a set of variables including variable j
+            then the (i,j)th entry of Beta is nonzero.
+        
+        Phi : dataframe
+            Dataframe specifying covariance of the (potentially) latent 
+            variables.  For path models, variances are nonzero for
+            variables that are not being regressed onto others.
+        
+        Psi : dataframe
+            Dataframe specifying residual correlations.
+        
+        data : dataframe, optional if provided S
+            A dataframe of size (n_ob s x n_vars) 
+        
+        S : dataframe, optional if data is passed
+            Dataframe of the observed covariance matrix
+        
+        indicator_vars : dataframe, optional
+            For a model with free latent variable covariances, 
+            identification requires a fixed indicator variable, which is
+            by default taken as the first specified variable
+        
+        """
         if S is None:
             S = data.cov()
         Lambda = Lambda.loc[S.index] #Align loadings and variable order
