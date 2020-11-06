@@ -10,6 +10,7 @@ Created on Thu Nov  5 20:08:47 2020
 import numpy as np 
 import scipy as sp
 import scipy.stats 
+import pandas as pd
 from ..utilities.linalg_operations import (_check_shape, vec, invec, vech, invech)
 from ..utilities.special_mats import dmat, lmat, nmat, kmat
 
@@ -55,7 +56,7 @@ class SEM:
         
         """
         if S is None:
-            S = data.cov()
+            S = data.cov(ddof=0)
         Lambda = Lambda.loc[S.index] #Align loadings and variable order
         
         n_mvars, n_lvars = Lambda.shape 
@@ -72,7 +73,7 @@ class SEM:
         
         if indicator_vars is None:
             for i, var in enumerate(Lambda.columns):
-                if Phi.loc[var, var]==1.0:
+                if (Phi.loc[var, var]==1.0) or ((LAf.loc[:, var]!=0).sum()==1):
                     vi = np.argmax(LAf.loc[:, var])
                     LAf.iloc[vi, i] = 0.0
         else:
@@ -84,7 +85,7 @@ class SEM:
         PHf = np.asarray(Phi.copy())
         
         theta_indices = np.concatenate([vec(LAf), vec(BEf),  vech(PHf), 
-                                       vech(PSf)])!=0
+                                        vech(PSf)])!=0
         
         params_template = np.concatenate([vec(LA), vec(BE), 
                                           vech(PH), vech(PS)])
@@ -102,6 +103,40 @@ class SEM:
                           BE=(n_lvars, n_lvars),
                           PH=(n_lvars, n_lvars),
                           PS=(n_mvars, n_mvars))
+        
+                
+        ovn, svn = Lambda.index, Lambda.columns
+        
+        ix1, ix2 = np.where(LAf)
+        lambda_labels = [f"{x}<-{y}" for x,y in list(zip(ovn[ix1], svn[ix2]))]
+        
+        ix1, ix2 = np.where(BEf)
+        beta_labels = [f"{x}~{y}" for x,y in list(zip(svn[ix1], svn[ix2]))]
+        
+        ix1, ix2 = [], []
+        v = vech(np.asarray(PHf))!=0
+        for i, (x, y) in enumerate(list(zip(*np.triu_indices(PHf.shape[0])))):
+            if v[i]==True:
+                ix1.append(x)
+                ix2.append(y)
+            
+        
+        phi_labels = [f"cov({x}, {y})" for x,y in list(zip(svn[ix1], svn[ix2]))]
+        
+        
+        ix1, ix2 = [], []
+        v = vech(np.asarray(PSf))!=0
+        for i, (x, y) in enumerate(list(zip(*np.triu_indices(PSf.shape[0])))):
+            if v[i]==True:
+                ix1.append(x)
+                ix2.append(y)
+            
+        psi_labels = [f"cov({x}, {y})" for x,y in list(zip(ovn[ix1], ovn[ix2]))]
+        
+        
+        self.labels = lambda_labels + beta_labels + phi_labels + psi_labels
+
+
         self.LA, self.BE, self.PH, self.PS, self.S = LA, BE, PH, PS, np.asarray(S)
         self.theta_indices = theta_indices
         self.params_template = params_template
@@ -245,16 +280,29 @@ class SEM:
         LL = np.linalg.slogdet(Sigma)[1] + np.trace(self.S.dot(Sigma_inv))
         return LL
     
-    def fit(self):
+    def fit(self, opt_kws={}):
         theta = self.theta.copy()
         opt = sp.optimize.minimize(self.loglike, theta, jac=self.gradient,
                                    hess=self.hessian, method='trust-constr',
-                                   bounds=self.bounds)
+                                   bounds=self.bounds, **opt_kws)
         theta = opt.x
+        theta_cov = np.linalg.pinv(self.hessian(theta))*2.0 / self.n_obs
+        theta_se = np.sqrt(np.diag(theta_cov))
+        t_values = theta / theta_se
+        p_values = sp.stats.t(self.n_obs).sf(np.abs(t_values))*2.0
+        
+        res = np.vstack((theta, theta_se, t_values, p_values)).T
+        res = pd.DataFrame(res, columns=['est', 'SE', 't', 'p'],
+                           index=self.labels)
+        
+                
         self.opt = opt
         self.theta = theta
-        self.Acov = (np.linalg.inv(self.hessian(theta)) * self.n_obs)
-                
+        self.theta_cov = theta_cov
+        self.theta_se = theta_se
+        self.t_values = t_values
+        self.p_values = p_values
+        self.res = res
 
         
         
