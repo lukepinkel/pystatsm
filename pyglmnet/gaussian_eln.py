@@ -195,7 +195,7 @@ def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, tol=1e-4, n_iters=1000
             
     progress_bar.close()
 
-    return betas_cv[1:], fvals, lambdas, betas[:1]
+    return betas_cv[1:], fvals, lambdas, betas[1:]
                    
 def plot_elnet_cv(f_path, lambdas):
     mse = pd.DataFrame(f_path[:, :, 0])
