@@ -13,7 +13,6 @@ import scipy.stats # analysis:ignore
 import pandas as pd # analysis:ignore
 import seaborn as sns # analysis:ignore
 import matplotlib.pyplot as plt # analysis:ignore
-from sklearn.model_selection import KFold # analysis:ignore
 from pystats.utilities.random_corr import vine_corr, multi_rand # analysis:ignore
 
 @numba.jit(nopython=True)
