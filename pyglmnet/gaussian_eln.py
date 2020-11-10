@@ -136,30 +136,66 @@ def crossval_mats(X, y, n, cv):
         yt.append(y[v_ix])
     return Xf, yf, Xt, yt
     
-def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, tol=1e-4, n_iters=1000):
+def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, tol=1e-4, n_iters=1000, 
+              refit=True, lmin_pct=0, lmax_pct=100, seq_rule=True, 
+              warm_start=True):
     if b is None:
         b = X.T.dot(y) / X.shape[0]
-    if lambdas is None:
-        b0 = X.T.dot(y) / X.shape[0]
-        lambda_min = sp.stats.scoreatpercentile(np.abs(b0), 1)
-        lambda_max = sp.stats.scoreatpercentile(np.abs(b0), 99)
-        lambdas = np.exp(np.linspace(np.log(lambda_max), np.log(lambda_min), 150))
+    if (lambdas is None) or (type(lambdas) in [int, float]):
+        if lambdas is None:
+            nl = 150
+        else:
+            nl = int(lambdas)
+        b0 = X.T.dot(y - y.mean()) / X.shape[0]
+        lambda_min = sp.stats.scoreatpercentile(np.abs(b0), lmin_pct)
+        lambda_max = sp.stats.scoreatpercentile(np.abs(b0), lmax_pct)
+        lambdas = np.exp(np.linspace(np.log(lambda_max), np.log(lambda_min), nl))
     p = X.shape[1]
-    betas = np.zeros((len(lambdas), cv, p))
+    betas = np.zeros((len(lambdas)+1, p))
+    betas_cv = np.zeros((len(lambdas)+1, cv, p))
     fvals = np.zeros((len(lambdas), cv, 3))
     Xf, yf, Xt, yt = crossval_mats(X, y, X.shape[0], cv)
     progress_bar = tqdm.tqdm(total=len(lambdas)*cv)
     for i, lambda_ in enumerate(lambdas):
         for k in range(cv):
-            bi, _, _ = elnet(Xf[k], yf[k], lambda_, alpha, b.copy(), tol=tol, n_iters=n_iters)
+            if warm_start:
+                beta_start = betas_cv[i, k].copy()
+            else:
+                beta_start = b.copy()
+            if seq_rule:
+                if i==0:
+                    active = np.ones(p, dtype=bool)
+                else:
+                    resid = yf[k] - Xf[k].dot(betas_cv[i-1, k])
+                    active = np.abs(Xf[k].T.dot(resid)) > 2.0 * alpha * (lambda_ - lambdas.max())
+            else:
+                active = np.ones(p, dtype=bool)
+            bi, _, _ = elnet(Xf[k], yf[k], lambda_, alpha, beta_start.copy(), 
+                             tol=tol, n_iters=n_iters, active=active)
             fi = elnet_loglike(Xt[k], yt[k], bi, alpha, lambda_)
-            betas[i, k] = bi
+            betas_cv[i+1, k] = bi
             fvals[i, k] = fi
             b = bi.copy()
             progress_bar.update(1)
+        if refit:
+            if warm_start:
+                beta_start = betas[i].copy()
+            else:
+                beta_start = np.random.normal(size=X.shape[1]) / X.shape[0] * 0.0
+            if seq_rule:
+                if i==0:
+                    active = np.ones(p, dtype=bool)
+                else:
+                    resid = y - X.dot(betas[i-1])
+                    active = np.abs(X.T.dot(resid)) > 2.0 * alpha * (lambda_ - lambdas.max())
+            else:
+                active = np.ones(p, dtype=bool)
+            betas[i+1], _, _ = elnet(X, y, lambda_, alpha, beta_start.copy(),
+                                     tol=tol, active=active, n_iters=n_iters)
+            
     progress_bar.close()
 
-    return betas, fvals, lambdas
+    return betas_cv[1:], fvals, lambdas, betas[:1]
                    
 def plot_elnet_cv(f_path, lambdas):
     mse = pd.DataFrame(f_path[:, :, 0])
