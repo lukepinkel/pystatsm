@@ -295,7 +295,8 @@ def _binom_glmnet(b, X, Xsq, y, la, dla, acs, ix, n, n_iters=2000,
 
 
 def binom_glmnet(X, y, lambda_, alpha, b=None, active=None, n_iters=2000, 
-                 btol=1e-4, dtol=1e-4, pmin=1e-9, nr_ent=False, ffc=1.0):
+                 btol=1e-4, dtol=1e-4, pmin=1e-9, nr_ent=False, ffc=1.0, 
+                 intercept=True):
     '''
     Binomial glmnet.  This function fits a binomial GLM via a doubly iterative
     outer approximation followed by an inner cycle of coordinate descent. 
@@ -365,7 +366,10 @@ def binom_glmnet(X, y, lambda_, alpha, b=None, active=None, n_iters=2000,
         
     if active is None:
         active = np.ones(p, dtype=bool)
-        
+    
+    if intercept:
+        ybar = y.mean()
+        y = y - np.log(ybar / (1 - ybar))
     index = np.arange(p)
     la, dla = alpha * lambda_, (1 - alpha) * lambda_
     Xsq = X**2
@@ -376,7 +380,7 @@ def binom_glmnet(X, y, lambda_, alpha, b=None, active=None, n_iters=2000,
 
 def cv_binom_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, btol=1e-4, dtol=1e-4, 
               n_iters=1000, warm_start=True, refit=True, lmin_pct=None,
-              pmin=1e-9, nr_ent=False, seq_rule=True, ffc=1.0):
+              pmin=1e-9, nr_ent=False, seq_rule=True, ffc=1.0, intercept=True):
     '''
     Cross validated grid search for optimal elastic net penalty for a binomial
     GLM
@@ -496,7 +500,7 @@ def cv_binom_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, btol=1e-4, dtol=
             bi, _, ni = binom_glmnet(Xf[k], yf[k], lambda_, alpha, beta_start,
                                        active=active, btol=btol, dtol=dtol,
                                        n_iters=n_iters, pmin=pmin,nr_ent=nr_ent, 
-                                       ffc=ffc)
+                                       ffc=ffc, intercept=intercept)
             fi = binom_eval(yt[k], Xt[k].dot(bi), bi, alpha, lambda_)
             betas_cv[i+1, k] = bi
             fvals[i, k] = fi
@@ -518,7 +522,8 @@ def cv_binom_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, btol=1e-4, dtol=
                 active = np.ones(p, dtype=bool)
             bfi, _, _ = binom_glmnet(X, y, lambda_, alpha, beta_start, active=active,
                                      btol=btol, dtol=dtol, n_iters=n_iters,
-                                     pmin=pmin,  nr_ent=nr_ent, ffc=ffc)
+                                     pmin=pmin,  nr_ent=nr_ent, ffc=ffc,
+                                     intercept=intercept)
             betas[i+1] = bfi
     progress_bar.close()
     if refit:

@@ -104,11 +104,14 @@ def kfold_indices(n, k):
         inds.append([fit_ind, splits[i]])
     return inds
             
-def elnet(X, y, lambda_, alpha=0.99, b=None, active=None, n_iters=1000, tol=1e-9):
+def elnet(X, y, lambda_, alpha=0.99, b=None, active=None, n_iters=1000, tol=1e-9,
+          intercept=True):
     if b is None:
         b = X.T.dot(y) / X.shape[0]
     if active is None:
         active = np.ones(X.shape[1], dtype=bool)
+    if intercept:
+        y = y - y.mean()
     beta, fvals, active, nits = eln_cd(X, y, alpha, lambda_, b, active, n_iters, tol)
     fvals = fvals[:(nits+2)]
     return beta, fvals, active, nits
@@ -138,7 +141,7 @@ def crossval_mats(X, y, n, cv):
     
 def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, tol=1e-4, n_iters=1000, 
               refit=True, lmin_pct=0, lmax_pct=100, seq_rule=True, 
-              warm_start=True):
+              warm_start=True, intercept=True):
     if b is None:
         b = X.T.dot(y) / X.shape[0]
     if (lambdas is None) or (type(lambdas) in [int, float]):
@@ -172,7 +175,8 @@ def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, tol=1e-4, n_iters=1000
             else:
                 active = np.ones(p, dtype=bool)
             bi, _, _, n_i = elnet(Xf[k], yf[k], lambda_, alpha, beta_start.copy(), 
-                             tol=tol, n_iters=n_iters, active=active)
+                             tol=tol, n_iters=n_iters, active=active,
+                             intercept=intercept)
             fi = elnet_loglike(Xt[k], yt[k], bi, alpha, lambda_)
             betas_cv[i+1, k] = bi
             fvals[i, k] = fi
@@ -193,7 +197,8 @@ def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, tol=1e-4, n_iters=1000
             else:
                 active = np.ones(p, dtype=bool)
             betas[i+1], _, _, _ = elnet(X, y, lambda_, alpha, beta_start.copy(),
-                                     tol=tol, active=active, n_iters=n_iters)
+                                     tol=tol, active=active, n_iters=n_iters,
+                                     intercept=intercept)
             
     progress_bar.close()
 
