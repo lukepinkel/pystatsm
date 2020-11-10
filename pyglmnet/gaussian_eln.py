@@ -111,7 +111,7 @@ def elnet(X, y, lambda_, alpha=0.99, b=None, active=None, n_iters=1000, tol=1e-9
         active = np.ones(X.shape[1], dtype=bool)
     beta, fvals, active, nits = eln_cd(X, y, alpha, lambda_, b, active, n_iters, tol)
     fvals = fvals[:(nits+2)]
-    return beta, fvals, active
+    return beta, fvals, active, nits
 
 def elnet_grad(b, X, y, lambda_, alpha):
     n = y.shape[0]
@@ -148,12 +148,13 @@ def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, tol=1e-4, n_iters=1000
             nl = int(lambdas)
         b0 = X.T.dot(y - y.mean()) / X.shape[0]
         lambda_min = sp.stats.scoreatpercentile(np.abs(b0), lmin_pct)
-        lambda_max = sp.stats.scoreatpercentile(np.abs(b0), lmax_pct)
+        lambda_max = sp.stats.scoreatpercentile(np.abs(b0), lmax_pct) / alpha
         lambdas = np.exp(np.linspace(np.log(lambda_max), np.log(lambda_min), nl))
     p = X.shape[1]
     betas = np.zeros((len(lambdas)+1, p))
     betas_cv = np.zeros((len(lambdas)+1, cv, p))
     fvals = np.zeros((len(lambdas), cv, 3))
+    n_its = np.zeros((len(lambdas), cv))
     Xf, yf, Xt, yt = crossval_mats(X, y, X.shape[0], cv)
     progress_bar = tqdm.tqdm(total=len(lambdas)*cv)
     for i, lambda_ in enumerate(lambdas):
@@ -170,11 +171,12 @@ def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, tol=1e-4, n_iters=1000
                     active = np.abs(Xf[k].T.dot(resid)) > 2.0 * alpha * (lambda_ - lambdas.max())
             else:
                 active = np.ones(p, dtype=bool)
-            bi, _, _ = elnet(Xf[k], yf[k], lambda_, alpha, beta_start.copy(), 
+            bi, _, _, n_i = elnet(Xf[k], yf[k], lambda_, alpha, beta_start.copy(), 
                              tol=tol, n_iters=n_iters, active=active)
             fi = elnet_loglike(Xt[k], yt[k], bi, alpha, lambda_)
             betas_cv[i+1, k] = bi
             fvals[i, k] = fi
+            n_its[i, k] = n_i
             b = bi.copy()
             progress_bar.update(1)
         if refit:
@@ -190,12 +192,12 @@ def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, tol=1e-4, n_iters=1000
                     active = np.abs(X.T.dot(resid)) > 2.0 * alpha * (lambda_ - lambdas.max())
             else:
                 active = np.ones(p, dtype=bool)
-            betas[i+1], _, _ = elnet(X, y, lambda_, alpha, beta_start.copy(),
+            betas[i+1], _, _, _ = elnet(X, y, lambda_, alpha, beta_start.copy(),
                                      tol=tol, active=active, n_iters=n_iters)
             
     progress_bar.close()
 
-    return betas_cv[1:], fvals, lambdas, betas[1:]
+    return betas_cv[1:], fvals, lambdas, betas[1:], n_its
                    
 def plot_elnet_cv(f_path, lambdas):
     mse = pd.DataFrame(f_path[:, :, 0])
