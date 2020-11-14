@@ -9,7 +9,7 @@ Created on Sat May 16 21:48:19 2020
 import numba # analysis:ignore
 import numpy as np # analysis:ignore
 import scipy as sp # analysis:ignore
-from utilities.linalg_operations import whiten
+from .linalg_operations import whiten
    
 
 
