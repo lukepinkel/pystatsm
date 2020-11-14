@@ -40,7 +40,7 @@ def scalar_truncnorm(mu, sd, lb, ub):
             else:
                 alpha = (tr + np.sqrt((tr * tr) + 4.0)) / 2.0
                 while sample==1:
-                    z = np.random.exponential(scale=alpha) + tr
+                    z = np.random.exponential(scale=1/alpha) + tr
                     pz = -((alpha - z) * (alpha - z) / 2.0)
                     u = -np.random.exponential(scale=1.0)
                     if (u<=pz):
