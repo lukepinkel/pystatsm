@@ -250,40 +250,61 @@ class OrdinalMCMC(LMEC):
         return samples, az_data, summary, acceptances, z_samples
                       
 
-# formula = "y~x1+x2+(1|id1)"
+# formula = "y~x1+x2+x3+x4+(1+x5|id1)"
 # model_dict = {}
-# model_dict['gcov'] = {'id1':invech(np.array([1.0]))}
-# model_dict['ginfo'] = {'id1':dict(n_grp=200, n_per=10)} 
-# model_dict['mu'] = np.zeros(2)
-# model_dict['vcov'] = vine_corr(2)
-# model_dict['beta'] = np.array([1.0, 0.5, -0.5])
-# model_dict['n_obs'] = 2000
+# #model_dict['gcov'] = {'id1':invech(np.array([1.0]))}
+# model_dict['gcov'] = {'id1':invech(np.array([1.0, -0.3, 1.0]))}
+# model_dict['ginfo'] = {'id1':dict(n_grp=300, n_per=10)} 
+# model_dict['mu'] = np.zeros(5)
+# model_dict['vcov'] = vine_corr(5, 100)/10
+# model_dict['beta'] = np.array([0.0, 0.2, -0.2, 0.4, -0.4])
+# model_dict['n_obs'] = 3000
 
 # df, formula, u, linpred = generate_data(formula, model_dict, r=0.6**0.5)
 # #model = LMEC(formula, df)
 # #model.fit()
-# eta = linpred + csd(np.random.normal(0, 1, size=model_dict['n_obs']))
+# eta = linpred + csd(np.random.normal(0, np.sqrt(linpred.var()), size=model_dict['n_obs']))
 
 # tau = sp.stats.scoreatpercentile(eta, [10, 20, 50, 75])
 # df['y'] = pd.cut(eta, np.pad(tau, ((1, 1)), mode='constant', constant_values=[-np.inf, np.inf])).cat.codes.astype(float)
 
-# model = OrdinalMCMC("y~x1+x2+(1|id1)", df)
-# samples, az_data, summary, accept, z_samples = model.fit(40_000, 4, 5000, sample_kws=dict(propC=0.05, store_z=True, freeR=False))
+# model = OrdinalMCMC(formula, df)
+# samples, az_data, summary, accept, z_samples = model.fit(20_000, 4, 5000, sample_kws=dict(propC=0.04, store_z=True, freeR=False))
 # az.plot_trace(az_data, var_names=["$\\tau$"], coords={'$\\tau$_dim_0':[1, 2, 3]})
 # az.plot_trace(az_data, var_names=["$\\tau$"], coords={'$\\tau$_dim_0':[1, 2, 3]})
-# az.plot_trace(az_data, var_names=['$\\theta$'], coords={'$\\theta$_dim_0':[0]})
+# az.plot_trace(az_data, var_names=['$\\theta$'], coords={'$\\theta$_dim_0':[0, 1, 2]})
 # az.plot_trace(az_data, var_names=['$\\beta$'])
 
-# t_accepted = [[samples[i, accept[i]==1, j][200:] for i in range(4)] for j in range(6, samples.shape[2])]
-# t_accepted = [np.concatenate(x) for x in t_accepted]
+# t_accepted = [[samples[i, accept[i]==1, j][200:] for i in range(4)] for j in range(samples.shape[2]-3, samples.shape[2])]
+# min_samples = np.min([[len(x) for x in y] for y in t_accepted])
+# t_accepted = [np.vstack([y[:min_samples] for y in x]).T[np.newaxis] for x in t_accepted]
+# t_accepted = np.concatenate(t_accepted).T
+# az.plot_trace(az.convert_to_dataset(t_accepted))
 
-# az.plot_trace(az.convert_to_dataset(t_accepted[0]))
-# az.plot_trace(az.convert_to_dataset(t_accepted[1]))
+# z_samples = np.concatenate([x[np.newaxis] for x in z_samples], axis=0)
+
+# az_z_samples = az.convert_to_dataset(z_samples)
+# z_summary = az.summary(az_z_samples)
+
+# import matplotlib.pyplot as plt
+# import seaborn as sns
+# prediction_df = pd.DataFrame(np.vstack((z_summary['mean'].values, eta, linpred.values, df['y'].values)).T,
+#                               columns=['z', 'eta', 'mu', 'yobs'])
+# sns.regplot(y=z_summary['mean'].values, x=linpred.values)
+# sns.regplot(y=z_summary['mean'].values[df['y']==4], x=linpred.values[df['y']==4])
+
+# sns.lmplot(x='z', y='eta', data=prediction_df)
+# sns.lmplot(x='mu', y='z', data=prediction_df)
+# sns.lmplot(x='mu', y='z', hue='yobs', data=prediction_df)
+
+# fig, ax = plt.subplots(ncols=5)
+# for i in range(5):
+#     sns.regplot(x='mu', y='z', data=prediction_df[prediction_df['yobs']==i], ax=ax[i])
 
 
-
-
-
+# fig, ax = plt.subplots(ncols=5)
+# for i in range(5):
+#     sns.regplot(x='eta', y='z', data=prediction_df[prediction_df['yobs']==i], ax=ax[i])
 
 
 
