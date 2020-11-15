@@ -231,19 +231,68 @@ class OrdinalMCMC(LMEC):
             pbar.update(1)
         pbar.close() 
         return param_samples, t_acceptances, z_samples
+    
+    def sample_adaptive_mh_gibbs_clm(self, n_samples, chain=0, store_z=False,  freeR=False,
+                         propC=0.04, damping=0.9, adaption_rate=1.5, target_accept=0.44,
+                         n_adapt=1000):
+        if store_z:
+            z_samples = np.zeros((n_samples, self.n_ob))
+        else:
+            z_samples = None
+            
+        param_samples = np.zeros((n_samples, self.n_params+self.n_thresh))
+        t_acceptances = np.zeros((n_samples))
+        x_astr = sp.stats.norm(0.0, 1.0).rvs((n_samples, self.n_ob))
+        x_ranf = sp.stats.norm(0.0, 1.0).rvs((n_samples, self.n_re))
+        location = self.location.copy()
+        pred =  self.W.dot(location)
+        theta = self.t_init.copy()
+        t = sp.stats.norm(0, 1).ppf((self.y_cat.sum(axis=0).cumsum()/np.sum(self.y_cat))[:-1])
+        t = t - t[0]
+        z = np.zeros_like(self.y).astype(float)
+        wtrace, waccept = 1.0, 1.0
+        pbar = tqdm.tqdm(range(n_samples))
+        for i in range(n_samples):
+            t, t_accept = self.sample_tau(t, pred, z, propC)
+            wtrace = wtrace * damping + 1.0
+            waccept *= damping
+            if t_accept:
+                waccept +=1
+            if i<n_adapt:
+                propC = propC * np.sqrt(adaption_rate**((waccept/wtrace)-target_accept))
+            z = self.sample_lvar(theta, t, pred, z)
+            location = self.sample_location(theta, x_ranf[i], x_astr[i], z)
+            pred = self.W.dot(location)
+            u = location[-self.n_re:]
+            theta  = self.sample_theta(theta, u, z, pred, freeR)
+            param_samples[i, self.n_fe:-self.n_thresh] = theta.copy()
+            param_samples[i, :self.n_fe] = location[:self.n_fe]
+            param_samples[i, -self.n_thresh:] = t
+            t_acceptances[i] = t_accept
+            if store_z:
+                z_samples[i] = z.copy()
+            if i>1:
+                pbar.set_description(f"Chain {chain} Tau Acceptance Prob: {t_acceptances[:i].mean():.4f} C: {propC:.3f}")
+            pbar.update(1)
+        pbar.close() 
+        return param_samples, t_acceptances, z_samples
         
     def fit(self, n_samples=5000, n_chains=8, burnin=1000, vnames=None, sample_kws={},
-            method='MH-Gibbs'):
+            method='Adaptive'):
         samples = np.zeros((n_chains, n_samples, self.n_params+np.unique(self.y).shape[0]-1))        
         acceptances = np.zeros((n_chains, n_samples))
+        z_samples = []
         vnames =  {"$\\beta$":np.arange(self.n_fe), 
                    "$\\theta$":np.arange(self.n_fe, self.n_params)}
         vnames['$\\tau$'] = np.arange(self.n_params, 
                                       self.n_params+np.unique(self.y).shape[0]-1)
-    
-        func = self.sample_gibbs_clm
+        if method=='Adaptive':
+            func = self.sample_adaptive_mh_gibbs_clm
+        else:
+            func = self.sample_gibbs_clm
         for i in range(n_chains):
-            samples[i], acceptances[i], z_samples = func(n_samples, chain=i, **sample_kws)
+            samples[i], acceptances[i], z_i = func(n_samples, chain=i, **sample_kws)
+            z_samples.append(z_i)
         az_dict = to_arviz_dict(samples,  vnames, burnin=burnin)
         az_data = az.from_dict(az_dict)
         summary = az.summary(az_data, hdi_prob=0.95)
