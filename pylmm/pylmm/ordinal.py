@@ -83,16 +83,15 @@ def norm_cdf(x, mean=0.0, sd=1.0):
     z = (x - mean) / sd
     p = (sp.special.erf(z/SQRT2) + 1.0) / 2.0
     return p
-
 class OrdinalMCMC(LMEC):
     
-    def __init__(self, formula, data, priors=None):
+    def __init__(self, formula, data, priors=None, freeR=False):
         super().__init__(formula, data) 
         self.t_init, _ = make_theta(self.dims)
         self.W = sp.sparse.csc_matrix(self.XZ)
         self.wsinfo = wishart_info(self.dims)
         self.y = _check_shape(self.y, 1)
-        
+        self.freeR = freeR
         self.indices['u'] = get_u_indices(self.dims)
         self.n_re = self.G.shape[0]
         self.n_fe = self.X.shape[1]
@@ -135,6 +134,7 @@ class OrdinalMCMC(LMEC):
         location = ofs + sp.sparse.linalg.spsolve(M, WtR.dot(y_z))
         return location
     
+    
     def sample_tau(self, t, pred, v, propC):
         t_prop = t.copy()
         ll = 0.0
@@ -148,7 +148,6 @@ class OrdinalMCMC(LMEC):
             d = (t[i-1]-t_prop[i])/propC
             ll += np.sum(np.log(norm_cdf(a)-norm_cdf(b)))
             ll -= np.sum(np.log(norm_cdf(c)-norm_cdf(d)))
-        
         for i in range(1, self.n_thresh):
             m = v[self.y_ix[i]]
             ll += (np.log(norm_cdf(t_prop[i]-m)-norm_cdf(t_prop[i-1]-m))).sum()
@@ -177,8 +176,7 @@ class OrdinalMCMC(LMEC):
             v[ix] = trnorm(mu, sd, lb, ub)
         return v
     
-    
-    def sample_theta(self, theta, u, z, pred, freeR=True):
+    def sample_theta(self, theta, u, z, pred, freeR):
         for key in self.levels:
             theta = sample_gcov(theta.copy(), u, self.wsinfo, self.indices,
                                 key, self.priors)
@@ -186,60 +184,56 @@ class OrdinalMCMC(LMEC):
             theta = sample_rcov(theta, z, pred, self.wsinfo, self.priors)
         return theta
     
-    
-    def sample_gibbs_clm(self, n_samples, chain=0, store_z=False,  freeR=False,
-                         propC=0.1, max_iters=None):
-        if max_iters is None:
-            max_iters = n_samples*100
-        param_samples = np.zeros((n_samples, self.n_params+self.n_thresh))
-        t_acceptances = np.zeros((n_samples))
-        t_accept_prob = np.zeros((n_samples))
+    def sample(self, n_samples, chain=0, store_z=False, freeR=False,
+               propC=0.1):
         if store_z:
             z_samples = np.zeros((n_samples, self.n_ob))
         else:
             z_samples = None
+        freeR = self.freeR
+        param_samples = np.zeros((n_samples, self.n_params+self.n_thresh))
+        t_acceptances = np.zeros((n_samples))
+
         x_astr = sp.stats.norm(0.0, 1.0).rvs((n_samples, self.n_ob))
         x_ranf = sp.stats.norm(0.0, 1.0).rvs((n_samples, self.n_re))
         location = self.location.copy()
         pred =  self.W.dot(location)
-        z = sp.stats.norm(self.y, self.y.var()).rvs()
         theta = self.t_init.copy()
         t = sp.stats.norm(0, 1).ppf((self.y_cat.sum(axis=0).cumsum()/np.sum(self.y_cat))[:-1])
         t = t - t[0]
-        z = np.zeros_like(z).astype(float)
+        z = np.zeros_like(self.y).astype(float)
         pbar = tqdm.tqdm(range(n_samples))
-        j = 0
         for i in range(n_samples):
             t, t_accept = self.sample_tau(t, pred, z, propC)
-            if t_accept:
-                j+=1
             z = self.sample_lvar(theta, t, pred, z)
             location = self.sample_location(theta, x_ranf[i], x_astr[i], z)
             pred = self.W.dot(location)
             u = location[-self.n_re:]
             theta  = self.sample_theta(theta, u, z, pred, freeR)
-            
             param_samples[i, self.n_fe:-self.n_thresh] = theta.copy()
             param_samples[i, :self.n_fe] = location[:self.n_fe]
             param_samples[i, -self.n_thresh:] = t
             t_acceptances[i] = t_accept
-            t_accept_prob[i] = (j+1) /(i+1)
             if store_z:
-                z_samples[j] = z.copy()
+                z_samples[i] = z.copy()
             if i>1:
-                pbar.set_description(f"Chain {chain} Tau Acceptance Prob: {t_accept_prob[i]:.4f}")
+                pbar.set_description(f"Chain {chain} Tau Acceptance Prob: {t_acceptances[:i].mean():.4f}")
             pbar.update(1)
         pbar.close() 
         return param_samples, t_acceptances, z_samples
-    
-    def sample_adaptive_mh_gibbs_clm(self, n_samples, chain=0, store_z=False,  freeR=False,
-                         propC=0.04, damping=0.9, adaption_rate=1.5, target_accept=0.44,
-                         n_adapt=1000):
+        
+    def sample_adaptive(self, n_samples, chain=0, store_z=False, propC=0.04, 
+                        damping=0.99, adaption_rate=1.0,  target_accept=0.44, 
+                        n_adapt=None):
         if store_z:
             z_samples = np.zeros((n_samples, self.n_ob))
         else:
             z_samples = None
             
+        if n_adapt is None:
+            n_adapt = np.minimum(int(n_samples/2), 1000)
+        
+        freeR = self.freeR
         param_samples = np.zeros((n_samples, self.n_params+self.n_thresh))
         t_acceptances = np.zeros((n_samples))
         x_astr = sp.stats.norm(0.0, 1.0).rvs((n_samples, self.n_ob))
@@ -277,28 +271,31 @@ class OrdinalMCMC(LMEC):
         pbar.close() 
         return param_samples, t_acceptances, z_samples
         
-    def fit(self, n_samples=5000, n_chains=8, burnin=1000, vnames=None, sample_kws={},
+    def fit(self, n_samples=20000, n_chains=8, burnin=5000, vnames=None, sampler_kws={},
             method='Adaptive'):
         samples = np.zeros((n_chains, n_samples, self.n_params+np.unique(self.y).shape[0]-1))        
         acceptances = np.zeros((n_chains, n_samples))
         z_samples = []
-        vnames =  {"$\\beta$":np.arange(self.n_fe), 
-                   "$\\theta$":np.arange(self.n_fe, self.n_params)}
-        vnames['$\\tau$'] = np.arange(self.n_params, 
-                                      self.n_params+np.unique(self.y).shape[0]-1)
-        if method=='Adaptive':
-            func = self.sample_adaptive_mh_gibbs_clm
+        if self.freeR:
+            vnames =  {"$\\beta$":np.arange(self.n_fe), 
+                       "$\\theta$":np.arange(self.n_fe, self.n_params),
+                       "$\\tau$":np.arange(self.n_params+1, self.n_params+self.n_thresh)}
         else:
-            func = self.sample_gibbs_clm
+            vnames =  {"$\\beta$":np.arange(self.n_fe), 
+                       "$\\theta$":np.arange(self.n_fe, self.n_params-1),
+                       "$\\tau$":np.arange(self.n_params+1, self.n_params+self.n_thresh)}
+        if method=='Adaptive':
+            func = self.sample_adaptive
+        else:
+            func = self.sample
         for i in range(n_chains):
-            samples[i], acceptances[i], z_i = func(n_samples, chain=i, **sample_kws)
+            samples[i], acceptances[i], z_i = func(n_samples, chain=i, **sampler_kws)
             z_samples.append(z_i)
-        az_dict = to_arviz_dict(samples,  vnames, burnin=burnin)
+        az_dict = to_arviz_dict(samples,  vnames, burnin=burnin)      
         az_data = az.from_dict(az_dict)
         summary = az.summary(az_data, hdi_prob=0.95)
         return samples, az_data, summary, acceptances, z_samples
-                      
-
+           
 # formula = "y~x1+x2+x3+x4+(1+x5|id1)"
 # model_dict = {}
 # #model_dict['gcov'] = {'id1':invech(np.array([1.0]))}
