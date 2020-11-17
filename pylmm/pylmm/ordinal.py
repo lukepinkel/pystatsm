@@ -275,7 +275,11 @@ class OrdinalMCMC(LMEC):
             method='Adaptive'):
         samples = np.zeros((n_chains, n_samples, self.n_params+np.unique(self.y).shape[0]-1))        
         acceptances = np.zeros((n_chains, n_samples))
-        z_samples = []
+        if 'store_z' in sampler_kws.keys():
+            if sampler_kws['store_z']:
+                z_samples = np.zeros((n_chains, n_samples, self.n_ob))
+            else:
+                z_samples = np.zeros(n_chains)
         if self.freeR:
             vnames =  {"$\\beta$":np.arange(self.n_fe), 
                        "$\\theta$":np.arange(self.n_fe, self.n_params),
@@ -289,8 +293,7 @@ class OrdinalMCMC(LMEC):
         else:
             func = self.sample
         for i in range(n_chains):
-            samples[i], acceptances[i], z_i = func(n_samples, chain=i, **sampler_kws)
-            z_samples.append(z_i)
+            samples[i], acceptances[i], z_samples[i] = func(n_samples, chain=i, **sampler_kws)
         az_dict = to_arviz_dict(samples,  vnames, burnin=burnin)      
         az_data = az.from_dict(az_dict)
         summary = az.summary(az_data, credible_interval=0.95)
