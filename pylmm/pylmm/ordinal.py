@@ -184,7 +184,7 @@ class OrdinalMCMC(LMEC):
             theta = sample_rcov(theta, z, pred, self.wsinfo, self.priors)
         return theta
     
-    def sample(self, n_samples, chain=0, store_z=False, freeR=False,
+    def _sample(self, n_samples, chain=0, store_z=False, freeR=False,
                propC=0.1):
         if store_z:
             z_samples = np.zeros((n_samples, self.n_ob))
