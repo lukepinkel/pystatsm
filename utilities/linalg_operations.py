@@ -172,9 +172,8 @@ def invech(v):
 
 
 
-@numba.jit
-def dummy(x, fullrank=True, categories=None):
-    x = _check_shape_nb(x)
+@numba.jit(nopython=True)
+def _dummy(x, fullrank=True, categories=None):
     if categories is None:
         categories = np.unique(x)
     p = len(categories)
@@ -186,6 +185,9 @@ def dummy(x, fullrank=True, categories=None):
         Y[x==categories[i], i] = 1.0
     return Y
 
+def dummy(x, fullrank=True, categories=None):
+    x = _check_shape(x)
+    return _dummy(x, fullrank, categories)
 
 def scholesky(LLt, *args, **kwargs):
     chol_fac = cholesky(LLt, *args, **kwargs)
@@ -209,7 +211,7 @@ def zca(X, S=None):
 def wpca(X, S=None):
     if S is None:
         S = np.cov(X, rowvar=False)
-    u, V = np.linalg.eig(S)
+    u, V = np.linalg.eig(np.atleast_2d(S))
     U = np.diag(1 / np.sqrt(u))
     W = np.dot(U, V.T)
     return W

@@ -102,8 +102,8 @@ class OrdinalMCMC(LMEC):
         if priors is None:
             priors = dict(R=dict(V=0.500*self.n_ob, n=self.n_ob))
             for level in self.levels:
-                Vi = np.eye(self.dims[level]['n_vars'])*0.001
-                priors[level] = dict(V=Vi, n=4)
+                Vi = np.eye(self.dims[level]['n_vars'])
+                priors[level] = dict(V=Vi, n=1)
         self.priors = priors
         self.wsinfo['r'] = dict(nu=self.n_ob-2)
         self.offset = np.zeros(self.n_lc)
@@ -296,7 +296,7 @@ class OrdinalMCMC(LMEC):
             samples[i], acceptances[i], z_samples[i] = func(n_samples, chain=i, **sampler_kws)
         az_dict = to_arviz_dict(samples,  vnames, burnin=burnin)      
         az_data = az.from_dict(az_dict)
-        summary = az.summary(az_data, credible_interval=0.95)
+        summary = az.summary(az_data, credible_interval=0.95, round_to='none')
         return samples, az_data, summary, acceptances, z_samples
            
 # formula = "y~x1+x2+x3+x4+(1+x5|id1)"

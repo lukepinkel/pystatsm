@@ -183,10 +183,8 @@ def invech(v):
     return Y
 
 
-
-@numba.jit(nopython=False)
-def dummy(x, fullrank=True, categories=None):
-    x = _check_shape_nb(x)
+@numba.jit(nopython=True)
+def _dummy(x, fullrank=True, categories=None):
     if categories is None:
         categories = np.unique(x)
     p = len(categories)
@@ -197,6 +195,11 @@ def dummy(x, fullrank=True, categories=None):
     for i in range(p):
         Y[x==categories[i], i] = 1.0
     return Y
+
+def dummy(x, fullrank=True, categories=None):
+    x = _check_shape(_check_np(x))
+    return _dummy(x, fullrank, categories)
+
 
 
 def scholesky(LLt, *args, **kwargs):
