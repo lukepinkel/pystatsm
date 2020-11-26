@@ -185,12 +185,11 @@ class NegativeBinomial(object):
         pbar = tqdm.tqdm(total=n_boot)
         for i in range(n_boot):
             ix = np.random.choice(n, n)
-            self.X, self.Y = Xb[ix], Yb[ix]
+            self.X, self.y = Xb[ix], Yb[ix][:, 0]
             optf = sp.optimize.minimize(self.loglike, 
                                         t_init, method='trust-constr',
                                         jac=self.gradient, 
                                         hess=self.hessian,
-                                        bounds=self.cnst,
                                         options=opt_kws)
             beta_samples[i] = optf.x
             pbar.update(1)
