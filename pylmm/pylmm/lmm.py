@@ -986,7 +986,7 @@ class WLMM:
         return H
     
     def _compute_effects(self, theta=None):
-        G = self.update_gmat(theta, inverse=False)
+        G = self.update_gmat(theta, inverse=False).copy()
         Ginv = self.update_gmat(theta, inverse=True)
         R = (self.weights.dot(self.R * theta[-1]).dot(self.weights))
         Rinv = self.weights_inv.dot(self.R / theta[-1]).dot(self.weights_inv)
@@ -1042,7 +1042,7 @@ class WLMM:
 
     
     
-class GLMMC(WLMM):
+class GLMM(WLMM):
     '''
     Currently an ineffecient implementation of a GLMM, mostly done 
     for fun.  A variety of implementations for GLMMs have been proposed in the
@@ -1060,7 +1060,7 @@ class GLMMC(WLMM):
         self.f = fam
         self.mod = WLMM(formula, data, weights=None)        
         self.theta_init = self.mod.theta.copy()
-        self.mod._fit()
+        
         self.y = self.mod.y
         self.non_continuous = [isinstance(self.f, Binomial),
                                isinstance(self.f, NegativeBinomial),
@@ -1068,6 +1068,10 @@ class GLMMC(WLMM):
         if np.any(self.non_continuous):
             self.mod.bounds = self.mod.bounds[:-1]+[(1, 1)]
             self.mod.fix_error=True
+        self.mod._fit()
+        
+        if isinstance(self.f, Binomial):
+            self.mod.u /= np.linalg.norm(self.mod.u)
         self._nfixed_params = self.mod.X.shape[1]
         self._n_obs = self.mod.X.shape[0]
         self._n_cov_params = len(self.mod.bounds)
@@ -1146,7 +1150,7 @@ class GLMMC(WLMM):
             if eps < tol:
                 break
             theta = self.mod.theta.copy()
-        self.mod._postfit()
+        self.mod._post_fit()
         self.res = get_param_table(self.mod.params, self.mod.se_params, 
                                    self.mod.X.shape[0]-len(self.mod.params))
         
@@ -1158,11 +1162,11 @@ class GLMMC(WLMM):
         var_mu  =  _check_shape(self.f.var_func(mu=mu), 1)
         r_eta_fe = _check_shape(self.mod.y, 1) - eta_fe
 
-        generalized_chi2 = r_eta_fe.T.dot(self.mod.Vinv.dot(r_eta_fe))
+        generalized_chi2 = r_eta_fe.T.dot(self.mod._Vinv.dot(r_eta_fe))
         resids_raw_linear = _check_shape(self.mod.y, 1) - eta
         resids_raw_mean = _check_shape(self.y, 1) - mu
         
-        var_pearson_linear = self.mod.R.diagonal() / gp**2
+        var_pearson_linear = self.mod._R.diagonal() / gp**2
         var_pearson_mean = var_mu
         
         resids_pearson_linear = resids_raw_linear / np.sqrt(var_pearson_linear)
