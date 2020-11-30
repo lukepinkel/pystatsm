@@ -1004,7 +1004,7 @@ class WLMM:
         return beta, XtViX_inv, u, G, R, Rinv, V, Vinv
     
     def _fit(self, use_hess=False, opt_kws={}):
-        default_opt_kws = dict(verbose=3, gtol=1e-6, xtol=1e-6)
+        default_opt_kws = dict(verbose=0, gtol=1e-6, xtol=1e-6)
         if use_hess:
             hess = self.hessian_chol
         else:
