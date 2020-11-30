@@ -14,8 +14,7 @@ from ..utilities.data_utils import _check_type
 from ..utilities.special_mats import nmat, dmat, lmat
 from ..utilities.optimizer_utils import process_optimizer_kwargs
 from ..utilities.output import get_param_table
-from ..utilities.random_corr import multi_rand
-from ..utilities.numerical_derivs import so_gc_cd, fo_fc_cd
+from ..utilities.numerical_derivs import so_gc_cd
   
 
 def get_param_indices(params, n_vars, n_factors):
