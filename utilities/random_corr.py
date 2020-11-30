@@ -8,9 +8,20 @@ Created on Sat May 16 21:48:19 2020
 
 import numba # analysis:ignore
 import numpy as np # analysis:ignore
-import scipy as sp # analysis:ignore
 from .linalg_operations import whiten
-   
+from .data_utils import corr, csd
+
+@numba.jit(nopython=True)
+def exact_rmvnorm(S, n=1000, mu=None):
+    p = S.shape[0]
+    U, d, _ = np.linalg.svd(S)
+    d = d.reshape(1, -1)
+    L = U * d**0.5
+    X = csd(np.random.normal(0.0, 1.0, size=(n, p)))
+    R = corr(X)
+    L = L.dot(np.linalg.inv(np.linalg.cholesky(R)))
+    X = X.dot(L.T)
+    return X
 
 
 def multi_rand(R, size=1000):    

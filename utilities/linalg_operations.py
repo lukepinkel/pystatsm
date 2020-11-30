@@ -72,24 +72,6 @@ def sparse_woodbury_inversion(Umat, Vmat=None, C=None, Cinv=None, A=None, Ainv=N
     W = Ainv - T.dot(H).dot(Vmat).dot(Ainv)
     return W
 
-def sparse_cholesky(A, permute='MMD_AT_PLUS_A'):
-    if sp.sparse.issparse(A) is False:
-        A = sp.sparse.csc_matrix(A)
-    lu = sp.sparse.linalg.splu(A, permc_spec=permute)
-    n = A.shape[0]
-    Pr = sp.sparse.lil_matrix((n, n))
-    Pc = sp.sparse.lil_matrix((n, n))
-    
-    Pr[lu.perm_r, np.arange(n)] = 1
-    Pc[np.arange(n), lu.perm_c] = 1
-    
-    Pr = Pr.tocsc()
-    Pc = Pc.tocsc()
-
-    L, U = lu.L, lu.U
-    L = Pr.T*L.dot(sp.sparse.diags(U.diagonal()**0.5))
-    return L
-
 
 def add_chol_row(xnew, xold, L=None):
     xtx = xnew
@@ -189,28 +171,21 @@ def dummy(x, fullrank=True, categories=None):
     x = _check_shape(x)
     return _dummy(x, fullrank, categories)
 
-def scholesky(LLt, *args, **kwargs):
-    chol_fac = cholesky(LLt, *args, **kwargs)
-    P = chol_fac.P()
-    L = chol_fac.L()[P.argsort()]
-    return L
-    
-
 def inv_sqrt(X):
     u, V = np.linalg.eig(X)
-    U = np.diag(1 / np.sqrt(np.maximum(u, 1e-12)))
+    U = np.diag(1.0 / np.sqrt(np.maximum(u, 1e-12)))
     Xisq = np.linalg.multi_dot([V, U, V.T])
     return Xisq
     
 def zca(X, S=None): 
     if S is None:
-        S = np.cov(X, rowvar=False)
+        S = np.cov(X, rowvar=False, bias=True)
     W = inv_sqrt(S)
     return W
 
 def wpca(X, S=None):
     if S is None:
-        S = np.cov(X, rowvar=False)
+        S = np.cov(X, rowvar=False, bias=True)
     u, V = np.linalg.eig(np.atleast_2d(S))
     U = np.diag(1 / np.sqrt(u))
     W = np.dot(U, V.T)
@@ -218,7 +193,7 @@ def wpca(X, S=None):
 
 def cholesky_whitening(X, S=None):
     if S is None:
-        S = np.cov(X, rowvar=False)
+        S = np.cov(X, rowvar=False, bias=True)
     W = np.linalg.cholesky(np.linalg.pinv(S)).T
     return W
 
