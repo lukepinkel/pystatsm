@@ -10,14 +10,11 @@ import arviz as az
 import numpy as np
 import scipy as sp
 import scipy.stats
-#import pandas as pd # analysis:ignore
-from .lmm_chol import LMEC, make_theta
-from ..utilities.linalg_operations import vech, _check_shape#, invech
+from .lmm import LMM, make_theta
+from ..utilities.linalg_operations import vech, _check_shape
 from sksparse.cholmod import cholesky
 from ..utilities.trnorm import trnorm, scalar_truncnorm
 from ..utilities.wishart import r_invwishart, r_invgamma
-#from pystats.pylmm.tests.test_data2 import generate_data
-#from pystats.utilities.random_corr import vine_corr
 
 SQRT2 = np.sqrt(2)
 def csd(x):
@@ -83,7 +80,8 @@ def norm_cdf(x, mean=0.0, sd=1.0):
     z = (x - mean) / sd
     p = (sp.special.erf(z/SQRT2) + 1.0) / 2.0
     return p
-class OrdinalMCMC(LMEC):
+
+class OrdinalMCMC(LMM):
     
     def __init__(self, formula, data, priors=None, freeR=False):
         super().__init__(formula, data) 
