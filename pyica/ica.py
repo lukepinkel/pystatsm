@@ -8,9 +8,7 @@ Created on Tue Aug 11 21:10:36 2020
 
 
 import numba # analysis:ignore
-import scipy as sp # analysis:ignore
 import numpy as np # analysis:ignore
-import scipy.stats # analysis:ignore
 import pandas as pd # analysis:ignore
 
 

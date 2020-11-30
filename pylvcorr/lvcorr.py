@@ -11,12 +11,9 @@ import pandas as pd
 import scipy as sp
 import scipy.optimize
 
-from pystats.utilities.linalg_operations import _check_np, vec
-from pystats.pylvcorr.statfuncs import (norm_qtf,
-                                       polychor_thresh, 
-                                       binorm_pdf, 
-                                       binorm_cdf, polyex, norm_cdf,
-                                       norm_pdf)
+from ..utilities.linalg_operations import _check_np
+from .statfuncs import (norm_qtf, polychor_thresh,  binorm_pdf, 
+                        binorm_cdf, polyex, norm_cdf, norm_pdf)
 
  
 def corr(x, y=None):

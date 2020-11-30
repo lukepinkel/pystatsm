@@ -10,8 +10,8 @@ import numpy as np
 import scipy as sp
 import scipy.stats
 import pandas as pd
-from pystats.utilities.data_utils import _check_type
-from pystats.utilities.linalg_operations import _check_shape, normdiff
+from ..utilities.data_utils import _check_type
+from ..utilities.linalg_operations import _check_shape, normdiff
 from .m_estimators import (Huber, Bisquare, Hampel, Laplace) # analysis:ignore
 
 class RLS:

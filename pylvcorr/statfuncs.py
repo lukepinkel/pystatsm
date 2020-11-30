@@ -5,13 +5,9 @@ Created on Thu Sep 17 21:03:51 2020
 
 @author: lukepinkel
 """
-import tqdm # analysis:ignore
 import numpy as np # analysis:ignore
 import scipy as sp # analysis:ignore
 import pandas as pd # analysis:ignore
-import seaborn as sns # analysis:ignore
-import matplotlib.pyplot as plt # analysis:ignore
-from pystats.utilities.random_corr import multi_rand  # analysis:ignore
 
 ROOT2PI = np.sqrt(np.pi*2.0)
 ROOT2 = np.sqrt(2.0)

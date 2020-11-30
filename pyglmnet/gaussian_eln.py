@@ -11,9 +11,7 @@ import numpy as np # analysis:ignore
 import scipy as sp # analysis:ignore
 import scipy.stats # analysis:ignore
 import pandas as pd # analysis:ignore
-import seaborn as sns # analysis:ignore
 import matplotlib.pyplot as plt # analysis:ignore
-from pystats.utilities.random_corr import vine_corr, multi_rand # analysis:ignore
 
 @numba.jit(nopython=True)
 def sft(x, t):

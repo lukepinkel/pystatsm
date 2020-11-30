@@ -10,8 +10,7 @@ import tqdm
 import numpy as np
 import scipy as sp
 import scipy.signal
-import matplotlib.pyplot as plt
-import seaborn as sns # analysis:ignore
+
 def _slice_at_axis(sl, axis):
     return (slice(None),) * axis + (sl,) + (...,)
 

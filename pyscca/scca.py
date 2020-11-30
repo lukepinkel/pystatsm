@@ -11,7 +11,7 @@ import tqdm# analysis:ignore
 import numba # analysis:ignore
 import numpy as np # analysis:ignore
 import pandas as pd # analysis:ignore
-from pystats.utilities.linalg_operations import vech # analysis:ignore
+from ..utilities.linalg_operations import vech # analysis:ignore
 
  
 def make_lambdas(xlams, xlmin, xlmax):

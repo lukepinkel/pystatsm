@@ -11,8 +11,6 @@ import numba # analysis:ignore
 import numpy as np # analysis:ignore
 import scipy as sp # analysis:ignore
 import scipy.stats # analysis:ignore
-import pandas as pd # analysis:ignore
-import matplotlib.pyplot as plt # analysis:ignore
 from .eln_utils import crossval_mats
 
 @numba.jit(nopython=True)
