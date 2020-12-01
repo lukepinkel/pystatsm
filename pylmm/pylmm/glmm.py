@@ -182,10 +182,11 @@ class GLMM_AGQ:
         ll = -(np.sum(ll_i) + lnd)
         return ll
     
-    def fit(self):
+    def fit(self, nagq=20):
         self.optimizer = sp.optimize.minimize(self.loglike, self.params, 
                                    bounds=self.bounds, 
-                                   options=dict(disp=1))
+                                   options=dict(disp=1), args=(nagq,),
+                                   jac='3-point')
         self.params = self.optimizer.x
         self.hess_theta = approx_hess(self.loglike, self.optimizer.x)
         self.se_params = np.sqrt(np.diag(np.linalg.inv(self.hess_theta)))
