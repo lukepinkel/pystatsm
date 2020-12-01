@@ -74,12 +74,16 @@ def sample_rcov(theta, y, yhat, wsinfo, priors):
 
 class MixedMCMC(LMM):
     
-    def __init__(self, formula, data, priors=None):
+    def __init__(self, formula, data, priors=None, weights=None):
         super().__init__(formula, data) 
         self.t_init, _ = make_theta(self.dims)
         self.W = sp.sparse.csc_matrix(self.XZ)
         self.wsinfo = wishart_info(self.dims)
         self.y = _check_shape(self.y, 1)
+        if weights is None:
+            self.weights = np.ones_like(self.y)
+        else:
+            self.weights=weights
         
         self.indices['u'] = get_u_indices(self.dims)
         self.n_re = self.G.shape[0]
@@ -147,8 +151,8 @@ class MixedMCMC(LMM):
         z_prop = x_step * propC + z
         
         mndenom1, mndenom2 = np.exp(z)+1, np.exp(z_prop)+1
-        densityl1 = (self.y*z) - np.log(mndenom1) 
-        densityl2 = (self.y*z_prop) - np.log(mndenom2)
+        densityl1 = ((self.y*z) - np.log(mndenom1))*self.weights
+        densityl2 = ((self.y*z_prop) - np.log(mndenom2))*self.weights
         densityl1 += sp.stats.norm(pred, s).logpdf(z)
         densityl2 += sp.stats.norm(pred, s).logpdf(z_prop)
         density_diff = densityl2 - densityl1
