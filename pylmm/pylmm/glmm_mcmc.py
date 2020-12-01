@@ -329,7 +329,7 @@ class MixedMCMC(LMM):
 
         az_dict = to_arviz_dict(samples,  vnames, burnin=burnin)
         az_data = az.from_dict(az_dict)
-        summary = az.summary(az_data, hdi_prob=0.95)
+        summary = az.summary(az_data, credible_interval=0.95, round_to=6)
         return samples, az_data, summary
            
             
