@@ -195,11 +195,11 @@ class MixedMCMC(LMM):
                              lb=-200*self.jv0, ub=v[self.ix0])
         return z
    
-    def sample_mh_gibbs(self, n_samples, propC=1.0, chain=0, store_z=False, freeR=True):
+    def sample_mh_gibbs(self, n_samples, propC=1.0, chain=0, save_pred=False, 
+                        save_u=False, save_lvar=False,
+                        freeR=True):
         param_samples = np.zeros((n_samples, self.n_params))
         acceptances = np.zeros((n_samples, self.n_ob))
-        if store_z:
-            z_samples = np.zeros((n_samples, self.n_ob))
         
         x_step = sp.stats.norm(0.0, 1.0).rvs((n_samples, self.n_ob))
         x_astr = sp.stats.norm(0.0, 1.0).rvs((n_samples, self.n_ob))
@@ -210,7 +210,13 @@ class MixedMCMC(LMM):
         pred =  self.W.dot(location)
         z = sp.stats.norm(self.y, self.y.var()).rvs()
         theta = self.t_init.copy()
-       
+        secondary_samples = {}
+        if save_pred:
+            secondary_samples['pred'] = np.zeros((n_samples, self.n_ob))
+        if save_u:
+            secondary_samples['u'] = np.zeros((n_samples, self.n_re))
+        if save_lvar:
+            secondary_samples['lvar'] = np.zeros((n_samples, self.n_ob))
         progress_bar = tqdm.tqdm(range(n_samples))
         counter = 1
         for i in progress_bar:
@@ -225,19 +231,20 @@ class MixedMCMC(LMM):
             param_samples[i, self.n_fe:] = theta.copy()
             param_samples[i, :self.n_fe] = location[:self.n_fe]
             acceptances[i] = accept
-            if store_z:
-                z_samples[i] = z
+            if save_pred:
+                secondary_samples['pred'][i] = pred
+            if save_u:
+                secondary_samples['u'][i] = u
+            if save_lvar:
+                secondary_samples['lvar'][i] = z
             counter+=1
             if counter==1000:
                 acceptance = np.sum(acceptances)/(float((i+1)*self.n_ob))
                 progress_bar.set_description(f"Chain {chain} Acceptance Prob: {acceptance:.4f}")
                 counter = 1
         progress_bar.close()
-        
-        if store_z:
-            return param_samples, acceptances, z_samples
-        else:
-            return param_samples, acceptances
+        secondary_samples['acceptances'] = acceptances
+        return param_samples, secondary_samples
         
     def sample_slice_gibbs(self, n_samples, chain=0, save_pred=False, save_u=False, save_lvar=False,
                            freeR=False):
@@ -317,7 +324,8 @@ class MixedMCMC(LMM):
     
     def fit(self, n_samples=5000, n_chains=8, burnin=1000, vnames=None, sample_kws={},
             method='MH-Gibbs'):
-        samples = np.zeros((n_chains, n_samples, self.n_params))        
+        samples = np.zeros((n_chains, n_samples, self.n_params))
+        samples_a = {}
         if vnames is None:
             vnames =  {"$\\beta$":np.arange(self.n_fe), 
                        "$\\theta$":np.arange(self.n_fe, self.n_params)}
@@ -329,12 +337,12 @@ class MixedMCMC(LMM):
         elif method=='Slice-Gibbs':
             func = self.sample_slice_gibbs
         for i in range(n_chains):
-            samples[i], _ = func(n_samples, chain=i, **sample_kws)
+            samples[i], samples_a[i] = func(n_samples, chain=i, **sample_kws)
 
         az_dict = to_arviz_dict(samples,  vnames, burnin=burnin)
         az_data = az.from_dict(az_dict)
         summary = az.summary(az_data, credible_interval=0.95, round_to=6)
-        return samples, az_data, summary
+        return samples, az_data, summary, samples_a
            
             
         
