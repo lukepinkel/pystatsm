@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Sun Oct  4 19:23:32 2020
+Created on Tue May 19 22:50:32 2020
 
 @author: lukepinkel
 """
 
-import tqdm
 import patsy  # analysis:ignore
 import numpy as np # analysis:ignore
 import scipy as sp # analysis:ignore
@@ -22,33 +21,13 @@ from .families import (Binomial, ExponentialFamily, Gamma, Gaussian,  # analysis
 
 class GLM:
     
-    def __init__(self, X=None, Y=None, formula=None, data=None, fam=None, 
-                 scale_estimator='M'):
+    def __init__(self, frm=None, data=None, fam=None, scale_estimator='M'):
         if isinstance(fam, ExponentialFamily) is False:
             fam = fam()
-        
         self.f = fam
-        
-        if formula is not None and data is not None:
-            Y, X = patsy.dmatrices(formula, data, return_type='dataframe')
-            X, xcols, xix = X.values, X.columns, X.index
-            Y, ycols, yix = Y.values, Y.columns, Y.index
-        elif X is not None and Y is not None:
-            if type(X) not in [pd.DataFrame, pd.Series]:
-                xcols = [f'x{i}' for i in range(1, X.shape[1]+1)]
-                xix = np.arange(X.shape[0])
-            else:
-                xcols, xix = X.columns, X.index
-                X = X.values
-            if type(Y) not in [pd.DataFrame, pd.Series]:
-                ycols = ['y']
-                yix = np.arange(Y.shape[0])
-            else:
-                 ycols, yix = Y.columns, Y.index
-                 Y = Y.values
-                 
-        self.X, self.xcols, self.xix, self.x_is_pd = X, xcols, xix, True
-        self.Y, self.ycols, self.yix, self.y_is_pd = Y, ycols, yix, True
+        Y, X = patsy.dmatrices(frm, data, return_type='dataframe')
+        self.X, self.xcols, self.xix, self.x_is_pd = _check_type(X)
+        self.Y, self.ycols, self.yix, self.y_is_pd = _check_type(Y)
         self.n_obs, self.n_feats = self.X.shape
         self.dfe = self.n_obs - self.n_feats
         self.jn = np.ones((self.n_obs, 1))
@@ -75,107 +54,90 @@ class GLM:
     def _est_scale(self, y, mu):
     
         y, mu = self.f.cshape(y, mu)
-        r = self.f.weights * (y - mu)**2
+        r = (y - mu)**2
         v = self.f.var_func(mu=mu)
         s = np.sum(r / v)
         s/= self.dfe
         return s
     
-    def predict(self, params, X=None, Y=None):
-        if X is None:
-            X = self.X
+    def predict(self, params):
+
         if self.scale_handling == 'NR':
             beta, _ = params[:-1], params[-1]
-            eta = X.dot(beta)
+            eta = self.X.dot(beta)
             mu = self.f.inv_link(eta)
         else:
-            eta = X.dot(params)
+            eta = self.X.dot(params)
             mu = self.f.inv_link(eta)
         return mu
     
-    def loglike(self, params, X=None, Y=None):
-        if X is None:
-            X = self.X
-        if Y is None:
-            Y = self.Y
+    def loglike(self, params):
         params = _check_shape(params, 1)
         if self.scale_handling == 'NR':
             beta, tau = params[:-1], params[-1]
-            eta = X.dot(beta)
+            eta = self.X.dot(beta)
             mu = self.f.inv_link(eta)
             phi = np.exp(tau)
         else:
-            eta = X.dot(params)
+            eta = self.X.dot(params)
             mu = self.f.inv_link(eta)
             if self.scale_handling == 'M':
-                phi = self._est_scale(Y, mu)
+                phi = self._est_scale(self.Y, mu)
             else:
                 phi = 1.0
-        ll = self.f.loglike(Y, mu=mu, scale=phi)
+        ll = self.f.loglike(self.Y, mu=mu, scale=phi)
         return ll
 
-    def gradient(self, params, X=None, Y=None):
-        if X is None:
-            X = self.X
-        if Y is None:
-            Y = self.Y
+    def gradient(self, params):
         params = _check_shape(params, 1)
         if self.scale_handling == 'NR':
             beta, tau = params[:-1], params[-1]
-            eta = X.dot(beta)
+            eta = self.X.dot(beta)
             mu = self.f.inv_link(eta)
             phi = np.exp(tau)
-            dt = np.atleast_1d(np.sum(self.f.dtau(tau, Y, mu)))
+            dt = np.atleast_1d(np.sum(self.f.dtau(tau, self.Y, mu)))
         else:
-            eta = X.dot(params)
+            eta = self.X.dot(params)
             mu = self.f.inv_link(eta)
             if self.scale_handling == 'M':
-                phi = self._est_scale(Y, mu)
+                phi = self._est_scale(self.Y, mu)
             else:
                 phi = 1.0
-        w = self.f.gw(Y, mu=mu, phi=phi)
-        g = np.dot(X.T, w)
+        w = self.f.gw(self.Y, mu=mu, phi=phi)
+        g = np.dot(self.X.T, w)
         if self.scale_handling == 'NR':
             g = np.concatenate([g, dt])
         return g
     
-    def hessian(self, params, X=None, Y=None):
-        if X is None:
-            X = self.X
-        if Y is None:
-            Y = self.Y
+    def hessian(self, params):
         if self.scale_handling == 'NR':
             beta, tau = params[:-1], params[-1]
-            eta = X.dot(beta)
+            eta = self.X.dot(beta)
             mu = self.f.inv_link(eta)
             phi = np.exp(tau)
-            d2t = np.atleast_2d(self.f.d2tau(tau, Y, mu))
+            d2t = np.atleast_2d(self.f.d2tau(tau, self.Y, mu))
             dbdt = -np.atleast_2d(self.gradient(params)[:-1])
         else:
-            eta = X.dot(params)
+            eta = self.X.dot(params)
             mu = self.f.inv_link(eta)
             if self.scale_handling == 'M':
-                phi = self._est_scale(Y, mu)
+                phi = self._est_scale(self.Y, mu)
             else:
                 phi = 1.0
-        w = self.f.hw(Y, mu=mu, phi=phi)
-        H = (X.T * w).dot(X)
+        w = self.f.hw(self.Y, mu=mu, phi=phi)
+        H = (self.X.T * w).dot(self.X)
         if self.scale_handling == 'NR':
             H = np.block([[H, dbdt.T], [dbdt, d2t]])
         return H 
     
     
-    def _fit_optim(self, opt_kws={}, t_init=None, X=None, Y=None):
-        if t_init is None:
-            t_init = self.theta_init
+    def _fit_optim(self):
 
-        default_args = dict(verbose=0, gtol=1e-6, xtol=1e-6)
-        for key, val in default_args.items():
-            if key not in opt_kws.keys():
-                opt_kws[key] = val
-        optimizer = sp.optimize.minimize(self.loglike, t_init, args=(X, Y),
-                                         jac=self.gradient, hess=self.hessian, 
-                                         options=opt_kws, method='trust-constr')
+        opts = {'verbose':3}
+        optimizer = sp.optimize.minimize(self.loglike, self.theta_init,
+                                         jac=self.gradient,
+                                         hess=self.hessian, options=opts,
+                                         method='trust-constr')
         return optimizer
     
     def _fit_manual(self, theta=None):
@@ -223,7 +185,7 @@ class GLM:
         self.params = params
         mu = self.predict(params)
         y, mu = self.f.cshape(self.Y, mu)
-        presid = self.f.weights * (y - mu) / np.sqrt(self.f.var_func(mu=mu))
+        presid = (y - mu) / np.sqrt(self.f.var_func(mu=mu))
         self.pearson_resid = presid
         self.mu = mu
         self.y = y
@@ -281,31 +243,7 @@ class GLM:
         self.res = pd.DataFrame(self.res, columns=['params', 'SE'])
         self.res['t'] = self.res['params'] / self.res['SE']
         self.res['p'] = sp.stats.t.sf(np.abs(self.res['t']), self.dfe)*2.0
-    
-    def bootstrap(self, n_boot=5000, opt_kws={}):
-        if hasattr(self, 'res')==False:
-            self.fit()
-        t_init = self.params
-        theta_samples = np.zeros((n_boot, len(t_init)))
-        pbar = tqdm.tqdm(total=n_boot)
-        for i in range(n_boot):
-            ix = np.random.choice(self.X.shape[0], self.X.shape[0])
-            theta_samples[i] = self._fit_optim(opt_kws=opt_kws,
-                                               t_init=t_init, 
-                                               X=self.X[ix], 
-                                               Y=self.Y[ix]).x
-            pbar.update(1)
-        pbar.close()
-        k = self.n_obs-self.n_feats
-        self.res.insert(2, "SE_boot", theta_samples.std(axis=0))
-        self.res.insert(4, "t_boot", self.res['params']/self.res['SE_boot'])
-        abst = np.abs(self.res['t_boot'])
-        self.res.insert(6, "p_boot", sp.stats.t(k).sf(abst)*2.0)
-        self.theta_samples = theta_samples
         
-
-            
-                
-                
+        
         
         
