@@ -202,16 +202,15 @@ class PowerLink(Link):
         if self.alpha==0:
             dmu = np.exp(eta)
         else:
-            dmu = -(eta**(1/self.alpha) * np.log(eta)) / (self.alpha**2)
+            dmu = eta**(1/self.alpha - 1.0) / self.alpha
         return dmu
     
     def d2inv_link(self, eta):
         alpha=self.alpha
-        lnx = np.log(eta)
         if alpha==0:
             d2mu = np.exp(eta)
         else:
-            d2mu = (eta**(1/alpha) * lnx * (lnx+2*alpha)) / alpha**4
+            d2mu = (alpha - 1.0) * eta**(1/alpha - 2.0) / alpha**2
         return d2mu
     
     def link(self, mu):

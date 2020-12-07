@@ -188,10 +188,11 @@ class InverseGaussian(ExponentialFamily):
             mu = self._to_mean(eta=eta, T=T)
            
         y, mu = self.cshape(y, mu)
-        w = self.weights / scale
+        w = self.weights
         
-        ll = w * np.power((y - mu), 2) / (y * mu**2)
-        ll+= np.log((scale * y**2) / self.weights)
+        num = (y - mu)**2
+        den = (y * mu**2 * scale)
+        ll = w * num / den + np.log((scale * y**3) / w)
         return ll
     
     def _full_loglike(self, y, eta=None, mu=None, T=None, scale=1.0):
@@ -216,11 +217,11 @@ class InverseGaussian(ExponentialFamily):
         if mu is None:
             mu = self._to_mean(eta=eta, T=T)
     
-        V = np.power(mu, 3.0)
+        V = np.power(_check_shape(mu, 1), 3.0)
         return V
                 
     def d2canonical(self, mu):
-        res = 3.0 / (FOUR_SQRT2 * np.power(-mu, 2.5))
+        res = 3.0 / (np.power(mu, 4))
         return res
     
     def deviance(self, y, T=None, mu=None, eta=None, scale=1.0):
