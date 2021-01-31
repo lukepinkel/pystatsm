@@ -260,7 +260,19 @@ class GLM:
         self.res['t'] = self.res['params'] / self.res['SE']
         self.res['p'] = sp.stats.t.sf(np.abs(self.res['t']), self.dfe)*2.0
     
-    def bootstrap(self, n_boot=5000, opt_kws={}):
+    
+    def _bootfit(self, params, X=None, Y=None, n_iters=500, tol=1e-6):
+        params, X, Y = self._check_mats(params, X, Y)
+        for i in range(n_iters):
+            H = self.hessian(params, X=X, Y=Y)
+            g = self.gradient(params, X=X, Y=Y)
+            d = -np.linalg.solve(H, g)
+            if np.abs(d).mean() < tol:
+                break
+            params = params + d
+        return params, i
+    
+    def bootstrap(self, n_boot=5000, opt_kws={}, method='sp'):
         if hasattr(self, 'res')==False:
             self.fit()
         t_init = self.params
@@ -268,10 +280,14 @@ class GLM:
         pbar = tqdm.tqdm(total=n_boot)
         for i in range(n_boot):
             ix = np.random.choice(self.X.shape[0], self.X.shape[0])
-            theta_samples[i] = self._fit_optim(opt_kws=opt_kws,
+            if method == 'sp':
+                theta_samples[i] = self._fit_optim(opt_kws=opt_kws,
                                                t_init=t_init, 
                                                X=self.X[ix], 
                                                Y=self.Y[ix]).x
+            else:
+                theta_samples[i], _ = self._bootfit(params=t_init, X=self.X[ix],
+                                                   Y=self.Y[ix])
             pbar.update(1)
         pbar.close()
         k = self.n_obs-self.n_feats

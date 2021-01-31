@@ -122,7 +122,7 @@ class ICA:
         self.Y, self.dW_hist, self.fhist = Y, dW_hist, fhist
                     
         if self.is_pd:
-            cnames = [f"component_{i}" for i in range(1, self.n_components+1)]
+            cnames = [f"component_{i}" for i in range(1, self.n_comps+1)]
             self.A = pd.DataFrame(self.A, index=cnames, columns=self.cols)
             self.W = pd.DataFrame(self.W, index=self.cols, columns=cnames)
             self.Y = pd.DataFrame(self.Y, index=self.index, columns=cnames)

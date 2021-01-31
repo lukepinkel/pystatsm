@@ -160,12 +160,12 @@ class FactorAnalysis:
                                   free_lcov=free_lcov,
                                   st_lvar=st_lvar)
         
-        self._Np = nmat(self.n_vars).A
-        self._Ip = np.eye(self.n_vars)
-        self._Dp = dmat(self.n_vars).A
-        self._Lp = lmat(self.n_vars).A
-        self._Dq = dmat(self.n_factors).A
-        self._T = np.zeros((self.n_vars, self.n_vars))
+        # self._Np = nmat(self.n_vars).A
+        # self._Ip = np.eye(self.n_vars)
+        # self._Dp = dmat(self.n_vars).A
+        # self._Lp = lmat(self.n_vars).A
+        # self._Dq = dmat(self.n_factors).A
+        # self._T = np.zeros((self.n_vars, self.n_vars))
         
     
     def params_to_mats(self, params):
