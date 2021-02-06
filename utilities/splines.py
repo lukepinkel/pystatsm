@@ -7,6 +7,7 @@ Created on Sat May  2 03:48:59 2020
 """
 import numba
 import scipy as sp           # analysis:ignore
+import scipy.interpolate
 import numpy as np           # analysis:ignore
 
 
@@ -144,11 +145,11 @@ def crspline_penalty(xk):
     F = np.concatenate((np.zeros((1, n)), BinvD,
                         np.zeros((1, n))), axis=0)
     S = D.T.dot(BinvD)
-    return F, S
+    return D, F, S
 
 def get_crsplines(x, df=10, degree=3):
     xk = crspline_knots(x, df=df, degree=degree)
-    F, S = crspline_penalty(xk)
+    D, F, S = crspline_penalty(xk)
     j = np.searchsorted(xk, x) - 1
     j[j==-1] = 0
     j[j==len(xk)-1] = len(xk) - 2
@@ -165,11 +166,24 @@ def get_crsplines(x, df=10, degree=3):
     
     B = a_pos * I[j+1, :].T + a_neg * I[j, :].T+\
         c_pos * F[j+1, :].T + c_neg * F[j, :].T
-    return F, B.T, S
+    return D, F, B.T, S, xk
     
 
 def get_bsplines(x, df=10, degree=3, penalty=2, intercept=False):
     all_knots, knots = bspline_knots(x, df, degree)
     D, S = bspline_penalty(all_knots, knots, degree=degree, penalty=penalty, intercept=intercept)
     B = bspline_basis(x, all_knots, degree=degree, deriv=0, intercept=intercept)
-    return D, B, S
+    return D, B, S, all_knots
+
+
+def transform_spline_modelmat(X, S):
+    q, r = np.linalg.qr(X.mean(axis=0).reshape(-1, 1), mode='complete')
+    ZSZ = np.dot(q.T, S)[1:]
+    S = np.dot(q.T, ZSZ.T)[1:].T
+    X = np.dot(q.T, X.T)[1:].T
+    return X, S
+    
+    
+    
+    
+
