@@ -183,7 +183,10 @@ def transform_spline_modelmat(X, S):
     X = np.dot(q.T, X.T)[1:].T
     return X, S
     
-    
+def get_penalty_scale(X, S):
+    sc = np.linalg.norm(S, ord=1)/np.abs(X).sum(axis=1).max()**2
+    return sc
+
     
     
 
