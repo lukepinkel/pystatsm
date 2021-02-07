@@ -227,6 +227,8 @@ class LMM:
             self.d2g_dchol[key] = get_d2_chol(self.dims[key])
         self.bounds = [(0, None) if x==1 else (None, None) for x in self.theta]
         self.bounds_2 = [(1e-6, None) if x==1 else (None, None) for x in self.theta]
+        self.zero_mat = sp.sparse.eye(self.X.shape[1])*0.0
+        self.zero_mat2 = sp.sparse.eye(1)*0.0
         
     def update_mme(self, Ginv, s):
         """
@@ -245,7 +247,9 @@ class LMM:
             
         """
         M = self.M.copy()/s
-        M[-Ginv.shape[0]-1:-1, -Ginv.shape[0]-1:-1] += Ginv
+        #M[-Ginv.shape[0]-1:-1, -Ginv.shape[0]-1:-1] += Ginv
+        Omega = sp.sparse.block_diag([self.zero_mat, Ginv, self.zero_mat2])
+        M+=Omega
         return M
     
     def update_gmat(self, theta, inverse=False):
