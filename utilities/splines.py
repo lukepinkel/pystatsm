@@ -187,6 +187,83 @@ def get_penalty_scale(X, S):
     sc = np.linalg.norm(S, ord=1)/np.abs(X).sum(axis=1).max()**2
     return sc
 
-    
-    
+def ccspline_knots(x, nk):
+    xu = np.sort(np.unique(x))
+    n = len(xu)
+    dx = (n - 1.0) / (nk - 1.0)
+    lb = (np.floor(dx * np.arange(1, nk - 1))+ 1.0).astype(int)
+    rm = dx * np.arange(1, nk - 1) + 1.0 - lb
+    knots = np.zeros(nk)
+    knots[-1] = xu[n-1]
+    knots[0] = xu[0]
+    knots[1:-1] = xu[lb-1]*(1-rm)+xu[1:][lb-1]*rm
+    return knots
 
+
+@numba.jit(nopython=True)
+def _cc_mats(h, n):
+    B = np.zeros((n, n))
+    D = np.zeros((n, n))
+    B[0, 0] = (h[-1]+h[0]) / 3
+    B[0, 1] = h[0] / 6
+    B[0,-1] = h[-1] / 6
+    D[0, 0] = -(1/h[0]+1/h[-1])
+    D[0, 1] = 1 / h[0]
+    D[0,-1] = 1 / h[-1]
+    for i in range(1, n-1):
+        B[i, i-1] = h[i-1] / 6
+        B[i, i] = (h[i-1] + h[i]) / 3
+        B[i, i+1] = h[i] / 6
+        D[i, i-1] = 1 / h[i-1]
+        D[i, i] = -(1 / h[i-1] + 1 / h[i])
+        D[i, i+1] = 1 / h[i]
+    B[-1, -2] = h[-2] / 6
+    B[-1, -1] = (h[-2] + h[-1]) / 3
+    B[-1, 0] = h[-1] / 6
+    D[-1, -2] = 1 / h[-2]
+    D[-1, -1] = -(1 / h[-2] + 1 / h[-1])
+    D[-1, 0] = 1 / h[-1]
+    return D, B
+    
+def ccspline_penalty(x, xk):
+    h = np.diff(xk)
+    n = len(xk) - 1
+    D, B = _cc_mats(h, n)
+    BinvD = np.linalg.inv(B).dot(D)
+    S = D.T.dot(BinvD)
+    S = (S + S.T) / 2.0
+    return BinvD, S
+
+def ccspline_basis(x, xk, H):
+    n = len(xk)
+    h = np.diff(xk)
+    j = x.copy()
+    for i in range(n, 1, -1):
+        j[x<=xk[i-1]] = i-1
+    j1 = hj = j - 1
+    j[j==(n-1)] = 0
+    I = np.eye(n - 1)
+    a = xk[j1+1]
+    b = xk[j1]
+    c = h[hj]
+    
+    amx = a - x
+    xmb = x - b
+    
+    d1 = (amx**3 / (6 * c)).reshape(-1, 1)
+    d2 = ((xmb**3) / (6 * c)).reshape(-1, 1)
+    d3 = ((c * amx / 6)).reshape(-1, 1)
+    d4 = ((c * xmb / 6)).reshape(-1, 1)
+    d5 = (amx / c ).reshape(-1, 1)
+    d6 = (xmb / c).reshape(-1, 1)
+    A, B, C, D = H[j1], H[j], I[j1], I[j]
+    X = A * d1 + B * d2 - A * d3 -\
+        B * d4 + C * d5 + D * d6
+    return X
+    
+def get_ccsplines(x, df=10):
+    knots = ccspline_knots(x, df)
+    BinvD, S = ccspline_penalty(x, knots)
+    X = ccspline_basis(x, knots, BinvD)
+    return X, BinvD, S, knots
+    
