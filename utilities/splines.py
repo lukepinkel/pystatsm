@@ -267,3 +267,41 @@ def get_ccsplines(x, df=10):
     X = ccspline_basis(x, knots, BinvD)
     return X, BinvD, S, knots
     
+def gcv(a, X, y, S):
+    A = X.dot(np.linalg.inv(X.T.dot(X)+S*a)).dot(X.T)
+    r = y - A.dot(y)
+    n = y.shape[0]
+    v = n * r.T.dot(r) / (n - np.trace(A))**2
+    return v
+
+def double_gcv(a, X, y, S, gamma=1.5):
+    A = X.dot(np.linalg.inv(X.T.dot(X)+S*a)).dot(X.T)
+    r = y - A.dot(y)
+    n = y.shape[0]
+    v = n * r.T.dot(r) / (n - gamma * np.trace(A))**2
+    return v
+
+def grad_gcv(a, X, y, St):
+    V = np.linalg.inv(X.T.dot(X)+St*a)
+    A = X.dot(V).dot(X.T)
+    r = y - A.dot(y)
+    M = X.dot(V).dot(St).dot(V).dot(X.T)
+    n = y.shape[0]
+    u = n - np.trace(A)
+    u2 = u**2
+    u3 = u2 * u
+    g = 2 * n * r.T.dot(M.dot(y) / u2 - np.trace(M) * r / u3)
+    return g
+
+
+def grad_double_gcv(a, X, y, St, gamma=1.5):
+    V = np.linalg.inv(X.T.dot(X)+St*a)
+    A = X.dot(V).dot(X.T)
+    r = y - A.dot(y)
+    M = X.dot(V).dot(St).dot(V).dot(X.T)
+    n = y.shape[0]
+    u = n - gamma * np.trace(A)
+    u2 = u**2
+    u3 = u2 * u
+    g = 2 * n * r.T.dot(M.dot(y) / u2 - gamma * np.trace(M) * r / u3)
+    return g
