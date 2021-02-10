@@ -147,6 +147,28 @@ def crspline_penalty(xk):
     S = D.T.dot(BinvD)
     return D, F, S
 
+
+def crspline_basis(x, xk):
+    D, F, S = crspline_penalty(xk)
+    j = np.searchsorted(xk, x) - 1
+    j[j==-1] = 0
+    j[j==len(xk)-1] = len(xk) - 2
+    h = np.diff(xk)[j]
+    
+    dp, dn = x - xk[j], xk[j+1] - x
+    
+    a_pos = dp / h
+    a_neg = dn / h
+    
+    c_pos = (dp**3 / h - h * dp) / 6.0
+    c_neg = (dn**3 / h - h * dn) / 6.0
+    I = np.eye(len(xk))
+    
+    B = a_pos * I[j+1, :].T + a_neg * I[j, :].T+\
+        c_pos * F[j+1, :].T + c_neg * F[j, :].T
+    return D, F, B.T, S
+    
+
 def get_crsplines(x, df=10, degree=3):
     xk = crspline_knots(x, df=df, degree=degree)
     D, F, S = crspline_penalty(xk)
@@ -291,7 +313,7 @@ def grad_gcv(a, X, y, St):
     u2 = u**2
     u3 = u2 * u
     g = 2 * n * r.T.dot(M.dot(y) / u2 - np.trace(M) * r / u3)
-    return g
+    return np.atleast_1d(g)
 
 
 def grad_double_gcv(a, X, y, St, gamma=1.5):
@@ -304,4 +326,4 @@ def grad_double_gcv(a, X, y, St, gamma=1.5):
     u2 = u**2
     u3 = u2 * u
     g = 2 * n * r.T.dot(M.dot(y) / u2 - gamma * np.trace(M) * r / u3)
-    return g
+    return np.atleast_1d(g)
