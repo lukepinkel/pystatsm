@@ -336,7 +336,7 @@ class MLMM:
         for i, j in t_indices:
             PJi, PJj = PJ[i], PJ[j]
             yPJi, JjPy = yPJ[i], yPJ[j].T
-            Hij = -(PJi.dot(PJj)).diagonal().sum()\
+            Hij = -np.einsum('ij,ji->', PJi, PJj)\
                         + (2 * (yPJi.dot(P)).dot(JjPy))[0]
             H.append(np.array(Hij[0]))
         H = invech(np.concatenate(H)[:, 0])

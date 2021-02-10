@@ -1,11 +1,9 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Thu Jul 16 00:11:32 2020
+Created on Wed Feb 10 00:01:29 2021
 
 @author: lukepinkel
 """
-
 
 import re
 import patsy
@@ -469,8 +467,8 @@ class LMM:
         for i, j in t_indices:
             PJi, PJj = PJ[i], PJ[j]
             yPJi, JjPy = yPJ[i], yPJ[j].T
-            Hij = -(PJi.dot(PJj)).diagonal().sum()\
-                        + (2 * (yPJi.dot(P)).dot(JjPy))[0]
+            Hij = -np.einsum('ij,ji->', PJi, PJj)\
+                    + (2 * (yPJi.dot(P)).dot(JjPy))[0]
             H.append(np.array(Hij[0]))
         H = invech(np.concatenate(H)[:, 0])
         return H
