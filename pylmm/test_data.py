@@ -46,7 +46,11 @@ def parse_vars(formula, model_dict):
     df[yvars] = 0
     return df, re_groupings, cont_vars
 
-def _generate_model(df, formula, re_groupings, cont_vars, model_dict, r=0.5):
+def _generate_model(df, formula, re_groupings, cont_vars, model_dict, r=0.5, 
+                    rng=None):
+    if rng is None:
+        rng = np.random.default_rng()
+        
     beta =  model_dict['beta']
     gcov = model_dict['gcov']
     ginfo = model_dict['ginfo']
@@ -59,25 +63,26 @@ def _generate_model(df, formula, re_groupings, cont_vars, model_dict, r=0.5):
         df[x] = np.kron(np.arange(n_grp), np.ones(n_per))
 
 
-    df[list(cont_vars)] = sp.stats.multivariate_normal(mu, vcov).rvs(n_obs)
+    df[list(cont_vars)] = rng.multivariate_normal(mu, vcov, size=n_obs)
     X, Z, y, dims = construct_model_matrices(formula, data=df)
     U = []
     for x in re_groupings:
         n_grp = ginfo[x]['n_grp'],
         Gi = gcov[x]
-        Ui = sp.stats.multivariate_normal(np.zeros(Gi.shape[1]), 
-                                         Gi).rvs(n_grp).flatten()
+        Ui = rng.multivariate_normal(np.zeros(Gi.shape[1]), Gi, 
+                                     size=n_grp).flatten()
         U.append(Ui)
     u = np.concatenate(U)
     eta = X.dot(beta)+Z.dot(u)
     eta_var = eta.var()
     rsq = r**2
-    df['y'] = sp.stats.norm(eta, np.sqrt((1-rsq)/rsq*eta_var)).rvs()
+    df['y'] = rng.normal(eta, np.sqrt((1-rsq)/rsq*eta_var))
     return df
        
-def generate_data(formula, model_dict, r=0.5):
+def generate_data(formula, model_dict, r=0.5, rng=None):
     df, re_groupings, cont_vars = parse_vars(formula, model_dict)
-    df = _generate_model(df, formula, re_groupings, cont_vars,  model_dict, r)
+    df = _generate_model(df, formula, re_groupings, cont_vars,  model_dict, r,
+                         rng=rng)
     return df, formula
     
       

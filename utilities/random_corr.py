@@ -24,9 +24,11 @@ def exact_rmvnorm(S, n=1000, mu=None):
     return X
 
 
-def multi_rand(R, size=1000):    
+def multi_rand(R, size=1000, rng=None):    
+    if rng is None:
+        rng = np.random.default_rng()
     n = R.shape[0]
-    X = np.random.normal(size=(size, n))
+    X = rng.normal(size=(size, n))
     X -= X.mean(axis=0)
     X /= X.std(axis=0)
     

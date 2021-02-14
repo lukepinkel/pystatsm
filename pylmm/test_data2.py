@@ -49,7 +49,10 @@ def parse_vars(formula, model_dict):
     df[yvars] = 0
     return df, re_groupings, cont_vars
 
-def _generate_model(df, formula, re_groupings, cont_vars, model_dict, r=0.5):
+def _generate_model(df, formula, re_groupings, cont_vars, model_dict, r=0.5, 
+                    rng=None):
+    if rng is None:
+        rng = np.random.default_rng()
     beta =  model_dict['beta']
     gcov = model_dict['gcov']
     ginfo = model_dict['ginfo']
@@ -61,13 +64,10 @@ def _generate_model(df, formula, re_groupings, cont_vars, model_dict, r=0.5):
         if (df[x]==0).all():
             n_grp, n_per = ginfo[x]['n_grp'], ginfo[x]['n_per']
             df[x] = np.kron(np.arange(n_grp), np.ones(n_per))
-
-
-#    df[list(cont_vars)] = sp.stats.multivariate_normal(mu, vcov).rvs(n_obs)
     if len(mu)>1:
-        xvals = multi_rand(vcov, n_obs) + mu
+        xvals = multi_rand(vcov, n_obs, rng=rng) + mu
     else:
-        xvals = np.random.normal(0, 1, size=n_obs)
+        xvals = rng.normal(0, 1, size=n_obs)
         xvals -= xvals.mean()
         xvals /= xvals.std()
         xvals *= np.sqrt(vcov)
@@ -81,7 +81,7 @@ def _generate_model(df, formula, re_groupings, cont_vars, model_dict, r=0.5):
         globals()["Gi"]=Gi
         globals()["n_grp"]=n_grp
         if len(Gi)==1:
-            Ui = np.random.normal(0, 1, size=n_grp)
+            Ui = rng.normal(0, 1, size=n_grp)
             Ui -= Ui.mean()
             Ui /= Ui.std()
             Ui *= np.sqrt(Gi[0])
@@ -92,11 +92,12 @@ def _generate_model(df, formula, re_groupings, cont_vars, model_dict, r=0.5):
     eta = X.dot(beta)+Z.dot(u)
     eta_var = eta.var()
     rsq = r**2
-    df['y'] = sp.stats.norm(eta, np.sqrt((1-rsq)/rsq*eta_var)).rvs()
+    df['y'] = rng.normal(eta, np.sqrt((1-rsq)/rsq*eta_var))
     return df, u, eta
        
-def generate_data(formula, model_dict, r=0.5):
+def generate_data(formula, model_dict, r=0.5, rng=None):
     df, re_groupings, cont_vars = parse_vars(formula, model_dict)
-    df, u, eta = _generate_model(df, formula, re_groupings, cont_vars,  model_dict, r)
+    df, u, eta = _generate_model(df, formula, re_groupings, cont_vars,  
+                                 model_dict, r, rng=rng)
     return df, formula, u, eta
     
