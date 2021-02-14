@@ -15,7 +15,7 @@ from sksparse.cholmod import cholesky# analysis:ignore
 
 from ..utilities.linalg_operations import (_check_np, _check_shape,
                                            _check_shape_nb, dummy,
-                                           invech, sparse_cholesky)
+                                           invech)
 from .model_matrices import (construct_model_matrices, 
                              create_gmats,make_theta,  update_gmat)
 from ..utilities.output import get_param_table
@@ -32,12 +32,6 @@ def lndet_gmat(theta, dims, indices):
             lnd += ng*np.linalg.slogdet(Sigma_i)[1]
     return lnd
     
-def lndet_cmat(M):  
-    L = sparse_cholesky(M)
-    LA = L.A
-    logdetC = np.sum(2*np.log(np.diag(LA))[:-1])
-    return logdetC
-        
         
 def gh_rules(n, wn=True):
     z, w =  sp.special.roots_hermitenorm(n)
