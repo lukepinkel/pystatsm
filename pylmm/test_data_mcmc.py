@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Tue Sep 22 02:56:38 2020
+Created on Mon Jul 27 19:52:41 2020
 
 @author: lukepinkel
 """
-
 
 import re
 import numpy as np
 import scipy as sp
 import scipy.stats
-from ..utilities.random_corr import multi_rand
 import pandas as pd # analysis:ignore
-from ..pylmm.model_matrices import construct_model_matrices
+from ..utilities.random_corr import multi_rand, vine_corr
+from ..utilities.linalg_operations import invech
+from .model_matrices import construct_model_matrices
 
 
 def replace_duplicate_operators(match):
@@ -63,16 +63,7 @@ def _generate_model(df, formula, re_groupings, cont_vars, model_dict, r=0.5):
         df[x] = np.kron(np.arange(n_grp), np.ones(n_per))
 
 
-#    df[list(cont_vars)] = sp.stats.multivariate_normal(mu, vcov).rvs(n_obs)
-    if len(mu)>1:
-        xvals = multi_rand(vcov, n_obs) + mu
-    else:
-        xvals = np.random.normal(0, 1, size=n_obs)
-        xvals -= xvals.mean()
-        xvals /= xvals.std()
-        xvals *= np.sqrt(vcov)
-        xvals += mu
-    df[list(cont_vars)] = xvals
+    df[list(cont_vars)] = sp.stats.multivariate_normal(mu, vcov).rvs(n_obs)
     X, Z, y, dims = construct_model_matrices(formula, data=df)
     U = []
     for x in re_groupings:
@@ -93,10 +84,65 @@ def _generate_model(df, formula, re_groupings, cont_vars, model_dict, r=0.5):
     eta_var = eta.var()
     rsq = r**2
     df['y'] = sp.stats.norm(eta, np.sqrt((1-rsq)/rsq*eta_var)).rvs()
-    return df, u, eta, X, Z, df['y'].values
+    return df, u, eta
        
 def generate_data(formula, model_dict, r=0.5):
     df, re_groupings, cont_vars = parse_vars(formula, model_dict)
-    df, u, eta, X, Z, y = _generate_model(df, formula, re_groupings, cont_vars,  model_dict, r)
-    return df, formula, u, eta, X, Z, y
+    df, u, eta = _generate_model(df, formula, re_groupings, cont_vars,  model_dict, r)
+    return df, formula, u, eta
     
+
+class SimulatedGLMM:
+    
+    def __init__(self, n_grp, n_per, r=0.9):
+        formula = "y~1+x1+x2+x3+(1+x4|id1)"
+        gcov = invech(np.array([0.8, -0.4, 0.8]))
+        beta = np.array([0.25, -0.25, 0.5, -0.5])
+        model_dict = {}
+        model_dict['gcov'] = {'id1':gcov}
+        model_dict['ginfo'] = {'id1':dict(n_grp=n_grp, n_per=n_per)}
+        model_dict['mu'] = np.zeros(4)
+        model_dict['vcov'] = vine_corr(4, 20)
+        model_dict['beta'] = beta
+        model_dict['n_obs'] = int(n_grp * n_per)
+        self.formula = formula
+        self.model_dict = model_dict
+        self.r = r
+        self.df, _, self.u, self.eta = generate_data(formula, model_dict, r)
+        self.df = self.df.rename(columns=dict(y="eta"))
+        self.df["mu"] = np.exp(self.df["eta"]) / (1 + np.exp(self.df["eta"]))
+        self.df["y"] = sp.stats.binom(n=1, p=self.df["mu"]).rvs()
+        
+    
+
+class SimulatedGLMM2:
+    
+    def __init__(self, formula, n_grp, n_per, gcov, beta, mu, vcov, r=0.9):
+        model_dict = {}
+        model_dict['gcov'] = {'id1':gcov}
+        model_dict['ginfo'] = {'id1':dict(n_grp=n_grp, n_per=n_per)}
+        model_dict['mu'] = mu
+        model_dict['vcov'] = vcov
+        model_dict['beta'] = beta
+        model_dict['n_obs'] = int(n_grp * n_per)
+        self.formula = formula
+        self.model_dict = model_dict
+        self.r = r
+        self.df, _, self.u, self.eta = generate_data(formula, model_dict, r)
+        self.df = self.df.rename(columns=dict(y="eta"))
+        self.df["mu"] = np.exp(self.df["eta"]) / (1 + np.exp(self.df["eta"]))
+       
+    
+        
+            
+        
+
+
+        
+
+
+
+
+
+
+

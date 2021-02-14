@@ -16,9 +16,7 @@ from ..utilities.linalg_operations import (dummy, vech, invech, _check_np,
                                            _check_shape, woodbury_inversion)
 from ..utilities.special_mats import lmat, nmat
 from ..utilities.numerical_derivs import so_gc_cd, so_fc_cd
-from .families import (Binomial, ExponentialFamily, Gamma, Gaussian,  # analysis:ignore
-                            InverseGaussian, Poisson, NegativeBinomial)
-
+from .families import (Binomial, ExponentialFamily, Poisson, NegativeBinomial, Gaussian, InverseGaussian)
 from ..utilities.output import get_param_table
 from sksparse.cholmod import cholesky
 

@@ -13,7 +13,7 @@ import scipy.stats # analysis:ignore
 import scipy.sparse as sps
 
 from ..utilities.linalg_operations import (_check_np, khatri_rao, invech, vech, dummy,
-                               sparse_cholesky, _check_shape)
+                                           _check_shape)
 from ..utilities.special_mats import (kronvec_mat, dmat)
 
 
@@ -130,11 +130,6 @@ def lndet_gmat(theta, dims, indices):
             lnd += ng*np.linalg.slogdet(Sigma_i)[1]
     return lnd
     
-def lndet_cmat(M):  
-    L = sparse_cholesky(M)
-    LA = L.A
-    logdetC = np.sum(2*np.log(np.diag(LA))[:-1])
-    return logdetC
         
 def get_derivmats(Zs, dims):
     start = 0

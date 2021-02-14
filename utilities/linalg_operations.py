@@ -30,7 +30,7 @@ def _check_shape(x, ndims=1):
     
     return x
 
-@numba.jit
+@numba.jit(nopython=False)
 def _check_shape_nb(x, ndims=1):
     if x.ndim>ndims:
         y = x.reshape(x.shape[:-1])
@@ -59,7 +59,20 @@ def khatri_rao(X, Y):
         Z[:, i] = np.kron(np.asfortranarray(X[:, i]), np.asfortranarray(Y[:, i]))
     return Z
   
-        
+    
+
+def woodbury_inversion(Umat, Vmat=None, C=None, Cinv=None, A=None, Ainv=None):
+    if Ainv is None:
+        Ainv = np.linalg.inv(A)
+    if Cinv is None:
+        Cinv = np.linalg.inv(C)
+    if Vmat is None:
+        Vmat = Umat.T
+    T = Ainv.dot(Umat)
+    H = np.linalg.inv(Cinv + Vmat.dot(T))
+    W = Ainv - T.dot(H).dot(Vmat).dot(Ainv)
+    return W
+    
 def sparse_woodbury_inversion(Umat, Vmat=None, C=None, Cinv=None, A=None, Ainv=None):
     if Ainv is None:
         Ainv = sps.linalg.inv(A)
@@ -168,7 +181,7 @@ def _dummy(x, fullrank=True, categories=None):
     return Y
 
 def dummy(x, fullrank=True, categories=None):
-    x = _check_shape(x)
+    x = _check_shape(_check_np(x))
     return _dummy(x, fullrank, categories)
 
 def inv_sqrt(X):

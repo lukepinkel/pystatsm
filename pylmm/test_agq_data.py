@@ -14,8 +14,8 @@ import scipy.sparse as sps # analysis:ignore
 from .test_data import generate_data # analysis:ignore
 from ..utilities.random_corr import vine_corr # analysis:ignore
 from ..utilities.linalg_operations import invech, vech, _check_shape # analysis:ignore
-from ..pylmm.families import Binomial # analysis:ignore
-from ..pylmm.links import LogitLink # analysis:ignore
+from .families import Binomial # analysis:ignore
+from .links import LogitLink # analysis:ignore
 
 formula = "y~x1+x2+(1|id1)"
 model_dict = {}

@@ -10,7 +10,7 @@ import numpy as np  # analysis:ignore
 import scipy as sp  # analysis:ignore
 import scipy.stats  # analysis:ignore
 import pandas as pd # analysis:ignore
-from ..pylmm.model_matrices import construct_model_matrices
+from .model_matrices import construct_model_matrices
 
 def replace_duplicate_operators(match):
     return match.group()[-1:]
