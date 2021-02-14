@@ -12,7 +12,9 @@ from .linalg_operations import whiten
 from .data_utils import corr, csd
 
 @numba.jit(nopython=True)
-def exact_rmvnorm(S, n=1000, mu=None):
+def exact_rmvnorm(S, n=1000, mu=None, seed=None):
+    if seed is not None:
+        np.random.seed(seed)
     p = S.shape[0]
     U, d, _ = np.linalg.svd(S)
     d = d.reshape(1, -1)

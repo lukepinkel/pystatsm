@@ -378,7 +378,8 @@ def binom_glmnet(X, y, lambda_, alpha, b=None, active=None, n_iters=2000,
 
 def cv_binom_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, btol=1e-4, dtol=1e-4, 
               n_iters=1000, warm_start=True, refit=True, lmin_pct=None,
-              pmin=1e-9, nr_ent=False, seq_rule=True, ffc=1.0, intercept=True):
+              pmin=1e-9, nr_ent=False, seq_rule=True, ffc=1.0, intercept=True,
+              rng=None):
     '''
     Cross validated grid search for optimal elastic net penalty for a binomial
     GLM
@@ -469,6 +470,8 @@ def cv_binom_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, btol=1e-4, dtol=
         lambda_min = sp.stats.scoreatpercentile(np.abs(b0), lmin_pct)
         lambda_max = np.abs(b0).max() / alpha
         lambdas = np.exp(np.linspace(np.log(lambda_max), np.log(lambda_min), nl))
+    if rng is None:
+        rng = np.random.default_rng()
     p = X.shape[1]
     n_its = np.zeros((len(lambdas), cv))
     betas_cv = np.zeros((len(lambdas)+1, cv, p))
@@ -477,7 +480,7 @@ def cv_binom_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, btol=1e-4, dtol=
     
     Xf, yf, Xt, yt = crossval_mats(X, y, X.shape[0], cv)
     progress_bar = tqdm.tqdm(total=len(lambdas)*cv)
-    beta_start = np.random.normal(size=X.shape[1]) / X.shape[0]
+    beta_start = rng.normal(size=X.shape[1]) / X.shape[0]
     for i in range(cv):
         betas_cv[0, i] = beta_start
     betas[0] = beta_start
@@ -508,7 +511,7 @@ def cv_binom_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, btol=1e-4, dtol=
             if warm_start:
                 beta_start = betas[i].copy()
             else:
-                beta_start = np.random.normal(size=X.shape[1]) / X.shape[0] * 0.0
+                beta_start = rng.normal(size=X.shape[1]) / X.shape[0] * 0.0
             
             if seq_rule:
                 if i==0:

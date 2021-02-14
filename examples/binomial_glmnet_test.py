@@ -34,7 +34,8 @@ betas, f_path, lambdas, n_its, bfits = cv_binom_glmnet(10, X, y, alpha, lambdas=
                                                  btol=1e-8, dtol=1e-8, 
                                                  n_iters=5_000, refit=True, 
                                                  warm_start=True, lmin_pct=0,
-                                                 nr_ent=True,  seq_rule=True)
+                                                 nr_ent=True,  seq_rule=True,
+                                                 rng=rng)
 dev = pd.DataFrame(f_path[:, :, 0])
 lam_ = lambdas[dev.mean(axis=1).idxmin()]
 fig, ax = plot_elnet_cv(f_path, lambdas, bfits)
