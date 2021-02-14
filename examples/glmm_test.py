@@ -18,6 +18,7 @@ from pystats.pylmm.test_data2 import generate_data
 from pystats.utilities.random_corr import vine_corr
 from pystats.utilities.linalg_operations import invech
 
+rng = np.random.default_rng(0)
 formula = "y~x1+x2+(1|id1)"
 model_dict = {}
 n_grp = 50
@@ -25,20 +26,28 @@ n_per = 10
 model_dict['gcov'] = {'id1':invech(np.array([2.0]))}
 model_dict['ginfo'] = {'id1':dict(n_grp=n_grp, n_per=n_per)} 
 model_dict['mu'] = np.zeros(2)
-model_dict['vcov'] = vine_corr(2)
+model_dict['vcov'] = np.eye(2)
 model_dict['beta'] = np.array([-0.2, 1.0, -1.0])
 model_dict['n_obs'] = n_grp * n_per
 
 
-df, formula, u, eta = generate_data(formula, model_dict, r=0.6**0.5)
+df, formula, u, eta = generate_data(formula, model_dict, r=0.6**0.5, rng=rng)
 mu = np.exp(eta) / (1.0 + np.exp(eta))
-df['y'] = np.random.binomial(n=1, p=mu)
+df['y'] = rng.binomial(n=1, p=mu)
 
 model1 = GLMM(formula, df, fam=Binomial())
 model1.fit()
 
+assert(np.allclose(model1.mod.params, np.array([0.00493292, 0.96468618,
+                                                -1.02800986, 1.99930704, 
+                                                1.])))
+
 model2 = GLMM_AGQ(formula, df, family=Binomial())
 model2.fit(nagq=200)
+
+assert(np.allclose(model2.params,
+                   np.array([ 0.00587493,  1.08017546, -1.14671719,  2.56324546])))
+assert(model2.optimizer.success==True)
 
 model3 = MixedMCMC(formula, df)
 model3.priors['id1'] = dict(V=np.ones((1, 1)), n=1)

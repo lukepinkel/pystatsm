@@ -96,9 +96,11 @@ def near_psd(A, n_iters=200, tol=1e-7, tol_e=1e-7, dykstra=True,
             
 
 @numba.jit(nopython=True)
-def vine_corr(d, eta=1, beta=None):
+def vine_corr(d, eta=1, beta=None, seed=None):
     if beta is None:
         beta = eta + (d - 1) / 2.0
+    if seed is not None:
+        np.random.seed(seed)
     P = np.zeros((d, d))
     S = np.eye(d)
     for k in range(d-1):
