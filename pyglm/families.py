@@ -56,7 +56,7 @@ class ExponentialFamily(object):
         return 1.0 / self.dinv_link(self.link(mu))
     
     def d2link(self, mu):
-        eta = self.link.link(mu)
+        eta = self.link(mu)
         res = -self.d2inv_link(eta) / np.power(self.dinv_link(eta), 3)
         return res
     
@@ -175,6 +175,13 @@ class Gaussian(ExponentialFamily):
         phi = np.exp(tau)
         g = np.sum(w * np.power((y - mu), 2) / (2 * phi))
         return g
+    
+    def dvar_dmu(self, mu):
+        return np.zeros_like(mu)
+    
+    def d2var_dmu2(self, mu):
+        return np.zeros_like(mu)
+    
         
 
 class InverseGaussian(ExponentialFamily):
@@ -248,7 +255,12 @@ class InverseGaussian(ExponentialFamily):
         phi = np.exp(tau)
         g = np.sum(w * np.power((y - mu), 2) / (2 * phi * y * mu**2))
         return g
-
+    
+    def dvar_dmu(self, mu):
+        return 3.0 * mu**2
+    
+    def d2var_dmu2(self, mu):
+        return 6.0 * mu
 
 class Gamma(ExponentialFamily):
     
@@ -324,7 +336,12 @@ class Gamma(ExponentialFamily):
         T3 = w / phi * sp.special.polygamma(1, w / phi)
         g = np.sum(w / phi * (T3+T2-T1-T0))
         return g
-
+    
+    def dvar_dmu(self, mu):
+        return 2.0 * mu
+    
+    def d2var_dmu2(self, mu):
+        return np.ones_like(mu) * 2.0
     
 
     
@@ -483,6 +500,12 @@ class Poisson(ExponentialFamily):
         d*=2.0 * w
         return d
     
+    def dvar_dmu(self, mu):
+        return np.ones_like(mu)
+    
+    def d2var_dmu2(self, mu):
+        return np.zeros_like(mu)
+    
 
     
     
@@ -552,6 +575,13 @@ class Binomial(ExponentialFamily):
         d[ixc] = -np.log(mu[ixc])
         d[ixb] = y[ixb]*np.log(y[ixb]/mu[ixb]) + u*np.log(u/v)
         return 2*w*d
+    
+    def dvar_dmu(self, mu):
+        return 1.0 - 2.0 * mu
+    
+    def d2var_dmu2(self, mu):
+        return np.ones_like(mu) * -2.0
+        
     
 
     

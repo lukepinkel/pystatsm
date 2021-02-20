@@ -47,6 +47,9 @@ class IdentityLink(Link):
     
     def dlink(self, mu):
         return 1
+    
+    def d3link(self, mu):
+        return np.zeros_like(mu)
 
 
 class LogitLink(Link):
@@ -76,6 +79,11 @@ class LogitLink(Link):
     def dlink(self, mu):
         dmu = 1 / (mu * (1 - mu))
         return dmu
+    
+    def d3link(self, mu):
+        a = -6.0 * mu**2 + 6.0 * mu - 2.0
+        b = (mu - 1.0)**3 * mu**3
+        return a / b
         
         
 
@@ -104,6 +112,12 @@ class ProbitLink(Link):
     def dlink(self, mu):
         dmu = 1.0 / (self.dinv_link(self.link(mu)))
         return dmu
+    
+    def d3link(self, mu):
+        u = sp.special.erfinv(2.0 * mu - 1.0)**2
+        c = 2.0 * np.sqrt(2.0) * np.pi**(3.0/2.0)
+        g = c * np.exp(3.0 * u) * (4.0 * u + 1.0)
+        return g
         
         
 
@@ -131,6 +145,9 @@ class LogLink(Link):
         dmu = 1.0 / (self.dinv_link(self.link(mu)))
         return dmu
     
+    def d3link(self, mu):
+        return 2.0 / (mu**3)
+    
     
 class ReciprocalLink(Link):
     
@@ -157,6 +174,9 @@ class ReciprocalLink(Link):
     def dlink(self, mu):
         dmu = 1.0 / (self.dinv_link(self.link(mu)))
         return dmu
+    
+    def d3link(self, mu):
+        return -6.0 / (mu**4)
 
 
 class CloglogLink(Link):
@@ -182,6 +202,13 @@ class CloglogLink(Link):
     def dlink(self, mu):
         dmu = 1.0 / (self.dinv_link(self.link(mu)))
         return dmu
+    
+    def d3link(self, mu):
+        u = np.log(1 / (1.0 - mu))
+        a = -2.0 * u**2 + 3 * u - 2.0
+        b = (mu - 1.0)**3 * u**3
+        return a / b
+        
     
     
 
@@ -223,6 +250,7 @@ class PowerLink(Link):
     def dlink(self, mu):
         dmu = 1.0 / (self.dinv_link(self.link(mu)))
         return dmu
+            
     
  
 class LogComplementLink(Link):

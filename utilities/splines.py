@@ -198,11 +198,12 @@ def get_bsplines(x, df=10, degree=3, penalty=2, intercept=False):
     return D, B, S, all_knots
 
 
-def transform_spline_modelmat(X, S):
+def absorb_contraints(X, S=None):
     q, r = np.linalg.qr(X.mean(axis=0).reshape(-1, 1), mode='complete')
-    ZSZ = np.dot(q.T, S)[1:]
-    S = np.dot(q.T, ZSZ.T)[1:].T
     X = np.dot(q.T, X.T)[1:].T
+    if S is not None:
+          ZSZ = np.dot(q.T, S)[1:]
+          S = np.dot(q.T, ZSZ.T)[1:].T
     return X, S
     
 def get_penalty_scale(X, S):
