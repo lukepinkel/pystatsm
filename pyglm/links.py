@@ -50,6 +50,9 @@ class IdentityLink(Link):
     
     def d3link(self, mu):
         return np.zeros_like(mu)
+    
+    def d4link(self, mu):
+        return np.zeros_like(mu)
 
 
 class LogitLink(Link):

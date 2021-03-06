@@ -182,6 +182,9 @@ class Gaussian(ExponentialFamily):
     def d2var_dmu2(self, mu):
         return np.zeros_like(mu)
     
+    def d3var_dmu3(self, mu):
+        return np.zeros_like(mu)
+    
         
 
 class InverseGaussian(ExponentialFamily):
