@@ -132,6 +132,7 @@ class GaussianAdditiveModel:
         self.theta = theta
         self.varnames = varnames
         self.smooth_info = smooth_info
+
         
     def get_wz(self, eta):
         mu = self.f.inv_link(eta)
@@ -215,13 +216,15 @@ class GaussianAdditiveModel:
     def gradient(self, theta):
         lam, phi = np.exp(theta[:-1]), np.exp(theta[-1])
         S, X, y = self.get_penalty_mat(lam), self.X, self.y
-        beta = np.linalg.solve(X.T.dot(X) + S, X.T.dot(y))
+        XtWX = X.T.dot(X)
+        beta = np.linalg.solve(XtWX + S, X.T.dot(y))
         g = np.zeros_like(theta)
+        H = np.linalg.pinv(XtWX + S)
         for i in range(self.ns):
             Si = self.S[i]
             ai = lam[i]
             dbsb = beta.T.dot(Si).dot(beta) * ai / (phi)
-            dldh = np.trace(np.linalg.pinv(X.T.dot(X)+S).dot(Si)) * ai
+            dldh = np.trace(H.dot(Si)) * ai
             dlds = self.ranks[i]
             g[i] = dbsb + dldh - dlds
         
