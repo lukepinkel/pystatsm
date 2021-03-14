@@ -321,7 +321,7 @@ class GaussianAdditiveModel:
         Jb = self.grad_beta_rho(beta, lambda_)
         C = Jb.dot(Vp[:-1, :-1]).dot(Jb.T)
         Vc = Vb + C
-        Vf = Vb.dot(XtX/scale).dot(Vb) + C
+        Vf = Vb.dot(XtX*scale).dot(Vb) + C
         self.Slambda = Slambda
         self.Vb, self.Vp, self.Vc, self.Vf = Vb, Vp, Vc, Vf
         self.opt, self.theta, self.scale = opt, theta, scale
