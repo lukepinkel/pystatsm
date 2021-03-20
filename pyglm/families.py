@@ -56,9 +56,14 @@ class ExponentialFamily(object):
         return 1.0 / self.dinv_link(self.link(mu))
     
     def d2link(self, mu):
-        eta = self.link(mu)
-        res = -self.d2inv_link(eta) / np.power(self.dinv_link(eta), 3)
+        res = self._link.d2link(mu)
         return res
+    
+    def d3link(self, mu):
+        return self._link.d3link(mu)
+    
+    def d4link(self, mu):
+        return self._link.d4link(mu)
     
     def cshape(self, y, mu):
         y = _check_shape(_check_np(y), 1)
@@ -107,8 +112,77 @@ class ExponentialFamily(object):
         Psb = Vinv*W0
         res = (Psc - Psb)*self.weights
         return -res/phi
+    
+    def get_a(self, y, mu, phi=1.0):
+        y, mu = self.cshape(y, mu)
+        V0, V1 = self.var_func(mu=mu), self.dvar_dmu(mu)
+        g1, g2 = self.dlink(mu), self.d2link(mu)
+        a = 1.0 + (y - mu) * (V1 / V0 + g2 / g1)
+        return a
+    
+    def get_g(self, y, mu, phi=1.0):
+        y, mu = self.cshape(y, mu)
+        res = self.dlink(mu) / self.get_a(y, mu, phi)
+        return res
+    
+    def get_w(self, y, mu, phi=1.0):
+        y, mu = self.cshape(y, mu)
+        res = self.get_a(y, mu, phi) / (self.dlink(mu)**2 * self.var_func(mu=mu))
+        return res
+    
+    def da_dmu(self, y, mu, phi=1.0):
+        y, mu = self.cshape(y, mu)
+        V0, V1, V2 = self.var_func(mu=mu), self.dvar_dmu(mu), self.d2var_dmu2(mu)
+        g1, g2, g3 = self.dlink(mu), self.d2link(mu), self.d3link(mu)
+        u = (V1 / V0 + g2 / g1)
+        v = (V2 / V0 - (V1 / V0)**2 + g3 / g1 - (g2 / g1)**2)
+        res = (y - mu) * v - u
+        return res
+    
+    def d2a_dmu2(self, y, mu, phi=1.0):
+        y, mu = self.cshape(y, mu)
+        V0 = self.var_func(mu=mu)
+        V1 = self.dvar_dmu(mu)
+        V2 = self.d2var_dmu2(mu)
+        V3 = self.d3var_dmu3(mu)
         
-
+        g1 = self.dlink(mu)
+        g2 = self.d2link(mu)
+        g3 = self.d3link(mu)
+        g4 = self.d4link(mu)
+        
+        u = V2 / V0 - (V1 / V0)**2 + g3 / g1 - (g2 / g1)**2
+        v1 = V3 / V0 - 3.0 * (V1 * V2) / V0**2 + 2.0 * (V1 / V0)**3
+        v2 = g4 / g1 - 3.0 * (g3 * g2) / g1**2 + 2.0 * (g2 / g1)**3
+        res = (y - mu) * (v1 + v2) - 2.0 * u
+        return res
+    
+    def dw_deta(self, y, mu, phi=1.0):
+        y, mu = self.cshape(y, mu)
+        a0, a1 = self.get_a(y, mu, phi), self.da_dmu(y, mu, phi)
+        w = self.get_w(y, mu, phi)
+        V0, V1 = self.var_func(mu=mu), self.dvar_dmu(mu)
+        g1, g2 = self.dlink(mu), self.d2link(mu)
+        res = (w / g1) * (a1 / a0 - V1 / V0 - 2.0 * g2 / g1)
+        return res
+    
+    def d2w_deta2(self, y, mu, phi=1.0):
+        y, mu = self.cshape(y, mu)
+        w0, w1 = self.get_w(y, mu, phi), self.dw_deta(y, mu, phi)
+        a0, a1 = self.get_a(y, mu, phi), self.da_dmu(y, mu, phi)
+        a2 = self.d2a_dmu2(y, mu, phi)
+        g1, g2, g3 = self.dlink(mu), self.d2link(mu), self.d3link(mu)
+        V0, V1, V2 = self.var_func(mu=mu), self.dvar_dmu(mu), self.d2var_dmu2(mu)
+        t1 = w1**2 / w0
+        t2 = w1 * g2 / g1**2
+        
+        t3 = a2 / a0 - (a1 / a0)**2 - V2 / V0 + (V1 / V0)**2 \
+             - 2.0 * (g3 / g1) + 2.0 * (g2 / g1)**2
+        t3 *= w0 / (g1**2)
+        res = t1 - t2 + t3
+        return res
+    
+        
 class Gaussian(ExponentialFamily):
     
     def __init__(self, link=IdentityLink, weights=1.0, scale=1.0):
@@ -185,6 +259,8 @@ class Gaussian(ExponentialFamily):
     def d3var_dmu3(self, mu):
         return np.zeros_like(mu)
     
+    def d4var_dmu4(self, mu):
+        return np.zeros_like(mu)
         
 
 class InverseGaussian(ExponentialFamily):
@@ -264,6 +340,12 @@ class InverseGaussian(ExponentialFamily):
     
     def d2var_dmu2(self, mu):
         return 6.0 * mu
+    
+    def d3var_dmu3(self, mu):
+        return np.ones_like(mu) * 6.0
+    
+    def d4var_dmu4(self, mu):
+        return np.zeros_like(mu)
 
 class Gamma(ExponentialFamily):
     
@@ -346,7 +428,12 @@ class Gamma(ExponentialFamily):
     def d2var_dmu2(self, mu):
         return np.ones_like(mu) * 2.0
     
-
+    def d3var_dmu3(self, mu):
+        return np.zeros_like(mu) 
+    
+    def d4var_dmu4(self, mu):
+        return np.zeros_like(mu) 
+    
     
 
 class NegativeBinomial(ExponentialFamily):
@@ -443,6 +530,17 @@ class NegativeBinomial(ExponentialFamily):
         g = np.sum(w / phi * (T0 - A - T1 - T2))
         return g
 
+    def dvar_dmu(self, mu, scale=1.0):
+        return 2.0 * scale * mu + 1.0
+    
+    def d2var_dmu2(self, mu, scale=1.0):
+        return 2.0 * scale
+    
+    def d3var_dmu3(self, mu, scale=1.0):
+        return np.zeros_like(mu)
+    
+    def d4var_dmu4(self, mu, scale=1.0):
+        return np.zeros_like(mu)
     
 class Poisson(ExponentialFamily):
     
@@ -508,7 +606,12 @@ class Poisson(ExponentialFamily):
     
     def d2var_dmu2(self, mu):
         return np.zeros_like(mu)
+
+    def d3var_dmu3(self, mu):
+        return np.zeros_like(mu)
     
+    def d4var_dmu4(self, mu):
+        return np.zeros_like(mu)
 
     
     
@@ -584,7 +687,12 @@ class Binomial(ExponentialFamily):
     
     def d2var_dmu2(self, mu):
         return np.ones_like(mu) * -2.0
-        
+     
+    def d3var_dmu3(self, mu):
+        return np.zeros_like(mu)
+    
+    def d4var_dmu4(self, mu):
+        return np.zeros_like(mu)
     
 
     

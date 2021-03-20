@@ -170,7 +170,8 @@ class GLM:
         if theta is None:
             theta = self.theta_init
     
-        fit_hist = {'|g|':[], 'theta':[], 'i':[], 'll':[]}
+        fit_hist = {'|g|':[], 'theta':[], 'i':[], 'll':[],
+                    'step_half_success':[], 'n_step_halves':[]}
         ll_k = self.loglike(theta)
         sh = 1.0
         for i in range(100): 
@@ -184,12 +185,21 @@ class GLM:
             if gnorm/len(g)<1e-9:
                  break
             dx = np.atleast_1d(np.linalg.solve(H, g))
+            step_half_success, n_step_halves = None, None
             if self.loglike(theta - dx)>ll_k:
+                step_half_success = False
                 for j in range(100):
                     sh*=2
                     if self.loglike(theta - dx/sh)<ll_k:
+                        step_half_success = True
+                        n_step_halves = j+1
                         break
+            fit_hist['step_half_success'].append(step_half_success)
+            fit_hist['n_step_halves'].append(n_step_halves)
+            if step_half_success==False:
+                break
             theta -= dx/sh
+            ll_k = self.loglike(theta)
             sh = 1.0
         return theta, fit_hist
             
