@@ -9,6 +9,7 @@ This project is recreational and consists of unfinished and unpolished programs 
 	- LMM permits flexible random effect covariance and uses a cholesky parameterization.  Analytic gradient and hessian computation is available, but can become prohibitively slow for large models with cross random effects
 	 - GLMM can fit (so far binomial and poisson) mixed models using PQL.  GLMM inherits LMM methods to repeatedly fit a weighted mixed model.
 	 - MixedMCMC can fit normal, binomial, and poisson mixed models using MCMC.  Normal models are fit through Gibbs sampling, while binary binomial models are fit through Slice within Gibbs, and poisson and nonbinary binomial models are fit using Metropolis Hastings within Gibbs. These models differ from most GLMs in that they explicitly include extra variance at the linear predictor scale, as opposed to using deviance or pearsons chi square to estimate scale after model fitting.
+	 - OrdinalMCMC fits ordinal mixed models
 - Latent variable correlations for handling polychorric, polytomous and tetrachoric correlation
 - Sparse Canonical Correlation using the penalized matrix decomposition
 - Robust linear regression with Hubers T, Tukeys Bisquare (Biweight), and Hampels function.
