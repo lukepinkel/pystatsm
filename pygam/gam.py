@@ -17,7 +17,7 @@ from ..pyglm.families import Gaussian, InverseGaussian, Gamma
 from ..utilities.splines import (crspline_basis, bspline_basis, ccspline_basis,
                                  absorb_constraints)
 
-
+from ..utilities.numerical_derivs import so_gc_cd
 
 def wcrossp(X, w):
     Y =  (X * w.reshape(-1, 1)).T.dot(X)
@@ -89,12 +89,12 @@ class GAM:
         
     def get_wz(self, eta):
         mu = self.f.inv_link(eta)
-        v = self.f.var_func(mu=mu)
-        dg = self.f.dinv_link(eta)
+        v0, v1 = self.f.var_func(mu=mu), self.f.dvar_dmu(mu)
+        g1, g2 = self.f.dlink(mu),  self.f.d2link(mu)
         r = self.y - mu
-        a = 1.0 + r * (self.f.dvar_dmu(mu) / v + self.f.d2link(mu) * dg)
-        z = eta + r / (dg * a)
-        w = a * dg**2 / v
+        a = 1.0 + r * (v1 / v0 + g2 / g1)
+        z = eta + r * g1 / a
+        w = a / (g1**2 * v0)
         return z, w
     
     def solve_pls(self, eta, S):
@@ -107,23 +107,25 @@ class GAM:
         beta = np.zeros(self.X.shape[1])
         S = self.get_penalty_mat(lam)
         eta = np.ones_like(self.y)
-        dev = self.f.deviance(self.y, mu=self.f.inv_link(eta)).sum()
+        devp = 1e16 #self.f.deviance(self.y, mu=self.f.inv_link(eta)).sum()
         success = False
         for i in range(n_iters):
             beta_new = self.solve_pls(eta, S)
             eta_new = self.X.dot(beta_new)
             dev_new = self.f.deviance(self.y, mu=self.f.inv_link(eta_new)).sum()
-            if dev_new > dev:
+            devp_new = dev_new + beta.T.dot(S).dot(beta)
+
+            if devp_new > devp:
                 success=False
                 break
-            if abs(dev - dev_new) / dev_new < tol:
+            if abs(devp - devp_new) / devp_new < tol:
                 success = True
                 break
             eta = eta_new
-            dev = dev_new
+            devp = devp_new
             beta = beta_new
         mu = self.f.inv_link(eta)
-        return beta, eta, mu, dev, success, i
+        return beta, eta, mu, devp, success, i
 
     def get_penalty_mat(self, lam):
         Sa = np.einsum('i,ijk->jk', lam, self.S)
@@ -330,10 +332,14 @@ class GAM:
                 ax[subplot_map[i]].fill_between(x, y-se, y+se, color='b', alpha=0.4)
         return fig, ax
     
-    def optimize_penalty(self, opt_kws={}):
+    def optimize_penalty(self, approx_hess=False, opt_kws={}):
+        if approx_hess:
+            hess = lambda x: so_gc_cd(self.gradient, x)
+        else:
+            hess = self.hessian
         x = self.theta.copy()
         opt = sp.optimize.minimize(self.reml, x, jac=self.gradient, 
-                                   hess=self.hessian, method='trust-constr',
+                                   hess=hess, method='trust-constr',
                                    **opt_kws)
         theta = opt.x.copy()
         rho, logscale = theta[:-1], theta[-1]
@@ -353,8 +359,8 @@ class GAM:
         self.beta, self.eta, self.dev = beta, eta, dev
         self.edf = np.trace(np.linalg.inv(Vb*XtX/scale))
         
-    def fit(self, opt_kws={}, confint=95):
-        self.optimize_penalty(opt_kws=opt_kws)
+    def fit(self, approx_hess=False, opt_kws={}, confint=95):
+        self.optimize_penalty(approx_hess=approx_hess, opt_kws=opt_kws)
 
         b, se = self.beta, np.sqrt(np.diag(self.Vc))
         b = np.concatenate((b, self.theta))

@@ -469,7 +469,7 @@ class Gamma(ExponentialFamily):
     
     def d2llscale(self, phi, y):
         v = 1.0 / phi
-        ls2 = (sp.special.polygamma(v, 1) * v + 2.0 * sp.special.digamma(v) \
+        ls2 = (sp.special.polygamma(1, v) * v + 2.0 * sp.special.digamma(v) \
               - (1.0 - 2.0 * np.log(phi))) * v**3 * len(y)
         return ls2
     
