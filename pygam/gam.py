@@ -18,9 +18,11 @@ from ..utilities.splines import (crspline_basis, bspline_basis, ccspline_basis,
                                  absorb_constraints)
 
 
+
 def wcrossp(X, w):
     Y =  (X * w.reshape(-1, 1)).T.dot(X)
     return Y
+
 
 class GAM:
     
@@ -104,7 +106,7 @@ class GAM:
     def pirls(self, lam, n_iters=200, tol=1e-7):
         beta = np.zeros(self.X.shape[1])
         S = self.get_penalty_mat(lam)
-        eta = self.X.dot(beta)
+        eta = np.ones_like(self.y)
         dev = self.f.deviance(self.y, mu=self.f.inv_link(eta)).sum()
         success = False
         for i in range(n_iters):
@@ -255,8 +257,6 @@ class GAM:
         b2 = self.hess_beta_rho(beta, lam)
         dw_deta = self.f.dw_deta(self.y, mu)
         d2w_deta2 = self.f.d2w_deta2(self.y, mu)
-        #Ddb = X.T.dot((self.y - mu) / (self.f.var_func(mu=mu) * self.f.dlink(mu)))
-        #D2r = b1.T.dot(D2).dot(b1) + np.einsum('ijk,k->ij', b2, Ddb) 
         D2r =  b1.T.dot(Dp2).dot(b1)
         H = np.zeros((self.ns+1, self.ns+1))
         for i in range(self.ns):
@@ -272,19 +272,8 @@ class GAM:
                  H1j = wcrossp(X, w1j)
                  H2 = wcrossp(X, w2)
                  d = (i==j)
-                 # bsb2 = b2[i, j].dot(S).dot(beta) + b1i.dot(Sj).dot(beta) * aj\
-                 #      + b1j.T.dot(Si).dot(beta) * ai + b1i.T.dot(S).dot(b1j)\
-                 #      + d * ai * beta.T.dot(Si).dot(beta)
-                 #t1 = np.trace(A.dot(H2))
-                 #t2 = d * ai * np.trace(A.dot(Si))
-                 #t3 = -np.trace(A.dot(H1i).dot(A).dot(H1j))
-                 #t4 = -np.trace(A.dot(H1i).dot(A).dot(Sj)) * aj
-                 #t5 = -np.trace(A.dot(H1j).dot(A).dot(Si)) * ai
-                 #t6 = -np.trace(A.dot(Si).dot(A).dot(Sj)) * ai * aj
-                 #ldh2 = t1 + t2 + t3 + t4 + t5 + t6
                  ldh2 = -(np.trace(A.dot(H1i+Si*ai).dot(A).dot(H1j+aj*Sj))\
                           -np.trace(A.dot(H2+d*ai*Si)))
-                 #H[i, j] = H[j, i] = ldh2 + (bsb2 + D2r[i, j]) / (2.0 * phi)
                  t1 = d * ai / (2.0 * phi) * beta.T.dot(Si).dot(beta)
                  t2 = -D2r[i, j] / (phi)
                  H[i, j] = H[j, i] = t1 + t2 + ldh2/2
