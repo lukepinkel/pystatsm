@@ -1,79 +1,28 @@
 # -*- coding: utf-8 -*-
 """
-Created on Fri Mar  5 21:02:07 2021
+Created on Sat Mar 20 17:01:11 2021
 
 @author: lukepinkel
 """
-import re
+
 import patsy
 import numpy as np
 import scipy as sp
 import scipy.stats
+import pandas as pd
 import scipy.interpolate
 import matplotlib.pyplot as plt
-from ..pyglm.families import Gaussian
-from ..utilities.splines import (_get_crsplines, _get_bsplines, _get_ccsplines,
-                                 crspline_basis, bspline_basis, ccspline_basis,
-                                 get_penalty_scale, absorb_constraints)
-def parse_smooths(smoother_formula, data):
-    smooths = {}
-    smooth_terms = re.findall("(?<=s[(])(.*?)(?=[)])", smoother_formula)
-    arg_order = ['x', 'df', 'kind', 'by']
-    for term in smooth_terms:
-        tokens = [t.strip() for t in term.split(',')]
-        smooth_info = dict(x=None, df=10, kind='cr', by=None)
-        for i, token in enumerate(tokens):
-            if token.find('=')!=-1:
-                key, val = token.split('=')
-                smooth_info[key.strip()] = val.strip()
-            else:
-                key, val = arg_order[i], token.strip()
-                smooth_info[key] = val
-        smooth_info['df'] = int(smooth_info['df'])
-        smooth_info['kind'] = smooth_info['kind'].replace("'", "")
-        var = smooth_info['x']
-        smooth_info['x'] = data[smooth_info['x']].values
-        smooth_info['kind'] = smooth_info['kind'].replace("'", "")
-        if smooth_info['by'] is not None:
-            smooth_info['by'] = patsy.dmatrix(f"C({smooth_info['by']})-1", data, 
-                                              return_type='dataframe',
-                                              eval_env=0).values
-        smooths[var] = smooth_info
-    return smooths
+from .smooth_setup import parse_smooths, get_parametric_formula, get_smooth
+from ..pyglm.families import Gaussian, InverseGaussian, Gamma
+from ..utilities.splines import (crspline_basis, bspline_basis, ccspline_basis,
+                                 absorb_constraints)
 
-def get_parametric_formula(formula):
-    tmp = re.findall("s[(].*?[)]", formula)
-    frm = formula[:-1]+formula[-1:]
-    for x in tmp:
-        frm = frm.replace(x, "")
-    frm = re.sub("(\+|\-)(\+|\-)+", replace_duplicate_operators, frm)
-    frm = re.sub("\+$", "", frm)
-    return frm
 
-def replace_duplicate_operators(match):
-    return match.group()[-1:]
+def wcrossp(X, w):
+    Y =  (X * w.reshape(-1, 1)).T.dot(X)
+    return Y
 
-def get_smooth(x, df=10, kind="cr", by=None):
-    methods = {"cr":_get_crsplines, "cc":_get_bsplines, "bs":_get_ccsplines}
-    X, S, knots, fkws = methods[kind](x, df)
-    sc = get_penalty_scale(X, S)
-    q, _ = np.linalg.qr(X.mean(axis=0).reshape(-1, 1), mode='complete')
-    X, S = absorb_constraints(q, X=X, S=S)
-    S = S / sc
-    smooth_list = []
-    if by is not None:
-        for i in range(by.shape[1]):
-            Xi = X * by[:, [i]]
-            x0 = x*by[:,i]
-            smooth_list.append(dict(X=Xi, S=S, knots=knots, kind=kind, 
-                                        q=q, sc=sc, fkws=fkws, x0=x0,
-                                        xm=x0[x0!=0]))
-    else:
-        smooth_list = [dict(X=X, S=S, knots=knots, kind=kind, q=q, sc=sc, 
-                            fkws=fkws, x0=x, xm=None)]
-    return smooth_list
-
-class GaussianAdditiveModel:
+class GAM:
     
     def __init__(self, formula, data, family=None):
         if family is None:
@@ -96,9 +45,9 @@ class GaussianAdditiveModel:
                 ns += 1
             else:
                 for i, x in enumerate(slist):
-                    by_key = f"{key}{i+1}"
-                    smooths[by_key] = slist[i]
-                    p_i = smooths[by_key]['X'].shape[1]
+                    by_key = f"{key}_{x['by_cat']}"
+                    smooths[by_key] = x
+                    p_i = x['X'].shape[1]
                     varnames += [f"{by_key}_{j}" for j in range(1, p_i+1)]
                     p += p_i
                     ns += 1
@@ -128,7 +77,9 @@ class GaussianAdditiveModel:
             d = np.diag(self.X[:, ix].T.dot(self.X[:, ix]))
             lam = (1.5 * (d / a)[a>0]).mean()
             theta[i] = np.log(lam)
+            varnames += [f"log_smooth_{var}"]
         theta[-1] = 1.0
+        varnames += ["log_scale"]
         self.theta = theta
         self.varnames = varnames
         self.smooth_info = smooth_info
@@ -150,11 +101,12 @@ class GaussianAdditiveModel:
         beta_new = np.linalg.solve(Xw.T.dot(self.X)+S, Xw.T.dot(z))
         return beta_new
         
-    def pirls(self, alpha, n_iters=200, tol=1e-7):
+    def pirls(self, lam, n_iters=200, tol=1e-7):
         beta = np.zeros(self.X.shape[1])
-        S = self.get_penalty_mat(alpha)
+        S = self.get_penalty_mat(lam)
         eta = self.X.dot(beta)
         dev = self.f.deviance(self.y, mu=self.f.inv_link(eta)).sum()
+        success = False
         for i in range(n_iters):
             beta_new = self.solve_pls(eta, S)
             eta_new = self.X.dot(beta_new)
@@ -168,99 +120,183 @@ class GaussianAdditiveModel:
             eta = eta_new
             dev = dev_new
             beta = beta_new
-        return beta, eta, dev, success, i
+        mu = self.f.inv_link(eta)
+        return beta, eta, mu, dev, success, i
 
-    def get_penalty_mat(self, alpha):
-        Sa = np.einsum('i,ijk->jk', alpha, self.S)
+    def get_penalty_mat(self, lam):
+        Sa = np.einsum('i,ijk->jk', lam, self.S)
         return Sa
     
-    def logdetS(self, alpha, phi):
+    def logdetS(self, lam, phi):
         logdet = 0.0
         for i, (r, lds) in enumerate(list(zip(self.ranks, self.ldS))):
-            logdet += r * np.log(alpha[i]/phi) + lds
+            logdet += r * np.log(lam[i]/phi) + lds
         return logdet
     
-    def grad_beta_rho(self, beta, alpha):
-        S = self.get_penalty_mat(alpha)
-        A = np.linalg.inv(self.hess_dev_beta(beta, S))
-        dbdr = np.zeros((beta.shape[0], alpha.shape[0]))
+    def grad_beta_rho(self, beta, lam):
+        S = self.get_penalty_mat(lam)
+        Dp, Dp2 = self.hess_dev_beta(beta, S)
+        A = np.linalg.inv(2.0 * Dp2)
+        dbdr = np.zeros((beta.shape[0], lam.shape[0]))
         for i in range(self.ns):
-            Si = self.S[i]
-            dbdr[:, i] = -alpha[i] * A.dot(Si.dot(beta))*2.0
+            Si, ai = self.S[i], lam[i]
+            dbdr[:, i] = -ai * A.dot(Si.dot(beta))*2.0
         return dbdr
     
+    def hess_beta_rho(self, beta, lam):
+        S, b1 = self.get_penalty_mat(lam), self.grad_beta_rho(beta, lam)
+        _, Dp2 = self.hess_dev_beta(beta, S)
+        A = np.linalg.inv(Dp2)
+        mu = self.f.inv_link(self.X.dot(beta))
+        b2 = np.zeros((self.ns, self.ns, beta.shape[0]))
+        for i in range(self.ns):
+            Si, ai, b1i = self.S[i], lam[i], b1[:, i]
+            eta1i = self.X.dot(b1i)
+            for j in range(i, self.ns):
+                Sj, aj, b1j = self.S[j], lam[j], b1[:, j]
+                eta1j = self.X.dot(b1j)
+                w1 = self.f.dw_deta(self.y, mu)
+                fij = 0.5 * eta1j * eta1i * w1
+                u = self.X.T.dot(fij) + ai * Si.dot(b1j) + aj * Sj.dot(b1i)
+                b2[i, j] = b2[j, i] = (i==j)*b1[:, j] - A.dot(u)
+        return b2
+                
+        
     def hess_dev_beta(self, beta, S):
         mu = self.f.inv_link(self.X.dot(beta))
         v0, g1 = self.f.var_func(mu=mu), self.f.dlink(mu)
         v1, g2 = self.f.dvar_dmu(mu), self.f.d2link(mu)
         r = self.y - mu
         w = (1.0 + r * (v1 / v0 + g2 / g1)) / (v0 * g1**2)
-        d2Ddb2 = 2.0 * (self.X * w[:, None]).T.dot(self.X) + 2.0 * S
-        return d2Ddb2
+        D2 = (self.X * w[:, None]).T.dot(self.X) 
+        Dp2 = D2 + S
+        return D2, Dp2
     
     def reml(self, theta):
         lam, phi = np.exp(theta[:-1]), np.exp(theta[-1])
-        S, X, y = self.get_penalty_mat(lam), self.X, self.y
-        beta = np.linalg.solve(X.T.dot(X) + S, X.T.dot(y))
-        r = y - X.dot(beta)
-        rss = r.T.dot(r)
-        bsb = beta.T.dot(S).dot(beta)
-        ldh = np.linalg.slogdet(X.T.dot(X) / phi + S / phi)[1]
+        S = self.get_penalty_mat(lam)
+        beta, eta, mu, _, _, _ = self.pirls(lam)
+        D2, Dp2 = self.hess_dev_beta(beta, S)
+        
+        D = self.f.deviance(y=self.y, mu=mu).sum()
+        P = beta.T.dot(S).dot(beta)
+        _, ldh = np.linalg.slogdet( Dp2 / phi)
         lds = self.logdetS(lam, phi)
-        Dp = (rss + bsb) / phi
+        Dp = (D + P) / phi
         K = ldh - lds
-        ls = (self.n_obs) * np.log(2.0*np.pi*phi)
+        ls = self.f.llscale(phi, self.y) * 2.0
         L = (Dp + K + ls) / 2.0
         return L
     
     def gradient(self, theta):
         lam, phi = np.exp(theta[:-1]), np.exp(theta[-1])
-        S, X, y = self.get_penalty_mat(lam), self.X, self.y
-        XtWX = X.T.dot(X)
-        beta = np.linalg.solve(XtWX + S, X.T.dot(y))
+        S = self.get_penalty_mat(lam)
+        X = self.X
+        beta, eta, mu, _, _, _ = self.pirls(lam)
+        D2, Dp2 = self.hess_dev_beta(beta, S)
+        A = np.linalg.inv(Dp2)
+        dw_deta = self.f.dw_deta(self.y, mu)
+        b1 = self.grad_beta_rho(beta, lam)
         g = np.zeros_like(theta)
-        H = np.linalg.pinv(XtWX + S)
         for i in range(self.ns):
-            Si = self.S[i]
-            ai = lam[i]
-            dbsb = beta.T.dot(Si).dot(beta) * ai / (phi)
-            dldh = np.trace(H.dot(Si)) * ai
+            Si, ai, b1i = self.S[i], lam[i], b1[:, i]
+            w1i = (dw_deta * X.dot(b1i)).reshape(-1, 1)
+            H1 = (X * w1i).T.dot(X)
+            dbsb = beta.T.dot(Si).dot(beta) * ai / phi
+            dldh = np.trace(A.dot(Si*ai + H1))
             dlds = self.ranks[i]
             g[i] = dbsb + dldh - dlds
         
-        r = y - X.dot(beta)
-        rss = r.T.dot(r)
-        bsb = beta.T.dot(S).dot(beta)
-        g[-1] = -(rss + bsb) / (phi) + self.n_obs - self.mp
+        Dp = self.f.deviance(y=self.y, mu=mu).sum() + beta.T.dot(S).dot(beta)
+        ls1 = self.f.dllscale(phi, self.y) * 2.0
+        g[-1] = -Dp / phi + ls1 * phi - self.mp
         g /= 2.0
         return g
     
-    def hessian(self, theta):
+    def _hessian(self, theta):
         lam, phi = np.exp(theta[:-1]), np.exp(theta[-1])
-        S, X, y = self.get_penalty_mat(lam), self.X, self.y
-        beta = np.linalg.solve(X.T.dot(X) + S, X.T.dot(y))
-        V = X.T.dot(X) + S
-        A = np.linalg.inv(V)
+        S = self.get_penalty_mat(lam)
+        beta, eta, mu, _, _, _ = self.pirls(lam)
+        D2, Dp2 = self.hess_dev_beta(beta, S)
+        A = np.linalg.inv(Dp2)
         db = self.grad_beta_rho(beta, lam)
 
         H = np.zeros((self.ns+1, self.ns+1))
         for i in range(self.ns):
+            Si, ai = self.S[i], lam[i]
+            Sib = Si.dot(beta)
             for j in range(i, self.ns):
-                Sib = self.S[i].dot(beta)
-                t1 = (i==j) * np.dot(beta.T, Sib) * lam[i] / (2*phi)
-                t2 = lam[i] / (2*phi) * (db[:, j].T.dot(Sib) + Sib.T.dot(db[:, j]))
-                t3 = -lam[i]*lam[j]/2.0 * np.trace(A.dot(self.S[i]).dot(A).dot(self.S[j]))
-                t4 = (i==j) * lam[i] / 2.0 * np.trace(A.dot(self.S[i]))
+                krd = (i==j)
+                Sj, aj, dbj = self.S[j], lam[j], db[:, j]
+                t1 = krd * np.dot(beta.T, Sib) * ai / (2*phi)
+                
+                t2 = ai / (2*phi) * (dbj.T.dot(Sib) + Sib.T.dot(dbj))
+                t3 = -ai * aj /2.0 * np.trace(A.dot(Si).dot(A).dot(Sj))
+                t4 = krd* ai / 2.0 * np.trace(A.dot(Si))
                 #t5 = -1.0 / phi * db[:, i].T.dot(V).dot(db[:, j])
                 H[i, j] = H[j, i] = t1+t2+t3+t4#+t5
-                H[-1, j] -= t1
-                H[j, -1] -= t1
-        r = y - X.dot(beta)
-        rss = r.T.dot(r)
-        bsb = beta.T.dot(S).dot(beta)
-        H[-1, -1] = (rss + bsb) / (phi*2.0)
+                if krd:
+                    H[-1, j] = H[j, -1] = -t1
+                    
+        Dp = self.f.deviance(y=self.y, mu=mu).sum() + beta.T.dot(S).dot(beta)
+        ls1, ls2 = self.f.dllscale(phi, self.y), self.f.d2llscale(phi, self.y)
+        
+        H[-1, -1] = Dp / (2.0 * phi) - 2.0 * ls2*phi**2 - 2.0 * ls1*phi
         return H
     
+    def hessian(self, theta):
+        lam, phi = np.exp(theta[:-1]), np.exp(theta[-1])
+        S = self.get_penalty_mat(lam)
+        X = self.X
+        beta, eta, mu, _, _, _ = self.pirls(lam)
+        D2, Dp2 = self.hess_dev_beta(beta, S)
+        A = np.linalg.inv(Dp2)
+        b1 = self.grad_beta_rho(beta, lam)
+        b2 = self.hess_beta_rho(beta, lam)
+        dw_deta = self.f.dw_deta(self.y, mu)
+        d2w_deta2 = self.f.d2w_deta2(self.y, mu)
+        #Ddb = X.T.dot((self.y - mu) / (self.f.var_func(mu=mu) * self.f.dlink(mu)))
+        #D2r = b1.T.dot(D2).dot(b1) + np.einsum('ijk,k->ij', b2, Ddb) 
+        D2r =  b1.T.dot(Dp2).dot(b1)
+        H = np.zeros((self.ns+1, self.ns+1))
+        for i in range(self.ns):
+            Si, ai , b1i = self.S[i], lam[i], b1[:, i]
+            eta1i = X.dot(b1i)
+            w1i = dw_deta * eta1i
+            H1i = wcrossp(X, w1i)
+            for j in range(i, self.ns):
+                 Sj, aj, b1j, eta2 = self.S[j], lam[j], b1[:, j], X.dot(b2[i, j])
+                 eta1j = self.X.dot(b1j)
+                 w1j = dw_deta * eta1j
+                 w2 = eta1j * eta1i * d2w_deta2 + dw_deta * eta2
+                 H1j = wcrossp(X, w1j)
+                 H2 = wcrossp(X, w2)
+                 d = (i==j)
+                 # bsb2 = b2[i, j].dot(S).dot(beta) + b1i.dot(Sj).dot(beta) * aj\
+                 #      + b1j.T.dot(Si).dot(beta) * ai + b1i.T.dot(S).dot(b1j)\
+                 #      + d * ai * beta.T.dot(Si).dot(beta)
+                 #t1 = np.trace(A.dot(H2))
+                 #t2 = d * ai * np.trace(A.dot(Si))
+                 #t3 = -np.trace(A.dot(H1i).dot(A).dot(H1j))
+                 #t4 = -np.trace(A.dot(H1i).dot(A).dot(Sj)) * aj
+                 #t5 = -np.trace(A.dot(H1j).dot(A).dot(Si)) * ai
+                 #t6 = -np.trace(A.dot(Si).dot(A).dot(Sj)) * ai * aj
+                 #ldh2 = t1 + t2 + t3 + t4 + t5 + t6
+                 ldh2 = -(np.trace(A.dot(H1i+Si*ai).dot(A).dot(H1j+aj*Sj))\
+                          -np.trace(A.dot(H2+d*ai*Si)))
+                 #H[i, j] = H[j, i] = ldh2 + (bsb2 + D2r[i, j]) / (2.0 * phi)
+                 t1 = d * ai / (2.0 * phi) * beta.T.dot(Si).dot(beta)
+                 t2 = -D2r[i, j] / (phi)
+                 H[i, j] = H[j, i] = t1 + t2 + ldh2/2
+                 if d:
+                     H[-1, j] = H[j, -1] = -np.dot(beta.T, Si.dot(beta)) * ai / (2*phi)
+    
+
+        Dp = self.f.deviance(y=self.y, mu=mu).sum() + beta.T.dot(S).dot(beta)
+        ls1, ls2 = self.f.dllscale(phi, self.y), self.f.d2llscale(phi, self.y)
+        
+        H[-1, -1] = Dp / (2.0 * phi) - 2.0 * ls2*phi**2 - 2.0 * ls1*phi
+        return H
     
     def get_smooth_comps(self, beta, ci=90):
         methods = {"cr":crspline_basis, "cc":ccspline_basis,"bs":bspline_basis} 
@@ -313,7 +349,7 @@ class GaussianAdditiveModel:
         theta = opt.x.copy()
         rho, logscale = theta[:-1], theta[-1]
         lambda_, scale = np.exp(rho), np.exp(logscale)
-        beta, eta, dev, _, _ = self.pirls(lambda_)
+        beta, eta, mu, dev, _, _ = self.pirls(lambda_)
         X, Slambda = self.X, self.get_penalty_mat(lambda_)
         XtX = X.T.dot(X)
         Vb = np.linalg.inv(XtX + Slambda) * scale
@@ -326,5 +362,25 @@ class GaussianAdditiveModel:
         self.Vb, self.Vp, self.Vc, self.Vf = Vb, Vp, Vc, Vf
         self.opt, self.theta, self.scale = opt, theta, scale
         self.beta, self.eta, self.dev = beta, eta, dev
+        self.edf = np.trace(np.linalg.inv(Vb*XtX/scale))
+        
+    def fit(self, opt_kws={}, confint=95):
+        self.optimize_penalty(opt_kws=opt_kws)
+
+        b, se = self.beta, np.sqrt(np.diag(self.Vc))
+        b = np.concatenate((b, self.theta))
+        se = np.concatenate((se, np.sqrt(np.diag(self.Vp))))
+        
+        c = sp.stats.norm(0, 1).ppf(1-(100-confint)/200)
+        t = b/se
+        p = sp.stats.t(self.edf).sf(np.abs(t))
+        res = np.vstack((b, b-c*se, b+c*se, se, t, p)).T
+        self.res = pd.DataFrame(res, index=self.varnames,
+                                columns=['param', f'CI{confint}-', f'CI{confint}+',
+                                         'SE', 't', 'p'])
+        
+        
+        
+        
     
-    
+        

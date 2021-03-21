@@ -261,7 +261,18 @@ class Gaussian(ExponentialFamily):
     
     def d4var_dmu4(self, mu):
         return np.zeros_like(mu)
-        
+    
+    def llscale(self, phi, y):
+        ls = len(y) * (np.log(phi) / 2.0 + np.log(2.0*np.pi) / 2.0)
+        return ls
+    
+    def dllscale(self, phi, y):
+        ls1 = len(y) / (2.0 * phi)
+        return ls1
+    
+    def d2llscale(self, phi, y):
+        ls2 = -len(y) / (2.0 * phi**2)
+        return ls2
 
 class InverseGaussian(ExponentialFamily):
     
@@ -346,7 +357,19 @@ class InverseGaussian(ExponentialFamily):
     
     def d4var_dmu4(self, mu):
         return np.zeros_like(mu)
-
+    
+    def llscale(self, phi, y):
+        ls = np.sum(np.log(phi) / 2.0 + np.log(2.0*np.pi*y**3) / 2.0)
+        return ls
+    
+    def dllscale(self, phi, y):
+        ls1 = len(y) / (2.0 * phi)
+        return ls1
+    
+    def d2llscale(self, phi, y):
+        ls2 = -len(y) / (2.0 * phi**2)
+        return -ls2
+    
 class Gamma(ExponentialFamily):
     
     def __init__(self, link=ReciprocalLink, weights=1.0, scale=1.0):
@@ -434,6 +457,21 @@ class Gamma(ExponentialFamily):
     def d4var_dmu4(self, mu):
         return np.zeros_like(mu) 
     
+    def llscale(self, phi, y):
+        v = 1.0 / phi
+        ls = (sp.special.gammaln(v) + np.log(phi) * v + v + np.log(y)).sum()
+        return ls
+    
+    def dllscale(self, phi, y):
+        v =  1.0 / phi
+        ls1 = -(sp.special.digamma(v) + np.log(phi)) * v**2 * len(y)
+        return ls1
+    
+    def d2llscale(self, phi, y):
+        v = 1.0 / phi
+        ls2 = (sp.special.polygamma(v, 1) * v + 2.0 * sp.special.digamma(v) \
+              - (1.0 - 2.0 * np.log(phi))) * v**3 * len(y)
+        return ls2
     
 
 class NegativeBinomial(ExponentialFamily):
@@ -542,6 +580,16 @@ class NegativeBinomial(ExponentialFamily):
     def d4var_dmu4(self, mu, scale=1.0):
         return np.zeros_like(mu)
     
+    def llscale(self, phi, y):
+        return None
+        
+    def dllscale(self, phi, y):
+        return None
+        
+    def d2llscale(self, phi, y):
+        return None
+    
+    
 class Poisson(ExponentialFamily):
     
     def __init__(self, link=LogLink, weights=1.0, scale=1.0):
@@ -612,7 +660,17 @@ class Poisson(ExponentialFamily):
     
     def d4var_dmu4(self, mu):
         return np.zeros_like(mu)
-
+    
+    def llscale(self, phi, y):
+        return None
+        
+    def dllscale(self, phi, y):
+        return None
+        
+    def d2llscale(self, phi, y):
+        return None
+    
+    
     
     
 class Binomial(ExponentialFamily):
@@ -693,6 +751,16 @@ class Binomial(ExponentialFamily):
     
     def d4var_dmu4(self, mu):
         return np.zeros_like(mu)
+    
+    def llscale(self, phi, y):
+        return None
+        
+    def dllscale(self, phi, y):
+        return None
+        
+    def d2llscale(self, phi, y):
+        return None
+    
     
 
     
