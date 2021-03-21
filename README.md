@@ -7,7 +7,7 @@ This project is recreational and consists of unfinished and unpolished programs 
  	- Factor rotation using Jennrich/Bernaard's gradient projection algorithms
 - Linear mixed models 
 	- LMM permits flexible random effect covariance and uses a cholesky parameterization.  Analytic gradient and hessian computation is available, but can become prohibitively slow for large models with cross random effects
-	 - GLMM can fit (so far binomial and poisson) mixed models using PQL.  GLMM inherits LMM methods to repeadely fit a weighted mixed model.
+	 - GLMM can fit (so far binomial and poisson) mixed models using PQL.  GLMM inherits LMM methods to repeatedly fit a weighted mixed model.
 	 - MixedMCMC can fit normal, binomial, and poisson mixed models using MCMC.  Normal models are fit through Gibbs sampling, while binary binomial models are fit through Slice within Gibbs, and poisson and nonbinary binomial models are fit using Metropolis Hastings within Gibbs. These models differ from most GLMs in that they explicitly include extra variance at the linear predictor scale, as opposed to using deviance or pearsons chi square to estimate scale after model fitting.
 - Latent variable correlations for handling polychorric, polytomous and tetrachoric correlation
 - Sparse Canonical Correlation using the penalized matrix decomposition
@@ -19,6 +19,11 @@ This project is recreational and consists of unfinished and unpolished programs 
 	- Currently only binomial and gaussian models are supported.  So far, provides similar results to glmnet, and at a similar speed, although much functionality needs to be implemented (e.g. intercepts, variable penalties, convergence conditions etc, etc)
 - Negative Binomial Models
  	- Currently only supports NB2, although plans exist to implement NB1 
+- Zero Inflated Poisson models
+- Generalized Additive Models
+	- Currently supported distributions include Gaussian, Inverse Gaussian, and Gamma
+	- Currently supported smooths include cubic regression splines, cyclic cubic splines, and b-splines
+- Nonparametric independence testing
 - Random correlation matrix generation via the vine method, onion method, or factor method
 - Nonnegative matrix factorization using the seqNMF algorithm/approach
 - ICA using two different ML algorithms
