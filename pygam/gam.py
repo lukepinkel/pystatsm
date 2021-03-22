@@ -103,7 +103,7 @@ class GAM:
         beta_new = np.linalg.solve(Xw.T.dot(self.X)+S, Xw.T.dot(z))
         return beta_new
         
-    def pirls(self, lam, n_iters=200, tol=1e-7):
+    def _pirls(self, lam, n_iters=200, tol=1e-7):
         beta = np.zeros(self.X.shape[1])
         S = self.get_penalty_mat(lam)
         eta = np.ones_like(self.y)
@@ -126,6 +126,35 @@ class GAM:
             beta = beta_new
         mu = self.f.inv_link(eta)
         return beta, eta, mu, devp, success, i
+    
+    def pirls(self, lam, n_iters=200, tol=1e-12):
+        S = self.get_penalty_mat(lam)
+        eta_prev = self.f.link(self.y)
+        dev_prev = 1e16 #self.f.deviance(self.y, mu=self.f.inv_link(eta)).sum()
+        convergence = False
+        beta_prev = np.zeros(self.X.shape[1])
+        for i in range(n_iters):
+            beta = self.solve_pls(eta_prev, S)
+            eta = self.X.dot(beta)
+            mu = self.f.inv_link(eta)
+            dev = self.f.deviance(self.y, mu=mu).sum()+beta.T.dot(S).dot(beta)
+            
+            if abs(dev - dev_prev) / (abs(dev_prev)+1e-6) < tol:
+                convergence = True
+                break
+            elif dev > dev_prev:
+                j = 0
+                while ((j < 15)&(dev > dev_prev)):
+                    beta = (beta + beta_prev) / 2.0
+                    eta = self.X.dot(beta)
+                    mu = self.f.inv_link(eta)
+                    dev = self.f.deviance(self.y, mu=mu).sum()+beta.T.dot(S).dot(beta)
+                    j+=1
+                if j==15:
+                    convergence = False
+                    break
+            beta_prev, eta_prev, dev_prev = beta, eta, dev
+        return beta, eta, mu, dev, convergence, i
 
     def get_penalty_mat(self, lam):
         Sa = np.einsum('i,ijk->jk', lam, self.S)
