@@ -33,7 +33,7 @@ X['y'] = rng.gamma(shape=shape, scale=1.0)
 
  
 model = GAM("y~C(x0)+s(x1, kind='cr')+s(x2, kind='cr')", X, family=Gamma(link=LogLink))
-model.fit(approx_hess=True, opt_kws=dict(options=dict(gtol=1e-9, xtol=1e-500, maxiter=5000)))
+model.fit(approx_hess=False, opt_kws=dict(options=dict(gtol=1e-9, xtol=1e-500, maxiter=5000)))
 theta = model.theta.copy()
 
 np.allclose(np.array([49.617907465401451, 407.234892157726449]), np.exp(model.theta)[:-1])
