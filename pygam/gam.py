@@ -160,7 +160,7 @@ class GAM:
                 Sj, aj, b1j = self.S[j], lam[j], b1[:, j]
                 eta1j = self.X.dot(b1j)
                 w1 = self.f.dw_deta(self.y, mu)
-                fij = 0.5 * eta1j * eta1i * w1
+                fij = 1.0 * eta1j * eta1i * w1
                 u = self.X.T.dot(fij) + ai * Si.dot(b1j) + aj * Sj.dot(b1i)
                 b2[i, j] = b2[j, i] = (i==j)*b1[:, j] - A.dot(u)
         return b2
@@ -217,48 +217,14 @@ class GAM:
         g /= 2.0
         return g
     
-    def _hessian(self, theta):
-        lam, phi = np.exp(theta[:-1]), np.exp(theta[-1])
-        S = self.get_penalty_mat(lam)
-        beta, eta, mu, _, _, _ = self.pirls(lam)
-        D2, Dp2 = self.hess_dev_beta(beta, S)
-        A = np.linalg.inv(Dp2)
-        db = self.grad_beta_rho(beta, lam)
-
-        H = np.zeros((self.ns+1, self.ns+1))
-        for i in range(self.ns):
-            Si, ai = self.S[i], lam[i]
-            Sib = Si.dot(beta)
-            for j in range(i, self.ns):
-                krd = (i==j)
-                Sj, aj, dbj = self.S[j], lam[j], db[:, j]
-                t1 = krd * np.dot(beta.T, Sib) * ai / (2*phi)
-                
-                t2 = ai / (2*phi) * (dbj.T.dot(Sib) + Sib.T.dot(dbj))
-                t3 = -ai * aj /2.0 * np.trace(A.dot(Si).dot(A).dot(Sj))
-                t4 = krd* ai / 2.0 * np.trace(A.dot(Si))
-                #t5 = -1.0 / phi * db[:, i].T.dot(V).dot(db[:, j])
-                H[i, j] = H[j, i] = t1+t2+t3+t4#+t5
-                if krd:
-                    H[-1, j] = H[j, -1] = -t1
-                    
-        Dp = self.f.deviance(y=self.y, mu=mu).sum() + beta.T.dot(S).dot(beta)
-        ls1, ls2 = self.f.dllscale(phi, self.y), self.f.d2llscale(phi, self.y)
-        
-        H[-1, -1] = Dp / (2.0 * phi) - 2.0 * ls2*phi**2 - 2.0 * ls1*phi
-        return H
-    
     def hessian(self, theta):
         lam, phi = np.exp(theta[:-1]), np.exp(theta[-1])
-        S = self.get_penalty_mat(lam)
-        X = self.X
+        X, S = self.X, self.get_penalty_mat(lam)
         beta, eta, mu, _, _, _ = self.pirls(lam)
         D2, Dp2 = self.hess_dev_beta(beta, S)
         A = np.linalg.inv(Dp2)
-        b1 = self.grad_beta_rho(beta, lam)
-        b2 = self.hess_beta_rho(beta, lam)
-        dw_deta = self.f.dw_deta(self.y, mu)
-        d2w_deta2 = self.f.d2w_deta2(self.y, mu)
+        b1, b2 = self.grad_beta_rho(beta, lam), self.hess_beta_rho(beta, lam)
+        dw_deta, d2w_deta2 = self.f.dw_deta(self.y, mu), self.f.d2w_deta2(self.y, mu)
         D2r =  b1.T.dot(Dp2).dot(b1)
         H = np.zeros((self.ns+1, self.ns+1))
         for i in range(self.ns):
@@ -282,11 +248,10 @@ class GAM:
                  if d:
                      H[-1, j] = H[j, -1] = -np.dot(beta.T, Si.dot(beta)) * ai / (2*phi)
     
-
         Dp = self.f.deviance(y=self.y, mu=mu).sum() + beta.T.dot(S).dot(beta)
         ls1, ls2 = self.f.dllscale(phi, self.y), self.f.d2llscale(phi, self.y)
         
-        H[-1, -1] = Dp / (2.0 * phi) - 2.0 * ls2*phi**2 - 2.0 * ls1*phi
+        H[-1, -1] = Dp / (2.0 * phi) + ls1*phi  + ls2*phi**2 
         return H
     
     def get_smooth_comps(self, beta, ci=90):
@@ -345,19 +310,22 @@ class GAM:
         rho, logscale = theta[:-1], theta[-1]
         lambda_, scale = np.exp(rho), np.exp(logscale)
         beta, eta, mu, dev, _, _ = self.pirls(lambda_)
+        _, w = self.get_wz(eta)
         X, Slambda = self.X, self.get_penalty_mat(lambda_)
-        XtX = X.T.dot(X)
-        Vb = np.linalg.inv(XtX + Slambda) * scale
+        Hbeta = wcrossp(X, w)
+        Vb = np.linalg.inv(Hbeta + Slambda) * scale
         Vp = np.linalg.inv(self.hessian(theta))
         Jb = self.grad_beta_rho(beta, lambda_)
         C = Jb.dot(Vp[:-1, :-1]).dot(Jb.T)
         Vc = Vb + C
-        Vf = Vb.dot(XtX*scale).dot(Vb) + C
+        Vs = Vb.dot(Hbeta/scale).dot(Vb)
+        Vf = Vs + C
+        F = Vb.dot(Hbeta / scale)
         self.Slambda = Slambda
-        self.Vb, self.Vp, self.Vc, self.Vf = Vb, Vp, Vc, Vf
+        self.Vb, self.Vp, self.Vc, self.Vf, self.Vs = Vb, Vp, Vc, Vf, Vs
         self.opt, self.theta, self.scale = opt, theta, scale
-        self.beta, self.eta, self.dev = beta, eta, dev
-        self.edf = np.trace(np.linalg.inv(Vb*XtX/scale))
+        self.beta, self.eta, self.dev, self.mu = beta, eta, dev, mu
+        self.F, self.edf, self.Hbeta = F, np.trace(F), Hbeta
         
     def fit(self, approx_hess=False, opt_kws={}, confint=95):
         self.optimize_penalty(approx_hess=approx_hess, opt_kws=opt_kws)
@@ -373,9 +341,17 @@ class GAM:
         self.res = pd.DataFrame(res, index=self.varnames,
                                 columns=['param', f'CI{confint}-', f'CI{confint}+',
                                          'SE', 't', 'p'])
-        
-        
-        
-        
+        ymu = self.y.mean()
+        self.null_deviance = self.f.deviance(self.y, mu=np.ones_like(self.y)*ymu).sum()
+        self.model_deviance = self.f.deviance(self.y, mu=self.mu).sum()
+        self.deviance_explained = (self.null_deviance - self.model_deviance) / self.null_deviance
+        self.rsquared = 1.0 - np.sum((self.y - self.mu)**2) / np.sum((self.y - ymu)**2)
+        self.ll_model = self.f.full_loglike(self.y, mu=self.mu, scale=self.model_deviance/self.n_obs)
+        self.aic = 2.0 * self.ll_model + 2.0 + self.edf * 2.0
+        self.sumstats = pd.DataFrame([self.deviance_explained, self.rsquared,
+                                      self.ll_model, self.aic, self.edf], 
+                                     index=['Explained Deviance', 'Rsquared',
+                                            'Loglike', 'AIC', 'EDF'])                                  
+    
     
         
