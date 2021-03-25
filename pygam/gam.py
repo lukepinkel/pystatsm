@@ -103,30 +103,6 @@ class GAM:
         beta_new = np.linalg.solve(Xw.T.dot(self.X)+S, Xw.T.dot(z))
         return beta_new
         
-    def _pirls(self, lam, n_iters=200, tol=1e-7):
-        beta = np.zeros(self.X.shape[1])
-        S = self.get_penalty_mat(lam)
-        eta = np.ones_like(self.y)
-        devp = 1e16 #self.f.deviance(self.y, mu=self.f.inv_link(eta)).sum()
-        success = False
-        for i in range(n_iters):
-            beta_new = self.solve_pls(eta, S)
-            eta_new = self.X.dot(beta_new)
-            dev_new = self.f.deviance(self.y, mu=self.f.inv_link(eta_new)).sum()
-            devp_new = dev_new + beta.T.dot(S).dot(beta)
-
-            if devp_new > devp:
-                success=False
-                break
-            if abs(devp - devp_new) / devp_new < tol:
-                success = True
-                break
-            eta = eta_new
-            devp = devp_new
-            beta = beta_new
-        mu = self.f.inv_link(eta)
-        return beta, eta, mu, devp, success, i
-    
     def pirls(self, lam, n_iters=200, tol=1e-12):
         S = self.get_penalty_mat(lam)
         eta_prev = self.f.link(self.y)
@@ -192,9 +168,14 @@ class GAM:
                 fij = 1.0 * eta1j * eta1i * w1
                 u = self.X.T.dot(fij) + ai * Si.dot(b1j) + aj * Sj.dot(b1i)
                 b2[i, j] = b2[j, i] = (i==j)*b1[:, j] - A.dot(u)
-        return b2
-                
-        
+        return b2         
+    
+    def grad_dev_beta(self, beta, S):
+        mu = self.f.inv_link(self.X.dot(beta))
+        gw = (self.y - mu) / (self.f.var_func(mu=mu) * self.f.dlink(mu))
+        g = -self.X.T.dot(gw) + S.dot(beta)
+        return g
+    
     def hess_dev_beta(self, beta, S):
         mu = self.f.inv_link(self.X.dot(beta))
         v0, g1 = self.f.var_func(mu=mu), self.f.dlink(mu)
