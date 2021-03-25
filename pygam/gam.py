@@ -12,7 +12,8 @@ import scipy.stats
 import pandas as pd
 import scipy.interpolate
 import matplotlib.pyplot as plt
-from .smooth_setup import parse_smooths, get_parametric_formula, get_smooth
+from .smooth_setup import (parse_smooths, get_parametric_formula, 
+                           get_smooth_terms, get_smooth_matrices)
 from ..pyglm.families import Gaussian, InverseGaussian, Gamma
 from ..utilities.splines import (crspline_basis, bspline_basis, ccspline_basis,
                                  absorb_constraints)
@@ -31,45 +32,15 @@ class GAM:
             family = Gaussian()
         smooth_info = parse_smooths(formula, data)
         formula = get_parametric_formula(formula)
-        y, Xp = patsy.dmatrices(formula, data, return_type='dataframe', 
-                                eval_env=1)
-        varnames = Xp.columns.tolist()
-        smooths = {}
-        start = p = Xp.shape[1]
-        ns = 0
-        for key, val in smooth_info.items():
-            slist = get_smooth(**val)
-            if len(slist)==1:
-                smooths[key], = slist
-                p_i = smooths[key]['X'].shape[1]
-                varnames += [f"{key}{j}" for j in range(1, p_i+1)]
-                p += p_i
-                ns += 1
-            else:
-                for i, x in enumerate(slist):
-                    by_key = f"{key}_{x['by_cat']}"
-                    smooths[by_key] = x
-                    p_i = x['X'].shape[1]
-                    varnames += [f"{by_key}_{j}" for j in range(1, p_i+1)]
-                    p += p_i
-                    ns += 1
-        X, S, Sj, ranks, ldS = [Xp], np.zeros((ns, p, p)), [], [], []
-        for i, (var, s) in enumerate(smooths.items()):
-            p_i = s['X'].shape[1]
-            Si, ix = np.zeros((p, p)), np.arange(start, start+p_i)
-            start += p_i
-            Si[ix, ix.reshape(-1, 1)] = s['S']
-            smooths[var]['ix'], smooths[var]['Si'] = ix, Si
-            X.append(smooths[var]['X'])
-            S[i] = Si
-            Sj.append(s['S'])
-            ranks.append(np.linalg.matrix_rank(Si))
-            u = np.linalg.eigvals(s['S'])
-            ldS.append(np.log(u[u>np.finfo(float).eps]).sum())
+        y, Xp = patsy.dmatrices(formula, data, return_type='dataframe', eval_env=1)
+        smooths, n_smooth_terms, n_total_params, varnames = get_smooth_terms(
+                                                                smooth_info, Xp)
+        X, S, ranks, ldS = get_smooth_matrices(Xp, smooths, n_smooth_terms,
+                                               n_total_params)
         self.X, self.Xp, self.y = np.concatenate(X, axis=1), Xp.values, y.values[:, 0]
-        self.S, self.Sj, self.ranks, self.ldS = S, Sj, ranks, ldS
+        self.S, self.ranks, self.ldS = S, ranks, ldS
         self.f, self.smooths = family, smooths
-        self.ns, self.n_obs, self.nx = ns, self.X.shape[0], self.X.shape[1]
+        self.ns, self.n_obs, self.nx = n_smooth_terms, Xp.shape[0], n_total_params
         self.mp = self.nx - np.sum(self.ranks)
         self.data = data
         theta = np.zeros(self.ns+1)

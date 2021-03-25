@@ -74,3 +74,42 @@ def get_smooth(x, df=10, kind="cr", by=None):
         smooth_list = [dict(X=X, S=S, knots=knots, kind=kind, q=q, sc=sc, 
                             fkws=fkws, x0=x, xm=None, by_cat=None)]
     return smooth_list
+
+def get_smooth_terms(smooth_info, Xp):
+    varnames, n_parametric = Xp.columns.tolist(), Xp.shape[1]
+    smooths, n_smooth_terms, n_total_params = {}, 0, n_parametric
+    for key, val in smooth_info.items():
+        slist = get_smooth(**val)
+        if len(slist)==1:
+            smooths[key], = slist
+            p_i = smooths[key]['X'].shape[1]
+            varnames += [f"{key}{j}" for j in range(1, p_i+1)]
+            n_total_params += p_i
+            n_smooth_terms += 1
+        else:
+            for i, x in enumerate(slist):
+                by_key = f"{key}_{x['by_cat']}"
+                smooths[by_key] = x
+                p_i = x['X'].shape[1]
+                varnames += [f"{by_key}_{j}" for j in range(1, p_i+1)]
+                n_total_params += p_i
+                n_smooth_terms += 1
+    return smooths, n_smooth_terms, n_total_params, varnames
+
+def get_smooth_matrices(Xp, smooths, n_smooth_terms, n_total_params):
+    X, ranks, ldS, start = [Xp], [], [], Xp.shape[1]
+    S = np.zeros((n_smooth_terms, n_total_params, n_total_params))
+    for i, (var, s) in enumerate(smooths.items()):
+        p_i = s['X'].shape[1]
+        Si = np.zeros((n_total_params, n_total_params))
+        ix = np.arange(start, start+p_i)
+        start += p_i
+        Si[ix, ix.reshape(-1, 1)] = s['S']
+        smooths[var]['ix'], smooths[var]['Si'] = ix, Si
+        X.append(smooths[var]['X'])
+        S[i] = Si
+        ranks.append(np.linalg.matrix_rank(Si))
+        u = np.linalg.eigvals(s['S'])
+        ldS.append(np.log(u[u>np.finfo(float).eps]).sum())
+    return X, S, ranks, ldS
+
