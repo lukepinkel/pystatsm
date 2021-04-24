@@ -116,6 +116,7 @@ class GauLS:
         self.S = np.concatenate([Sm, Ss], axis=0)
         self.Xt = np.concatenate([self.m.X, self.s.X], axis=1)
         self.mp = self.m.mp + self.s.mp
+        self.ranks = self.m.ranks + self.s.ranks
         
         
     def get_mutau(self, beta_m, beta_s):
@@ -392,6 +393,24 @@ class GauLS:
         ll = self.penalized_loglike(beta, S)
         L = -ll + ldetS / 2.0 - ldetH / 2.0 + self.mp * np.log(2.0*np.pi) / 2.0
         return -L
+    
+    def gradient(self, rho):
+        lam = np.exp(rho)
+        beta, S = self.beta_rho(rho), self.get_penalty_mat(lam)
+        H = self.hess_ll_beta(beta)
+        dH = self.dhess(beta, lam)
+        A = np.linalg.inv(H + S)
+        g = np.zeros_like(rho)
+        for i in range(self.ns):
+            Si, ai = self.S[i], lam[i]
+            dbsb = beta.T.dot(Si).dot(beta) * ai
+            dldh = np.trace(A.dot(Si*ai + dH[i]))
+            dlds = self.ranks[i]
+            g[i] = dbsb + dldh - dlds
+        g = g / 2.0
+        return g
+            
+            
 
 def fprime(f, x, eps=None):
     if eps is None:
