@@ -55,12 +55,15 @@ def _d2L_dmu2(x, m, s, v, t):
     z = (x - m) / s
     y = np.arcsinh(z) * t - v
     r, c, w = np.sinh(y), np.cosh(y), np.sqrt(1.0 + z**2)
-    
-    t2, s2, w2, w3, w4 =  t**2, s**2, w**2, w**3, w**4
-    f1 = (t * r * z * (c**2 - 1)) / (s2 * w3 * c)
+    t2, s2 = t**2, s**2
+    w2 = w**2
+    w3 = w2 * w
+    w4 = w3 * w
+    c2, r2 = c**2, r**2
+    f1 = (t * r * z * (c2 - 1)) / (s2 * w3 * c)
     f2 =  (2.0 * z**2) / (s2 * w4)
-    f3 = (t2 - t2 * (r**2 + c**2)-1.0) / (s2 * w2)
-    f4 = -(t2 * r**2) / (s2 * w2 * c**2)
+    f3 = (t2 - t2 * (r2 + c2)-1.0) / (s2 * w2)
+    f4 = -(t2 * r2) / (s2 * w2 * c2)
     H = f1 + f2 + f3 + f4
     return H
 
