@@ -428,7 +428,7 @@ def f2prime(f, x, eps=None):
 
 def f3prime(f, x, eps=None):
     if eps is None:
-        eps = np.finfo(float).eps**(1.0/2.0)
+        eps = np.finfo(float).eps**(1.0/3.0)
     y = f(x)
     p, q = y.shape[0], x.shape[0]
     D = np.zeros((q, p, p))
@@ -464,7 +464,10 @@ df['y'] = rng.normal(loc=mu, scale=tau)
 mod = GauLS("y~C(x0)+s(x1, kind='cr')+s(x2, kind='cr')", "y~1+s(x3, kind='cr')", df)
 X = mod.Xt
 atol = np.finfo(float).eps**(1/3)
+rtol = 1e-5
+
 atolh = np.finfo(float).eps**(1/4)
+rtolh = 1e-3
 
 lam = np.array([ 83.30492, 1319.09376,   92.54213   ])
 rho = np.log(lam)
@@ -511,7 +514,8 @@ L1, L2, L3, L4  = mod.ll_eta_derivs(beta[mod.ixm], beta[mod.ixs])
 f = lambda rho: mod.hess_ll_beta(mod.beta_rho(rho))
 
 dH1 = mod.dhess(beta, lam)
-dH2 = f3prime(f, rho)
+dH2 = f3prime(f, rho, eps=np.finfo(float).eps**(1/3))
+np.allclose(dH1, dH2, atol=atolh, rtol=rtolh)
 
 
 T1 = np.eye(33)
