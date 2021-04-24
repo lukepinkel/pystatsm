@@ -115,7 +115,7 @@ class GauLS:
         self.X = {0:self.m.X, 1:self.s.X}
         self.S = np.concatenate([Sm, Ss], axis=0)
         self.Xt = np.concatenate([self.m.X, self.s.X], axis=1)
-        
+        self.mp = self.m.mp + self.s.mp
         
         
     def get_mutau(self, beta_m, beta_s):
@@ -331,6 +331,7 @@ class GauLS:
             dbdr[:, i] = -ai * Hp.dot(Si.dot(beta))
         return dbdr
     
+    
     def dhess(self, beta, lam):
         b1 = self.grad_beta_rho(beta, lam)
         L1, L2, L3, L4  = self.ll_eta_derivs(beta[self.ixm], beta[self.ixs])
@@ -342,27 +343,13 @@ class GauLS:
             v1 = (L3[:, 0] * etam1i + L3[:, 1] * etas1i).reshape(-1, 1)
             v2 = (L3[:, 1] * etam1i + L3[:, 2] * etas1i).reshape(-1, 1)
             v3 = (L3[:, 2] * etam1i + L3[:, 3] * etas1i).reshape(-1, 1)
-            v = v1 + v2 + v3
-            dHmm = (Xm * v).T.dot(Xm)
-            dHms = (Xm * v).T.dot(Xs)
-            dHss = (Xs * v).T.dot(Xs)
+            #v = v1 + v2 + v3
+            dHmm = (Xm * v1).T.dot(Xm)
+            dHms = (Xm * v2).T.dot(Xs)
+            dHss = (Xs * v3).T.dot(Xs)
             dH[i] = np.block([[dHmm, dHms], [dHms.T, dHss]])
-        return dH
-
-    def _hess_beta_rho(self, beta, lam):
-        S, b1 = self.get_penalty_mat(lam), self.grad_beta_rho(beta, lam)
-        H = self.hess_ll_beta(beta)
-        Hp = np.linalg.inv(H + S)
-        dH = self.dhess(beta, lam)
-        b2 = np.zeros((self.ns, self.ns, beta.shape[0]))
-        for i in range(self.ns):
-            Si, b1i, ai = self.S[i], b1[:, i], lam[i]
-            for j in range(i, self.ns):
-                b1j = b1[:, j]
-                Sj, aj = self.S[j], lam[j]
-                u = dH[i].dot(b1[:, j]) + ai * Si.dot(b1j) + aj * Sj.dot(b1i)
-                b2[i, j] = b2[j, i] = (i==j)*b1i - Hp.dot(u)
-        return b2
+        return -dH
+    
     
     def hess_beta_rho(self, beta, lam):
         S, b1 = self.get_penalty_mat(lam), self.grad_beta_rho(beta, lam)
@@ -386,9 +373,25 @@ class GauLS:
         lam = np.exp(rho)
         beta = self.beta_rho(rho)
         return self.grad_beta_rho(beta, lam)
-                     
     
-        
+    def logdetS(self, lam):
+        logdet = 0.0
+        for i, (r, lds) in enumerate(list(zip(self.m.ranks, self.m.ldS))):
+            logdet += r * np.log(lam[i]) + lds
+        for i, (r, lds) in enumerate(list(zip(self.s.ranks, self.s.ldS))):
+            logdet += r * np.log(lam[i]) + lds    
+        return logdet
+    
+    def reml(self, rho):
+        lam = np.exp(rho)
+        beta = self.beta_rho(rho)
+        S = self.get_penalty_mat(lam)
+        H = self.hess_ll_beta(beta)
+        ldetS = self.logdetS(lam)
+        _, ldetH = np.linalg.slogdet(H + S)
+        ll = self.penalized_loglike(beta, S)
+        L = -ll + ldetS / 2.0 - ldetH / 2.0 + self.mp * np.log(2.0*np.pi) / 2.0
+        return -L
 
 def fprime(f, x, eps=None):
     if eps is None:
@@ -423,34 +426,51 @@ def f2prime(f, x, eps=None):
             H[j, i] = H[i, j]
     return H
 
+def f3prime(f, x, eps=None):
+    if eps is None:
+        eps = np.finfo(float).eps**(1.0/2.0)
+    y = f(x)
+    p, q = y.shape[0], x.shape[0]
+    D = np.zeros((q, p, p))
+    h = np.zeros(q)
+    for i in range(q):
+        h[i] = eps
+        D[i] = (f(x+h) - f(x - h)) / (2.0 * eps)
+        h[i] = 0.0
+    return D
+    
 rng = np.random.default_rng(123)
 
 
 n_obs = 20000
-X = pd.DataFrame(np.zeros((n_obs, 4)), columns=['x0', 'x1', 'x2', 'y'])
+df = pd.DataFrame(np.zeros((n_obs, 4)), columns=['x0', 'x1', 'x2', 'y'])
  
-X['x0'] = rng.choice(np.arange(5), size=n_obs, p=np.ones(5)/5)
-X['x1'] = rng.uniform(-1, 1, size=n_obs)
-X['x2'] = rng.uniform(-2, 2, size=n_obs)
-X['x3'] = rng.uniform(-2, 2, size=n_obs)
+df['x0'] = rng.choice(np.arange(5), size=n_obs, p=np.ones(5)/5)
+df['x1'] = rng.uniform(-1, 1, size=n_obs)
+df['x2'] = rng.uniform(-2, 2, size=n_obs)
+df['x3'] = rng.uniform(-2, 2, size=n_obs)
 
-u0 =  dummy(X['x0']).dot(np.array([-0.2, 0.2, -0.2, 0.2, 0.0]))
-f1 = (3.0 * X['x1']**3 - 2.43 * X['x1'])
-f2 = (X['x2']**3 - X['x2']) / 10
-f3 = (X['x3'] - 1.0) * (X['x3'] + 1.0)
+u0 =  dummy(df['x0']).dot(np.array([-0.2, 0.2, -0.2, 0.2, 0.0]))
+f1 = (3.0 * df['x1']**3 - 2.43 * df['x1'])
+f2 = (df['x2']**3 - df['x2']) / 10
+f3 = (df['x3'] - 1.0) * (df['x3'] + 1.0)
 eta =  u0 + f1 + f2
 mu = eta.copy() 
 tau = 1.0 / (np.exp(f3) + 0.1)
 shape = mu * 2.0
-X['y'] = rng.normal(loc=mu, scale=tau)
+df['y'] = rng.normal(loc=mu, scale=tau)
 
 
-mod = GauLS("y~C(x0)+s(x1, kind='cr')+s(x2, kind='cr')", "y~1+s(x3, kind='cr')", X)
-
+mod = GauLS("y~C(x0)+s(x1, kind='cr')+s(x2, kind='cr')", "y~1+s(x3, kind='cr')", df)
+X = mod.Xt
 atol = np.finfo(float).eps**(1/3)
+atolh = np.finfo(float).eps**(1/4)
 
 lam = np.array([ 83.30492, 1319.09376,   92.54213   ])
 rho = np.log(lam)
+
+rho = np.array([4.422508, 7.1847, 4.527664])
+lam = np.exp(rho)
 
 beta = mod.beta_rho(rho)
 S = mod.get_penalty_mat(lam)
@@ -478,8 +498,8 @@ D2 = fprime(mod.beta_rho, rho)
 np.allclose(D1, D2, atol=atol)
 
 H1 = mod.hess_beta_rho(beta, lam)
-H2 = mod.hess_beta_rho2(beta, lam)
-H3 = f2prime(mod._grad_beta_rho, rho, np.finfo(float).eps**(1/4))
+H2 = f2prime(mod._grad_beta_rho, rho, np.finfo(float).eps**(1/4))
+np.allclose(H1, H2, atol=atolh)
 
 mu = mod.m.X.dot(beta[mod.ixm])
 
@@ -488,9 +508,47 @@ L1, L2, L3, L4  = mod.ll_eta_derivs(beta[mod.ixm], beta[mod.ixs])
 
 
 
+f = lambda rho: mod.hess_ll_beta(mod.beta_rho(rho))
+
+dH1 = mod.dhess(beta, lam)
+dH2 = f3prime(f, rho)
 
 
+T1 = np.eye(33)
+for key in mod.m.smooths.keys():
+    D, U = np.linalg.eigh(mod.m.smooths[key]['S'])
+    U = U[:, np.argsort(D)[::-1]]
+    D = D[np.argsort(D)[::-1]]
+    D[-1] = 1
+    D = np.sqrt(1.0 / D)
+    V = U.dot(np.diag(D))
+    Vi = U.dot(np.diag(1/D))
+    T1[mod.m.smooths[key]['ix'],  mod.m.smooths[key]['ix'][:, None]] = V.T
 
+p = mod.m.S.shape[1]
+
+for key in mod.s.smooths.keys():
+    D, U = np.linalg.eigh(mod.s.smooths[key]['S'])
+    U = U[:, np.argsort(D)[::-1]]
+    D = D[np.argsort(D)[::-1]]
+    D[-1] = 1
+    D = np.sqrt(1.0 / D)
+    V = U.dot(np.diag(D))
+    Vi = U.dot(np.diag(1/D))
+    T1[mod.s.smooths[key]['ix']+p,  mod.s.smooths[key]['ix'][:, None]+p] = V.T
+
+Xt = X.dot(T1)
+L1, L2, L3, L4  = mod.ll_eta_derivs(beta[mod.ixm], beta[mod.ixs])
+
+wmm, wms, wss = L2[:, 0], L2[:, 1], L2[:, 2]
+wmm, wms, wss = wmm.reshape(-1, 1), wms.reshape(-1, 1), wss.reshape(-1, 1)
+Xm, Xs = Xt[:, mod.ixm], Xt[:, mod.ixs]
+H11 = (Xm * wmm).T.dot(Xm)
+H12 = (Xm * wms).T.dot(Xs)
+H22 = (Xs * wss).T.dot(Xs)
+H1 = np.concatenate([H11, H12], axis=1)
+H2 = np.concatenate([H12.T, H22], axis=1)
+H = np.concatenate([H1, H2], axis=0)
 
 
 
