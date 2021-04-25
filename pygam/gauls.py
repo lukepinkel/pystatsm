@@ -593,11 +593,20 @@ class GauLS:
         resids = self.y - yhat
         ssr = np.sum(resids**2)
         sst =  np.sum((self.y - self.y.mean())**2)
+        self.mu = self.m.link.inv_link(yhat)
+        self.tau = self.s.link.inv_link(self.s.X.dot(self.beta[self.ixs]))
+        self.resids = self.y - self.mu
+        self.pearson_resids = self.resids * self.tau
+        self.model_deviance = np.sum(self.pearson_resids**2)
+        self.null_deviance = np.sum(((self.y - self.y.mean())*self.tau)**2)
+        self.deviance_explained = (self.null_deviance - self.model_deviance) / self.null_deviance
         self.rsquared = 1.0 - ssr / sst
         self.ll_model = self.loglike(self.beta)
         self.aic = 2.0 * self.ll_model + 2.0 + self.edf * 2.0
-        self.sumstats = pd.DataFrame([self.rsquared, self.ll_model, self.aic, self.edf], 
-                                     index=['Rsquared', 'Loglike', 'AIC', 'EDF'])                                  
+        self.sumstats = pd.DataFrame([self.deviance_explained, self.rsquared,
+                                      self.ll_model, self.aic, self.edf], 
+                                     index=['Explained Deviance', 'Rsquared',
+                                            'Loglike', 'AIC', 'EDF'])                                  
     
     
         
