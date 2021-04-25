@@ -22,8 +22,9 @@ This project is recreational and consists of unfinished and unpolished programs 
  	- Currently only supports NB2, although plans exist to implement NB1 
 - Zero Inflated Poisson models
 - Generalized Additive Models
-	- Currently supported distributions include Gaussian, Inverse Gaussian, and Gamma
-	- Currently supported smooths include cubic regression splines, cyclic cubic splines, and b-splines
+	- Supported distributions include Gaussian, Inverse Gaussian, and Gamma
+	- Supported smooths include cubic regression splines, cyclic cubic splines, and b-splines
+	- The only extended GAM implemented is a gaussian model for location and scale, via the GauLS class.
 - Nonparametric independence testing
 - Random correlation matrix generation via the vine method, onion method, or factor method
 - Nonnegative matrix factorization using the seqNMF algorithm/approach
