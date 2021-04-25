@@ -57,11 +57,12 @@ df['x2'] = rng.uniform(-1, 1, size=n_obs)
 u0 =  dummy(df['x0']).dot(np.array([-0.2, 0.2, -0.2, 0.2, 0.0]))
 f1 = (4.0 * df['x1']**3 - 4.0 * df['x1'])
 f2 = -(4.0 * df['x2']**3 - 4.0 * df['x2']) 
-f3 = (df['x2'] - 1.0) * (df['x2'] + 1.0)
+f3 = -(df['x2'] - 1.0) * (df['x2'] + 1.0) - 0.7
 eta =  u0 + f1 + f2
 mu = eta.copy() 
-tau = 1.0 / (np.exp(f3) + 0.01)
-df['y'] = rng.normal(loc=mu, scale=tau)
+scale =  (np.exp(f3) + 0.01)
+tau = 1.0 / scale
+df['y'] = rng.normal(loc=mu, scale=scale)
 
 
 mod = GauLS("y~C(x0)+s(x1, df=20, kind='cr')+s(x2, df=20, kind='cr')",
@@ -70,9 +71,10 @@ mod.fit(opt_kws=dict(options=dict(verbose=3)))
 
 mod.plot_smooth_comp(mod.beta, single_fig=False)
 mod.plot_smooth_quantiles('x1', 'x2')
-mod.plot_smooth_quantiles('x2', 'x2', quantiles=np.insert(np.arange(5, 50, 5), 0, 1))
+mod.plot_smooth_quantiles('x2', 'x2', quantiles=np.insert(np.arange(5, 50, 5), 0, 1),
+                          b=mod.res.loc["s(Intercept)", "param"])
 
-np.allclose(np.array([6.121089, 6.134646, 9.798320]), mod.theta)
+np.allclose(np.array([6.46996035292, 6.34966698854, 9.57254338164]), mod.theta)
 
 print(mod.res)
 print(mod.res_smooths)
