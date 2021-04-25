@@ -407,7 +407,7 @@ class GauLS:
         for i, (r, lds) in enumerate(list(zip(self.m.ranks, self.m.ldS))):
             logdet += r * rho[i] + lds
         for j, (r, lds) in enumerate(list(zip(self.s.ranks, self.s.ldS))):
-            logdet += r * rho[j+i] + lds    
+            logdet += r * rho[j+i+1] + lds    
         return logdet
     
     def reml(self, rho):
