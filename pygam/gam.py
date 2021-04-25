@@ -59,6 +59,22 @@ class GAM:
 
         
     def get_wz(self, eta):
+        """
+        Parameters
+        ----------
+        eta: array of shape (n_obs, )
+            Linear predictor X*beta
+                    
+        Returns
+        -------
+        z: array of shape (n_obs, )
+            Pseudo data / working variate
+            z = eta + (y - mu) dg(mu)
+        
+        w: array of shape (n_obs, )
+            Regression weights
+        
+        """
         mu = self.f.inv_link(eta)
         v0, v1 = self.f.var_func(mu=mu), self.f.dvar_dmu(mu)
         g1, g2 = self.f.dlink(mu),  self.f.d2link(mu)
@@ -69,12 +85,62 @@ class GAM:
         return z, w
     
     def solve_pls(self, eta, S):
+        """
+        Parameters
+        ----------
+        eta: array of shape (n_obs, )
+            Linear predictor X*beta
+        
+        S: array of shape (nx, nx)
+            Penalty matrix
+                    
+        Returns
+        -------
+        beta_new: array of shape (nx, )
+            Solution to the penalized least squares equation
+        
+        """
         z, w = self.get_wz(eta)
         Xw = self.X * w[:, None]
         beta_new = np.linalg.solve(Xw.T.dot(self.X)+S, Xw.T.dot(z))
         return beta_new
         
     def pirls(self, lam, n_iters=200, tol=1e-12):
+        """
+        Parameters
+        ----------
+        lam: array of shape (ns, )
+            Smoothing penalty 
+        
+        n_iters: int, optional, default=200
+            Maximum number of penalized iteratively reweighted
+            least squares iterations
+        
+        tol: float, optional, default=1e-12
+            Tolerance for change in deviance over iterations before
+            convergence is declared
+                    
+        Returns
+        -------
+        beta: array of shape (nx, )
+            Array of coefficients
+        
+        eta: array of shape (n_obs, )
+            Array of linear predictors
+            
+        mu: array of shape (n_obs, )
+            Modeled mean
+        
+        dev: float
+            Deviance at convergence
+        
+        convergence: bool
+            Whether or not convergence was reached
+        
+        i: int
+            Number of PIRLS iterations
+        
+        """
         S = self.get_penalty_mat(lam)
         eta_prev = self.f.link(self.y)
         dev_prev = 1e16 #self.f.deviance(self.y, mu=self.f.inv_link(eta)).sum()
@@ -104,16 +170,59 @@ class GAM:
         return beta, eta, mu, dev, convergence, i
 
     def get_penalty_mat(self, lam):
+        """
+        Parameters
+        ----------
+        lam: array of shape (ns, )
+            Smoothing penalty 
+        
+        Returns
+        -------
+        Sa: array of shape (nx, nx)
+            Smoothing penalty matrix
+        
+        """
         Sa = np.einsum('i,ijk->jk', lam, self.S)
         return Sa
     
     def logdetS(self, lam, phi):
+        """
+        Parameters
+        ----------
+        lam: array of shape (ns, )
+            Smoothing penalty 
+        
+        phi: float
+            Scale
+        
+        Returns
+        -------
+        logdet: float
+            log determinant of penalty matrix
+        
+        """
         logdet = 0.0
         for i, (r, lds) in enumerate(list(zip(self.ranks, self.ldS))):
             logdet += r * np.log(lam[i]/phi) + lds
         return logdet
     
     def grad_beta_rho(self, beta, lam):
+        """
+        Parameters
+        ----------
+        beta: array of shape (nx,)
+            Model coefficients
+            
+        lam: array of shape (ns, )
+            Smoothing penalty 
+        
+        
+        Returns
+        -------
+        dbdr: array of shape (nx, ns)
+            Derivative of beta with respect to log smoothing parameters
+        
+        """
         S = self.get_penalty_mat(lam)
         Dp, Dp2 = self.hess_dev_beta(beta, S)
         A = np.linalg.inv(2.0 * Dp2)
@@ -124,6 +233,23 @@ class GAM:
         return dbdr
     
     def hess_beta_rho(self, beta, lam):
+        """
+        Parameters
+        ----------
+        beta: array of shape (nx,)
+            Model coefficients
+            
+        lam: array of shape (ns, )
+            Smoothing penalty 
+        
+        
+        Returns
+        -------
+        b2: array of shape (ns, ns, nx)
+            Second derivative of beta with respect to log 
+            smoothing parameters
+        
+        """
         S, b1 = self.get_penalty_mat(lam), self.grad_beta_rho(beta, lam)
         _, Dp2 = self.hess_dev_beta(beta, S)
         A = np.linalg.inv(Dp2)
@@ -142,12 +268,47 @@ class GAM:
         return b2         
     
     def grad_dev_beta(self, beta, S):
+        """
+        Parameters
+        ----------
+        beta: array of shape (nx,)
+            Model coefficients
+            
+        S: array of shape (nx, nx)
+            Smoothing penalty matrix 
+        
+        
+        Returns
+        -------
+        g: array of shape (nx, )
+            Derivative of penalized deviance with respect to beta
+        
+        """
         mu = self.f.inv_link(self.X.dot(beta))
         gw = (self.y - mu) / (self.f.var_func(mu=mu) * self.f.dlink(mu))
         g = -self.X.T.dot(gw) + S.dot(beta)
         return g
     
     def hess_dev_beta(self, beta, S):
+        """
+        Parameters
+        ----------
+        beta: array of shape (nx,)
+            Model coefficients
+            
+        S: array of shape (nx, nx)
+            Smoothing penalty matrix 
+        
+        
+        Returns
+        -------
+        D2: array of shape (nx, nx)
+            Second derivative of deviance with respect to beta
+        
+        Dp2: array of shape (nx, nx)
+            Second derivative of penalized deviance with respect to beta
+        
+        """
         mu = self.f.inv_link(self.X.dot(beta))
         v0, g1 = self.f.var_func(mu=mu), self.f.dlink(mu)
         v1, g2 = self.f.dvar_dmu(mu), self.f.d2link(mu)
@@ -158,6 +319,19 @@ class GAM:
         return D2, Dp2
     
     def reml(self, theta):
+        """
+        Parameters
+        ----------
+        theta: array of shape (ns+1,)
+            Paramete vector. First ns elements are log smoothing parameters
+            and the last is scale
+        
+        Returns
+        -------
+        L: float
+            REML criterion
+
+        """
         lam, phi = np.exp(theta[:-1]), np.exp(theta[-1])
         S = self.get_penalty_mat(lam)
         beta, eta, mu, _, _, _ = self.pirls(lam)
@@ -174,6 +348,19 @@ class GAM:
         return L
     
     def gradient(self, theta):
+        """
+        Parameters
+        ----------
+        theta: array of shape (ns+1,)
+            Paramete vector. First ns elements are log smoothing parameters
+            and the last is scale
+        
+        Returns
+        -------
+        g: array of shape (ns+1)
+            Derivative of REML criterion with respect to theta
+
+        """
         lam, phi = np.exp(theta[:-1]), np.exp(theta[-1])
         S = self.get_penalty_mat(lam)
         X = self.X
@@ -199,6 +386,19 @@ class GAM:
         return g
     
     def hessian(self, theta):
+        """
+        Parameters
+        ----------
+        theta: array of shape (ns+1,)
+            Paramete vector. First ns elements are log smoothing parameters
+            and the last is scale
+        
+        Returns
+        -------
+        H: array of shape (ns+1, ns+1)
+            Second derivative of REML criterion with respect to theta
+
+        """
         lam, phi = np.exp(theta[:-1]), np.exp(theta[-1])
         X, S = self.X, self.get_penalty_mat(lam)
         beta, eta, mu, _, _, _ = self.pirls(lam)
