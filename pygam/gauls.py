@@ -402,12 +402,12 @@ class GauLS:
         beta = self.beta_rho(rho)
         return self.grad_beta_rho(beta, lam)
     
-    def logdetS(self, lam):
+    def logdetS(self, rho):
         logdet = 0.0
         for i, (r, lds) in enumerate(list(zip(self.m.ranks, self.m.ldS))):
-            logdet += r * np.log(lam[i]) + lds
-        for i, (r, lds) in enumerate(list(zip(self.s.ranks, self.s.ldS))):
-            logdet += r * np.log(lam[i]) + lds    
+            logdet += r * rho[i] + lds
+        for j, (r, lds) in enumerate(list(zip(self.s.ranks, self.s.ldS))):
+            logdet += r * rho[j+i] + lds    
         return logdet
     
     def reml(self, rho):
@@ -415,7 +415,7 @@ class GauLS:
         beta = self.beta_rho(rho)
         S = self.get_penalty_mat(lam)
         H = self.hess_ll_beta(beta)
-        ldetS = self.logdetS(lam)
+        ldetS = self.logdetS(rho)
         _, ldetH = np.linalg.slogdet(H + S)
         ll = self.penalized_loglike(beta, S)
         L = -ll + ldetS / 2.0 - ldetH / 2.0 + self.mp * np.log(2.0*np.pi) / 2.0
@@ -427,14 +427,18 @@ class GauLS:
         H = self.hess_ll_beta(beta)
         dH = self.dhess(beta, lam)
         A = np.linalg.inv(H + S)
-        g = np.zeros_like(rho)
+        bsb = np.zeros_like(rho)
+        ldh = np.zeros_like(rho)
+        lds = np.zeros_like(rho)
         for i in range(self.ns):
             Si, ai = self.S[i], lam[i]
             dbsb = beta.T.dot(Si).dot(beta) * ai
             dldh = np.trace(A.dot(Si*ai + dH[i]))
             dlds = self.ranks[i]
-            g[i] = dbsb + dldh - dlds
-        g = g / 2.0
+            bsb[i] = dbsb
+            ldh[i] = dldh
+            lds[i] = dlds
+        g = bsb / 2.0 - lds / 2.0 + ldh / 2.0
         return g
             
             
@@ -512,12 +516,12 @@ df = pd.DataFrame(np.zeros((n_obs, 4)), columns=['x0', 'x1', 'x2', 'y'])
  
 df['x0'] = rng.choice(np.arange(5), size=n_obs, p=np.ones(5)/5)
 df['x1'] = rng.uniform(-1, 1, size=n_obs)
-df['x2'] = rng.uniform(-2, 2, size=n_obs)
+df['x2'] = rng.uniform(-1, 1, size=n_obs)
 df['x3'] = rng.uniform(-2, 2, size=n_obs)
 
 u0 =  dummy(df['x0']).dot(np.array([-0.2, 0.2, -0.2, 0.2, 0.0]))
 f1 = (3.0 * df['x1']**3 - 2.43 * df['x1'])
-f2 = (df['x2']**3 - df['x2']) / 10
+f2 = -(3.0 * df['x2']**3 - 2.43 * df['x2']) 
 f3 = (df['x3'] - 1.0) * (df['x3'] + 1.0)
 eta =  u0 + f1 + f2
 mu = eta.copy() 
@@ -537,7 +541,7 @@ rtolh = 1e-3
 lam = np.array([ 83.30492, 1319.09376,   92.54213   ])
 rho = np.log(lam)
 
-rho = np.array([4.422508, 7.1847, 4.527664])
+rho = np.array([4.511599, 4.501194, 4.556914 ])
 lam = np.exp(rho)
 
 beta = mod.beta_rho(rho)
@@ -591,6 +595,10 @@ f = lambda rho: mod.dhess(mod.beta_rho(rho), np.exp(rho))
 d2H1 = mod.d2hess(beta, lam)
 d2H2 = f4prime(f, rho, eps=np.finfo(float).eps**(1/3))
 
+
+theta = rho - 2.0
+
+mod.gradient(theta)
 
 T1 = np.eye(33)
 for key in mod.m.smooths.keys():
