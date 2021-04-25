@@ -574,6 +574,34 @@ class GauLS:
         self.opt, self.theta = opt, rho
         self.beta = beta
         self.F, self.edf, self.Hbeta = F, np.trace(F), Hbeta
+        smooths = {}
+        for term in self.m.smooths.keys():
+            smooths[f"m({term})"] = self.m.smooths[term]
+        for term in self.s.smooths.keys():
+            smooths[f"s({term})"] = self.s.smooths[term].copy()
+            smooths[f"s({term})"]['ix'] = smooths[f"s({term})"]['ix'] + self.ixs[0]
+        s_table = {}    
+        for term in smooths.keys():
+            
+            ix = smooths[term]['ix']
+            Vb = self.Vb[ix, ix[:, None]]
+            X = self.Xt[:, ix]
+            b = self.beta[ix]
+            Q, R = np.linalg.qr(X)
+            Rb = R.dot(b)
+            W = np.linalg.pinv(R.dot(Vb).dot(R.T))
+            Tr = Rb.dot(W).dot(Rb)
+            edf = np.sum(self.F[ix, ix])
+            if (edf - np.floor(edf)) < 0.05:
+                r = np.floor(edf)
+            else:
+                r = np.ceil(edf)
+            p = sp.stats.chi2(r).sf(Tr)
+            s_table[term] = {"edf":edf, "rdf":r, "chisq":Tr, 
+                             "p_approx":p}
+            
+        self.smooths = smooths
+        self.res_smooths = pd.DataFrame(s_table).T
         
     def fit(self, approx_hess=False, opt_kws={}, confint=95):
         self.optimize_penalty(approx_hess=approx_hess, opt_kws=opt_kws)
@@ -609,7 +637,8 @@ class GauLS:
                                       self.edf], 
                                      index=['Explained Deviance', 'Rsquared',
                                             'Loglike', 'AIC', 'REML',
-                                            'EDF'])                                  
+                                            'EDF'])    
+                                      
     
     
         
