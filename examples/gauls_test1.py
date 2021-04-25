@@ -70,8 +70,7 @@ mod.fit(opt_kws=dict(options=dict(verbose=3)))
 
 mod.plot_smooth_comp(mod.beta, single_fig=False)
 mod.plot_smooth_quantiles('x1', 'x2')
-mod.plot_smooth_quantiles('x2', 'x2', quantiles=[1, 5, 10, 15, 20, 25, 30, 
-                                                 35, 40, 45])
+mod.plot_smooth_quantiles('x2', 'x2', quantiles=np.insert(np.arange(5, 50, 5), 0, 1))
 
 np.allclose(np.array([6.121089, 6.134646, 9.798320]), mod.theta)
 
