@@ -603,10 +603,13 @@ class GauLS:
         self.rsquared = 1.0 - ssr / sst
         self.ll_model = self.loglike(self.beta)
         self.aic = 2.0 * self.ll_model + 2.0 + self.edf * 2.0
+        self.reml_val = self.reml(self.theta.copy())
         self.sumstats = pd.DataFrame([self.deviance_explained, self.rsquared,
-                                      self.ll_model, self.aic, self.edf], 
+                                      self.ll_model, self.aic, self.reml_val,
+                                      self.edf], 
                                      index=['Explained Deviance', 'Rsquared',
-                                            'Loglike', 'AIC', 'EDF'])                                  
+                                            'Loglike', 'AIC', 'REML',
+                                            'EDF'])                                  
     
     
         
