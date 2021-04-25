@@ -8,14 +8,20 @@ Created on Sat Apr 24 12:58:08 2021
 import patsy
 import numpy as np
 import scipy as sp
+import scipy.stats
 import pandas as pd
-from pystats.pyglm.links import IdentityLink, Link
-from pystats.pygam.gam import GAM
-from pystats.pygam.smooth_setup import parse_smooths, get_parametric_formula,  get_smooth_terms, get_smooth_matrices
-from pystats.utilities.splines import crspline_basis, bspline_basis, ccspline_basis, absorb_constraints
-from pystats.utilities import numerical_derivs
-from pystats.utilities.random_corr import near_psd
-from pystats.utilities.linalg_operations import dummy
+import scipy.optimize
+import matplotlib.pyplot as plt
+from ..pyglm.links import IdentityLink, Link
+from .smooth_setup import parse_smooths, get_parametric_formula,  get_smooth_terms, get_smooth_matrices
+from ..utilities.splines import crspline_basis, bspline_basis, ccspline_basis, absorb_constraints
+from ..utilities.numerical_derivs import so_gc_cd
+
+
+
+def wcrossp(X, w):
+    Y =  (X * w.reshape(-1, 1)).T.dot(X)
+    return Y
 
 
 class LogbLink(Link):
@@ -69,15 +75,16 @@ class PredictorTerm:
         self.mp = self.nx - np.sum(self.ranks)
         self.data = data
         theta = np.zeros(self.ns)
+        self.x_varnames = varnames
+        self.t_varnames = []
         for i, (var, s) in enumerate(smooths.items()):
             ix = smooths[var]['ix']
             a = self.S[i][ix, ix[:, None].T]
             d = np.diag(self.X[:, ix].T.dot(self.X[:, ix]))
             lam = (1.5 * (d / a)[a>0]).mean()
             theta[i] = np.log(lam)
-            varnames += [f"log_smooth_{var}"]
+            self.t_varnames += [f"log_smooth_{var}"]
         self.theta = theta
-        self.varnames = varnames
         self.smooth_info = smooth_info
         self.link = link
         
@@ -117,7 +124,12 @@ class GauLS:
         self.Xt = np.concatenate([self.m.X, self.s.X], axis=1)
         self.mp = self.m.mp + self.s.mp
         self.ranks = self.m.ranks + self.s.ranks
-        
+        self.theta = np.ones(self.ns)
+        x_varnames = [f"m({x})" for x in self.m.x_varnames] + \
+                     [f"s({x})" for x in self.s.x_varnames]
+        t_varnames = [f"m({x})" for x in self.m.t_varnames] + \
+                     [f"s({x})" for x in self.s.t_varnames]
+        self.varnames = x_varnames + t_varnames
         
     def get_mutau(self, beta_m, beta_s):
         etam, etas = self.m.X.dot(beta_m), self.s.X.dot(beta_s)
@@ -464,6 +476,131 @@ class GauLS:
                 t2 = -D2r[i, j]
                 H[i, j] = H[j, i] = t1 + t2 + ldh2/2
         return H
+    
+    
+    def get_smooth_comps(self, beta, ci=90):
+        methods = {"cr":crspline_basis, "cc":ccspline_basis,"bs":bspline_basis} 
+        f = {}
+        ci = sp.stats.norm(0, 1).ppf(1.0 - (100 - ci) / 200)
+        for i, (key, s) in enumerate(self.smooths.items()):
+            knots = s['knots']         
+            x = np.linspace( knots.min(),  knots.max(), 200)
+            X = methods[s['kind']](x, knots, **s['fkws'])
+            X, _ = absorb_constraints(s['q'], X=X)
+            y = X.dot(beta[s['ix']])
+            ix = s['ix'].copy()[:, None]
+            Vc = self.Vc[ix, ix.T]
+            se = np.sqrt(np.diag(X.dot(Vc).dot(X.T))) * ci
+            f[key] = np.vstack((x, y, se)).T
+        return f
+            
+    def plot_smooth_comp(self, beta=None, single_fig=True, subplot_map=None, 
+                         ci=95, fig_kws={}):
+        beta = self.beta if beta is None else beta
+        ci = sp.stats.norm(0, 1).ppf(1.0 - (100 - ci) / 200)
+        methods = {"cr":crspline_basis, "cc":ccspline_basis,"bs":bspline_basis} 
+        if single_fig:
+            fig, ax = plt.subplots(**fig_kws)
+            
+        if subplot_map is None:
+            subplot_map = dict(zip(np.arange(self.ns), np.arange(self.ns)))
+        for i, (key, s) in enumerate(self.m.smooths.items()):
+            knots = s['knots']         
+            x = np.linspace( knots.min(),  knots.max(), 200)
+            X = methods[s['kind']](x, knots, **s['fkws'])
+            X, _ = absorb_constraints(s['q'], X=X)
+            y = X.dot(beta[s['ix']])
+            ix = s['ix'].copy()[:, None]
+            Vc = self.Vc[ix, ix.T]
+            se = np.sqrt(np.diag(X.dot(Vc).dot(X.T))) * ci
+            if not single_fig: 
+                fig, ax = plt.subplots()
+                ax.plot(x, y)
+                ax.fill_between(x, y-se, y+se, color='b', alpha=0.4)
+            else:
+                ax[subplot_map[i]].plot(x, y)
+                ax[subplot_map[i]].fill_between(x, y-se, y+se, color='b', alpha=0.4)
+        return fig, ax
+    
+    def plot_smooth_quantiles(self, m_comp=None, s_comp=None, quantiles=None, figax=None):
+        if quantiles is None:
+            quantiles = [5, 10, 20, 30, 40]
+        if figax is None:
+            fig, ax = plt.subplots()
+        else:
+            fig, ax = figax
+            
+        methods = {"cr":crspline_basis, "cc":ccspline_basis,"bs":bspline_basis} 
+        
+        m, s = self.m.smooths[m_comp], self.s.smooths[s_comp]
+        mk = m['knots']  
+        x = np.linspace(mk.min(), mk.max(), 200)
+        Xm = methods[m['kind']](x, mk, **m['fkws'])
+        Xs = methods[s['kind']](x, mk, **s['fkws'])
+        Xm, _ = absorb_constraints(m['q'], X=Xm)
+        Xs, _ = absorb_constraints(s['q'], X=Xs)
+        mu = self.m.link.inv_link(Xm.dot(self.beta[m['ix']]))
+        tau = 1.0 / self.s.link.inv_link(Xs.dot(self.beta[self.ixs][s['ix']]))
+        for q in quantiles:
+            c = sp.stats.norm(0, 1).ppf(q/100)
+            ax.fill_between(x, mu+c*tau, mu-c*tau, color='b', alpha=0.2, label=f"{2*q}th Quantile")
+        ax.set_xlim(x.min(), x.max())
+        return fig, ax
+    
+    def optimize_penalty(self, approx_hess=False, opt_kws={}):
+        if approx_hess:
+            hess = lambda x: so_gc_cd(self.gradient, x)
+        else:
+            hess = self.hessian
+        x = self.theta.copy()
+        opt = sp.optimize.minimize(self.reml, x, jac=self.gradient, 
+                                   hess=hess, method='trust-constr',
+                                   **opt_kws)
+        rho = opt.x.copy()
+        lambda_ = np.exp(rho)
+        beta = self.beta_rho(rho)
+        Slambda = self.get_penalty_mat(lambda_)
+        Hbeta = self.hess_ll_beta(beta)
+        Vb = np.linalg.inv(Hbeta + Slambda)
+        Vp = np.linalg.inv(self.hessian(rho))
+        Jb = self.grad_beta_rho(beta, lambda_)
+        C = Jb.dot(Vp).dot(Jb.T)
+        Vc = Vb + C
+        Vs = Vb.dot(Hbeta).dot(Vb)
+        Vf = Vs + C
+        F = Vb.dot(Hbeta)
+        self.Slambda = Slambda
+        self.Vb, self.Vp, self.Vc, self.Vf, self.Vs = Vb, Vp, Vc, Vf, Vs
+        self.opt, self.theta = opt, rho
+        self.beta = beta
+        self.F, self.edf, self.Hbeta = F, np.trace(F), Hbeta
+        
+    def fit(self, approx_hess=False, opt_kws={}, confint=95):
+        self.optimize_penalty(approx_hess=approx_hess, opt_kws=opt_kws)
+
+        b, se = self.beta, np.sqrt(np.diag(self.Vc))
+        b = np.concatenate((b, self.theta))
+        se = np.concatenate((se, np.sqrt(np.diag(self.Vp))))
+        
+        c = sp.stats.norm(0, 1).ppf(1-(100-confint)/200)
+        t = b/se
+        p = sp.stats.t(self.edf).sf(np.abs(t))
+        res = np.vstack((b, b-c*se, b+c*se, se, t, p)).T
+        self.res = pd.DataFrame(res, index=self.varnames,
+                                columns=['param', f'CI{confint}-', f'CI{confint}+',
+                                         'SE', 't', 'p'])
+        yhat = self.m.X.dot(self.beta[self.ixm])
+        resids = self.y - yhat
+        ssr = np.sum(resids**2)
+        sst =  np.sum((self.y - self.y.mean())**2)
+        self.rsquared = 1.0 - ssr / sst
+        self.ll_model = self.loglike(self.beta)
+        self.aic = 2.0 * self.ll_model + 2.0 + self.edf * 2.0
+        self.sumstats = pd.DataFrame([self.rsquared, self.ll_model, self.aic, self.edf], 
+                                     index=['Rsquared', 'Loglike', 'AIC', 'EDF'])                                  
+    
+    
+        
 
 
 # rng = np.random.default_rng(123)
