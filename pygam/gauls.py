@@ -205,7 +205,6 @@ class GauLS:
         lm = t2 * r
         ls = 1/tau - tau * r2
 
-         
         lmm = -t2
         lms = 2.0 * tau * r
         lss = -r2 - 1.0 / t2
@@ -221,8 +220,6 @@ class GauLS:
         lmsss = np.zeros_like(r)
         lssss = -6.0 / (t2**2)
     
-
-
         g1m, g1s = self.m.link.dinv_link(etam), self.s.link.dinv_link(etas)
         g2m, g2s = self.m.link.d2link(mu), self.s.link.d2link(tau)
         g3m, g3s = self.m.link.d3link(mu), self.s.link.d3link(tau)
@@ -522,7 +519,8 @@ class GauLS:
                 ax[subplot_map[i]].fill_between(x, y-se, y+se, color='b', alpha=0.4)
         return fig, ax
     
-    def plot_smooth_quantiles(self, m_comp=None, s_comp=None, quantiles=None, figax=None):
+    def plot_smooth_quantiles(self, m_comp=None, s_comp=None, quantiles=None,
+                              mean=True, figax=None, b=0.0):
         if quantiles is None:
             quantiles = [5, 10, 20, 30, 40]
         if figax is None:
@@ -531,7 +529,6 @@ class GauLS:
             fig, ax = figax
             
         methods = {"cr":crspline_basis, "cc":ccspline_basis,"bs":bspline_basis} 
-        
         m, s = self.m.smooths[m_comp], self.s.smooths[s_comp]
         mk = m['knots']  
         x = np.linspace(mk.min(), mk.max(), 200)
@@ -540,10 +537,13 @@ class GauLS:
         Xm, _ = absorb_constraints(m['q'], X=Xm)
         Xs, _ = absorb_constraints(s['q'], X=Xs)
         mu = self.m.link.inv_link(Xm.dot(self.beta[m['ix']]))
-        tau = 1.0 / self.s.link.inv_link(Xs.dot(self.beta[self.ixs][s['ix']]))
+        tau = 1.0 / self.s.link.inv_link(b+Xs.dot(self.beta[self.ixs][s['ix']]))
         for q in quantiles:
             c = sp.stats.norm(0, 1).ppf(q/100)
-            ax.fill_between(x, mu+c*tau, mu-c*tau, color='b', alpha=0.2, label=f"{2*q}th Quantile")
+            ax.fill_between(x, mu+c*tau, mu-c*tau, color='b', alpha=0.2, 
+                            zorder=1, label=f"{2*q}th Quantile")
+        if mean:
+            ax.plot(x, mu, color='#ff7f0e')
         ax.set_xlim(x.min(), x.max())
         return fig, ax
     
