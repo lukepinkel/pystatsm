@@ -47,7 +47,7 @@ print(mod.res)
 print(mod.res_smooths)
 
          
-n_obs = 50_000
+n_obs = 20_000
 df = pd.DataFrame(np.zeros((n_obs, 4)), columns=['x0', 'x1', 'x2', 'y'])
 
 df['x0'] = rng.choice(np.arange(5), size=n_obs, p=np.ones(5)/5)
@@ -73,7 +73,7 @@ mod.plot_smooth_quantiles('x1', 'x2')
 mod.plot_smooth_quantiles('x2', 'x2', quantiles=[1, 5, 10, 15, 20, 25, 30, 
                                                  35, 40, 45])
 
-np.allclose(np.array([9.363336,  9.186460, 12.551902]), mod.theta)
+np.allclose(np.array([6.121089, 6.134646, 9.798320]), mod.theta)
 
 print(mod.res)
 print(mod.res_smooths)
