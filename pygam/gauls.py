@@ -466,71 +466,6 @@ class GauLS:
         return H
 
 
-def fprime(f, x, eps=None):
-    if eps is None:
-        eps = np.finfo(float).eps**(1.0/2.0)
-    y = f(x)
-    p, q = y.shape[0], x.shape[0]
-    D = np.zeros((p, q))
-    h = np.zeros(q)
-    for i in range(q):
-        h[i] = eps
-        D[:, i] = (f(x+h) - f(x - h)) / (2.0 * eps)
-        h[i] = 0.0
-    return D
-    
-
-def f2prime(f, x, eps=None):
-    eps = np.finfo(float).eps**(1/3) if eps is None else eps
-    J = f(x)
-    n, p = J.shape
-    Hn = np.zeros((p, p, n))
-    Hp = np.zeros((p, p, n))
-    H = np.zeros((p, p, n))
-    h = np.zeros(p)
-    for i in range(p):
-        h[i] = eps
-        Hp[i] = f(x+h).T
-        Hn[i] = f(x-h).T
-        h[i] = 0.0
-    for i in range(p):
-        for j in range(i+1):
-            H[i, j] = (Hp[i, j] - Hn[i, j] + Hp[j, i] - Hn[j, i]) / (4 * eps)
-            H[j, i] = H[i, j]
-    return H
-
-def f3prime(f, x, eps=None):
-    if eps is None:
-        eps = np.finfo(float).eps**(1.0/3.0)
-    y = f(x)
-    p, q = y.shape[0], x.shape[0]
-    D = np.zeros((q, p, p))
-    h = np.zeros(q)
-    for i in range(q):
-        h[i] = eps
-        D[i] = (f(x+h) - f(x - h)) / (2.0 * eps)
-        h[i] = 0.0
-    return D
-
-def f4prime(f, x, eps=None):
-    eps = np.finfo(float).eps**(1/3) if eps is None else eps
-    J = f(x)
-    p, n, n = J.shape
-    Hn = np.zeros((p, p, n, n))
-    Hp = np.zeros((p, p, n, n))
-    H =  np.zeros((p, p, n, n))
-    h = np.zeros(p)
-    for i in range(p):
-        h[i] = eps
-        Hp[i] = f(x+h)
-        Hn[i] = f(x-h)
-        h[i] = 0.0
-    for i in range(p):
-        for j in range(i+1):
-            H[i, j] = (Hp[i, j] - Hn[i, j] + Hp[j, i] - Hn[j, i]) / (4 * eps)
-            H[j, i] = H[i, j]
-    return H
-
 rng = np.random.default_rng(123)
 
 
@@ -565,6 +500,73 @@ H2 = numerical_derivs.so_gc_cd(mod.gradient, theta)
 
 sp.optimize.minimize(mod.reml, np.ones(3), jac=mod.gradient, hess=mod.hessian,
                      method='trust-constr', options=dict(verbose=3))
+
+
+
+# def fprime(f, x, eps=None):
+#     if eps is None:
+#         eps = np.finfo(float).eps**(1.0/2.0)
+#     y = f(x)
+#     p, q = y.shape[0], x.shape[0]
+#     D = np.zeros((p, q))
+#     h = np.zeros(q)
+#     for i in range(q):
+#         h[i] = eps
+#         D[:, i] = (f(x+h) - f(x - h)) / (2.0 * eps)
+#         h[i] = 0.0
+#     return D
+    
+
+# def f2prime(f, x, eps=None):
+#     eps = np.finfo(float).eps**(1/3) if eps is None else eps
+#     J = f(x)
+#     n, p = J.shape
+#     Hn = np.zeros((p, p, n))
+#     Hp = np.zeros((p, p, n))
+#     H = np.zeros((p, p, n))
+#     h = np.zeros(p)
+#     for i in range(p):
+#         h[i] = eps
+#         Hp[i] = f(x+h).T
+#         Hn[i] = f(x-h).T
+#         h[i] = 0.0
+#     for i in range(p):
+#         for j in range(i+1):
+#             H[i, j] = (Hp[i, j] - Hn[i, j] + Hp[j, i] - Hn[j, i]) / (4 * eps)
+#             H[j, i] = H[i, j]
+#     return H
+
+# def f3prime(f, x, eps=None):
+#     if eps is None:
+#         eps = np.finfo(float).eps**(1.0/3.0)
+#     y = f(x)
+#     p, q = y.shape[0], x.shape[0]
+#     D = np.zeros((q, p, p))
+#     h = np.zeros(q)
+#     for i in range(q):
+#         h[i] = eps
+#         D[i] = (f(x+h) - f(x - h)) / (2.0 * eps)
+#         h[i] = 0.0
+#     return D
+
+# def f4prime(f, x, eps=None):
+#     eps = np.finfo(float).eps**(1/3) if eps is None else eps
+#     J = f(x)
+#     p, n, n = J.shape
+#     Hn = np.zeros((p, p, n, n))
+#     Hp = np.zeros((p, p, n, n))
+#     H =  np.zeros((p, p, n, n))
+#     h = np.zeros(p)
+#     for i in range(p):
+#         h[i] = eps
+#         Hp[i] = f(x+h)
+#         Hn[i] = f(x-h)
+#         h[i] = 0.0
+#     for i in range(p):
+#         for j in range(i+1):
+#             H[i, j] = (Hp[i, j] - Hn[i, j] + Hp[j, i] - Hn[j, i]) / (4 * eps)
+#             H[j, i] = H[i, j]
+#     return H
 
 # X = mod.Xt
 # atol = np.finfo(float).eps**(1/3)
