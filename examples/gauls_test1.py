@@ -5,11 +5,11 @@ Created on Sat Apr 24 22:40:59 2021
 @author: lukepinkel
 """
 
+
 import numpy as np
 import scipy as sp
 import pandas as pd
 from pystats.pygam.gauls import GauLS
-from pystats.utilities import numerical_derivs
 from pystats.utilities.linalg_operations import dummy
 
 rng = np.random.default_rng(123)
@@ -38,3 +38,5 @@ mod.fit(opt_kws=dict(options=dict(verbose=3)))
 mod.plot_smooth_comp(mod.beta, single_fig=False)
 mod.plot_smooth_quantiles('x1', 'x3')
 mod.plot_smooth_quantiles('x2', 'x3')
+
+np.allclose(np.array([3.915687, 4.138739, 7.299964]), mod.theta)
