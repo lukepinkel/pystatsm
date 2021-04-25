@@ -92,7 +92,27 @@ class GauLS:
     
     def __init__(self, m_formula, s_formula, data, m_link=IdentityLink,
                  s_link=LogbLink):
+        """
+        parameters
+        ----------
         
+        m_formula: str
+            Formula for mean component
+        
+        s_formula: str
+            Formula for scale component
+        
+        data: dataframe
+            Model data
+        
+        m_link: Link, optional
+            Mean component link.  Default IdentityLink
+        
+        
+        s_link: Link, optional
+            Scale component link. Defaults to LogbLink
+        
+        """
         self.m = PredictorTerm(m_formula, data, m_link)
         self.s = PredictorTerm(s_formula, data, s_link)
         self.ns_m = len(self.m.theta)
@@ -131,72 +151,78 @@ class GauLS:
                      [f"s({x})" for x in self.s.t_varnames]
         self.varnames = x_varnames + t_varnames
         
-    def get_mutau(self, beta_m, beta_s):
-        etam, etas = self.m.X.dot(beta_m), self.s.X.dot(beta_s)
-        mu, tau = self.m.link.inv_link(etam), self.s.link.inv_link(etas)
-        return mu, tau
     
     def loglike(self, beta):
+        """
+        Parameters
+        ----------
+        beta: array of shape (nx,)
+            Model coefficients
+        
+        Returns
+        -------
+        ll: float
+            Negative log likelihood
+        """
         beta_m, beta_s = beta[self.ixm], beta[self.ixs]
-        mu, tau = self.get_mutau(beta_m, beta_s)
+        etam, etas = self.m.X.dot(beta_m), self.s.X.dot(beta_s)
+        mu, tau = self.m.link.inv_link(etam), self.s.link.inv_link(etas)
         r = self.y - mu
         r2, t2 = r**2, tau**2
         ll_elementwise = -0.5 * r2 * t2 - 0.5 * np.log(2.0*np.pi) + np.log(tau)
-        ll = np.sum(ll_elementwise)
-        return -ll
+        ll = -np.sum(ll_elementwise)
+        return ll
     
     def penalized_loglike(self, beta, S):
+        """
+        Parameters
+        ----------
+        
+        beta: array of shape (nx,)
+            Model coefficients   
+        
+        S: array of shape (nx, nx)
+            Penalty matrix
+        
+        Returns
+        -------
+        
+        llp: float
+            Penalized log likelihood
+            
+        """
         ll = self.loglike(beta)
         llp = ll + beta.T.dot(S).dot(beta) / 2.0
         return llp
         
-    def d1loglike(self, beta_m, beta_s):
-        mu, tau = self.get_mutau(beta_m, beta_s)
-        r = self.y - mu
-        r2, t2 = r**2, tau**2
-        dm = t2 * r
-        ds = 1/tau - tau * r2
-        L1 = np.vstack((dm, ds)).T
-        return L1
-
-    def d2loglike(self, beta_m, beta_s):
-        mu, tau = self.get_mutau(beta_m, beta_s)
-        r = self.y - mu
-        r2, t2 = r**2, tau**2
-        
-        dmm = -t2
-        dms = 2.0 * tau * r
-        dss = -r2 - 1.0 / t2
-        L2 = np.vstack((dmm, dms, dss)).T
-        return L2        
-    
-    def d3loglike(self, beta_m, beta_s):
-        mu, tau = self.get_mutau(beta_m, beta_s)
-        r = self.y - mu
-        t2 = tau**2
-        
-        dmmm = np.zeros_like(r)
-        dmms = -2.0 * tau
-        dmss = 2.0 * r
-        dsss = 2.0 / (t2 * tau)
-        
-        L3 = np.vstack((dmmm, dmms, dmss, dsss)).T
-        return L3
-    
-    def d4loglike(self, beta_m, beta_s):
-        mu, tau = self.get_mutau(beta_m, beta_s)
-        r = self.y - mu
-        t2 = tau**2
-        
-        dmmmm = np.zeros_like(r)
-        dmmms = np.zeros_like(r)
-        dmmss = np.zeros_like(r) + -2.0
-        dmsss = np.zeros_like(r)
-        dssss = -6.0 / (t2**2)
-        L4 = np.vstack((dmmmm, dmmms, dmmss, dmsss, dssss)).T
-        return L4
     
     def ll_eta_derivs(self, beta_m, beta_s):
+        """
+        Parameters
+        ----------
+        beta_m: array of shape (nxm,)
+            Location coefficients   
+        
+        beta_s: array of shape (nxs,)
+            Scale coefficients   
+        
+        Returns
+        -------
+        
+        L1: array of shape (n_obs, 2)
+            Derivatives of negative log likelihood with respect to mu and tau
+            
+        L2: array of shape (n_obs, 3)
+            Second derivative of negative log likelihood with respect to mu and tau
+            
+        L3: array of shape (n_obs, 4)
+            Third derivatives of negative log likelihood with respect to mu and tau
+        
+        L4: array of shape (n_obs, 5)
+            Fourth derivatives of negative log likelihood with respect to mu and tau
+        
+        
+        """
         etam, etas = self.m.X.dot(beta_m), self.s.X.dot(beta_s)
         mu, tau = self.m.link.inv_link(etam), self.s.link.inv_link(etas)
         r = self.y - mu
@@ -261,18 +287,64 @@ class GauLS:
         return L1, L2, L3, L4
     
     def grad_ll_beta(self, beta):
+        """
+        Parameters
+        ----------
+        beta: array of shape (nx,)
+            Model coefficients   
+        
+        
+        Returns
+        -------
+        g: array of shape (nx,)
+            Derivative of negative log likelihood with respect to 
+            coefficients/beta
+            
+        
+        """
         beta_m, beta_s = beta[self.ixm], beta[self.ixs]
         L1, _, _, _ = self.ll_eta_derivs(beta_m, beta_s)
         g1 = self.m.X.T.dot(L1[:, 0])
         g2 = self.s.X.T.dot(L1[:, 1])
-        g = np.concatenate([g1, g2])
-        return -g
+        g = -np.concatenate([g1, g2])
+        return g
     
     def grad_pll_beta(self, beta, S):
-        return self.grad_ll_beta(beta)+S.dot(beta)
+        """
+        Parameters
+        ----------
+        beta: array of shape (nx,)
+            Model coefficients   
+        
+        S: array of shape (nx, nx)
+            Penalty matrix
+        
+        Returns
+        -------
+        gp: array of shape (nx,)
+            Derivative of negative penalized log likelihood with respect to 
+            coefficients/beta
+            
+        """
+        gp = self.grad_ll_beta(beta)+S.dot(beta)
+        return gp
     
     
     def hess_ll_beta(self, beta):
+        """
+        Parameters
+        ----------
+        beta: array of shape (nx,)
+            Model coefficients   
+        
+        
+        Returns
+        -------
+        H: array of shape (nx, nx)
+            Second derivatives of negative log likelihood with respect to 
+            coefficients/beta
+            
+        """
         beta_m, beta_s = beta[self.ixm], beta[self.ixs]
         _, L2, _, _  = self.ll_eta_derivs(beta_m, beta_s)
         wmm, wms, wss = L2[:, 0], L2[:, 1], L2[:, 2]
@@ -283,17 +355,75 @@ class GauLS:
         H22 = (Xs * wss).T.dot(Xs)
         H1 = np.concatenate([H11, H12], axis=1)
         H2 = np.concatenate([H12.T, H22], axis=1)
-        H = np.concatenate([H1, H2], axis=0)
-        return -H
+        H = -np.concatenate([H1, H2], axis=0)
+        return H
     
     def hess_pll_beta(self, beta, S):
-        return self.hess_ll_beta(beta)+S
+        """
+        Parameters
+        ----------
+        beta: array of shape (nx,)
+            Model coefficients   
+        
+        S: array of shape (nx, nx)
+            Penalty matrix
+        
+        Returns
+        -------
+        HS: array of shape (nx, nx)
+            Second derivatives of negative penalized log likelihood with 
+            respect to coefficients/beta
+            
+        """
+        HS = self.hess_ll_beta(beta)+S
+        return HS
     
     def get_penalty_mat(self, lam):
+        """
+        Parameters
+        ----------
+        lam: array of shape (ns,)
+            Model penalty parameters
+            
+        Returns
+        -------
+        Sa: array of shape (nx, nx)
+            Model penalty matrix
+            
+        """
         Sa = np.einsum('i,ijk->jk', lam, self.S)
         return Sa
     
     def outer_step(self, S, beta_init=None, n_iters=200, tol=1e-25):
+        """
+        Parameters
+        ----------
+        S: array of shape (nx, nx)
+            Model penalty matrix
+        
+        beta_init: array of shape (nx,), optional
+            Initial beta for newton step.  Default None, 
+            which sets beta_init to array of zeros
+        
+        n_iters: int, optional
+            Maximum number of iterations for newton step.  Defaults to 200
+            
+        tol: float, optional
+            Tolerance for convergence.  Defaults to 1e-25
+        
+        Returns
+        -------
+        
+        beta: array of shape (nx,)
+            Model coefficients
+            
+        i: int
+            Number of newton iterations
+        
+        convergence: bool
+            Whether the NR step converged
+            
+        """
         if beta_init is None:
             beta_init = np.zeros(self.nx)
         beta = beta_init.copy()
@@ -326,12 +456,39 @@ class GauLS:
         return beta, i, convergence
     
     def beta_rho(self, rho):
+        """
+        Parameters
+        ----------
+        rho: array of shape (ns,)
+            Log smoothing parameters
+            
+        Returns
+        -------
+        beta: array of shape (nx,)
+            Coefficient estimates given log smoothing parameters
+            
+        """
         lam = np.exp(rho)
         S = self.get_penalty_mat(lam)
         beta, i, convergence = self.outer_step(S)
         return beta
     
     def grad_beta_rho(self, beta, lam):
+        """
+        Parameters
+        ----------
+        beta: array of shape (nx,)
+            Model coefficients
+        
+        lam: array of shape (ns,)
+            Smoothing parameters
+            
+        Returns
+        -------
+        dbdr: array of shape (nx, ns)
+            Derivative of beta with respect to log smoothing parameters
+            
+        """
         S = self.get_penalty_mat(lam)
         H = self.hess_ll_beta(beta)
         Hp = np.linalg.inv(H + S)
@@ -343,6 +500,20 @@ class GauLS:
     
     
     def dhess(self, beta, lam):
+        """
+        Parameters
+        ----------
+        beta: array of shape (nx,)
+            Model coefficients
+        
+        lam: array of shape (ns,)
+            Smoothing parameters
+            
+        Returns
+        -------
+        dH: array of shape (ns, nx, nx)
+            Derivative of hessian with respect to log smoothing parameters
+        """
         b1 = self.grad_beta_rho(beta, lam)
         L1, L2, L3, L4  = self.ll_eta_derivs(beta[self.ixm], beta[self.ixs])
         Xm, Xs, ixm, ixs = self.m.X, self.s.X, self.ixm, self.ixs
@@ -358,9 +529,24 @@ class GauLS:
             dHms = (Xm * v2).T.dot(Xs)
             dHss = (Xs * v3).T.dot(Xs)
             dH[i] = np.block([[dHmm, dHms], [dHms.T, dHss]])
-        return -dH
+        dH = -dH
+        return dH
     
     def d2hess(self, beta, lam):
+        """
+        Parameters
+        ----------
+        beta: array of shape (nx,)
+            Model coefficients
+        
+        lam: array of shape (ns,)
+            Smoothing parameters
+            
+        Returns
+        -------
+        d2H: array of shape (ns, ns, nx, nx)
+            Second derivative of hessian with respect to log smoothing parameters
+        """
         b1 = self.grad_beta_rho(beta, lam)
         b2 = self.hess_beta_rho(beta, lam)
         L1, L2, L3, L4  = self.ll_eta_derivs(beta[self.ixm], beta[self.ixs])
@@ -388,10 +574,28 @@ class GauLS:
                 dHms = (Xm * v2).T.dot(Xs)
                 dHss = (Xs * v3).T.dot(Xs)
                 d2H[i, j] = d2H[j, i] = np.block([[dHmm, dHms], [dHms.T, dHss]])
-        return -d2H
+        d2H = -d2H
+        return d2H
     
     
     def hess_beta_rho(self, beta, lam):
+        """
+        Parameters
+        ----------
+        beta: array of shape (nx,)
+            Model coefficients
+            
+        lam: array of shape (ns, )
+            Smoothing penalty 
+        
+        
+        Returns
+        -------
+        b2: array of shape (ns, ns, nx)
+            Second derivative of beta with respect to log 
+            smoothing parameters
+        
+        """
         S, b1 = self.get_penalty_mat(lam), self.grad_beta_rho(beta, lam)
         H = self.hess_ll_beta(beta)
         Hp = np.linalg.inv(H + S)
@@ -412,6 +616,17 @@ class GauLS:
         return self.grad_beta_rho(beta, lam)
     
     def logdetS(self, rho):
+        """
+        Parameters
+        ----------
+        rho: array of shape (ns,)
+            Log smoothing parameters
+            
+        Returns
+        -------
+        logdet: float
+            log determinant of penalty matrix
+        """
         logdet = 0.0
         for i, (r, lds) in enumerate(list(zip(self.m.ranks, self.m.ldS))):
             logdet += r * rho[i] + lds
@@ -420,6 +635,18 @@ class GauLS:
         return logdet
     
     def reml(self, rho):
+        """
+        Parameters
+        ----------
+        rho: array of shape (ns,)
+            Parameter vector of log smoothing parameters
+        
+        Returns
+        -------
+        L: float
+            REML criterion
+
+        """
         lam = np.exp(rho)
         beta = self.beta_rho(rho)
         S = self.get_penalty_mat(lam)
@@ -427,10 +654,22 @@ class GauLS:
         ldetS = self.logdetS(rho)
         _, ldetH = np.linalg.slogdet(H + S)
         ll = self.penalized_loglike(beta, S)
-        L = -ll + ldetS / 2.0 - ldetH / 2.0 + self.mp * np.log(2.0*np.pi) / 2.0
-        return -L
+        L = -(-ll + ldetS / 2.0 - ldetH / 2.0 + self.mp * np.log(2.0*np.pi) / 2.0)
+        return L
     
     def gradient(self, rho):
+        """
+        Parameters
+        ----------
+        rho: array of shape (ns,)
+            Parameter vector of log smoothing parameters
+        
+        Returns
+        -------
+        g: array of shape (ns,)
+            Derivative of REML criterion with respect to log smoothing parameters
+
+        """
         lam = np.exp(rho)
         beta, S = self.beta_rho(rho), self.get_penalty_mat(lam)
         H = self.hess_ll_beta(beta)
@@ -451,6 +690,19 @@ class GauLS:
         return g
     
     def hessian(self, rho):
+        """
+        Parameters
+        ----------
+        rho: array of shape (ns,)
+            Parameter vector of log smoothing parameters
+        
+        Returns
+        -------
+        H: array of shape (ns, ns)
+            Second derivatives of REML criterion with respect to 
+            log smoothing parameters
+
+        """
         lam = np.exp(rho)
         beta, S = self.beta_rho(rho), self.get_penalty_mat(lam)
         Hb = self.hess_ll_beta(beta)
@@ -476,6 +728,24 @@ class GauLS:
     
     
     def get_smooth_comps(self, beta, ci=90):
+        """
+        Parameters
+        ----------
+        beta: array of shape (nx,)
+            Model coefficients
+        
+        ci: int or float, optional
+            Confidence level to return intervals with
+            
+        
+        Returns
+        -------
+        f: dict of arrays
+            Each key-value pair corresponds to a smooth and an array ranging
+            over the values at which the smooth is being evaluated, x, 
+            the estimated value, f(x), and the standard error.
+
+        """
         methods = {"cr":crspline_basis, "cc":ccspline_basis,"bs":bspline_basis} 
         f = {}
         ci = sp.stats.norm(0, 1).ppf(1.0 - (100 - ci) / 200)
@@ -493,6 +763,35 @@ class GauLS:
             
     def plot_smooth_comp(self, beta=None, single_fig=True, subplot_map=None, 
                          ci=95, fig_kws={}):
+        """
+        Parameters
+        ----------
+        beta: array of shape (nx,), optional
+            Model coefficients.  Defaults to estimated values
+        
+        single_fig: bool, optional
+            Whether or not to plot smooth components on a single figure
+        
+        subplot_map: function, array, or dict, optional
+            Maps the ith smooth to a subplot (e.g. subplot_map[0]=[0, 0],
+            subplot_map[1]=[0, 1], subplot_map[2]=[1, 0], subplot_map[3]=[1, 1])
+        
+        ci: int or float, optional
+            Confidence level of interval
+        
+        fig_kws: dict, optional
+            Figure keyword arguments
+            
+        
+        Returns
+        -------
+        fig: matplotlib object
+            Figure object
+            
+        ax: matplotlib object
+            Axis object
+
+        """
         beta = self.beta if beta is None else beta
         ci = sp.stats.norm(0, 1).ppf(1.0 - (100 - ci) / 200)
         methods = {"cr":crspline_basis, "cc":ccspline_basis,"bs":bspline_basis} 
@@ -521,6 +820,38 @@ class GauLS:
     
     def plot_smooth_quantiles(self, m_comp=None, s_comp=None, quantiles=None,
                               mean=True, figax=None, b=0.0):
+        """
+        Parameters
+        ----------
+        m_comp: str
+            Name of mean smooth component
+            
+        s_comp: str
+            Name of scale smooth component
+            
+        quantiles: array, list, optional
+            Quantiles to plot
+        
+        mean: bool
+            Whether or not to plot mean value
+            
+        figax: tuple
+            Tuple of existing  matplotlib figure and axes
+        
+        b: float, int
+            Offset for scale(e.g. for a smooth by a categorical variable,
+            an intercept would need to go here for the scale to make sense)
+ 
+        
+        Returns
+        -------
+        fig: matplotlib object
+            Figure object
+            
+        ax: matplotlib object
+            Axis object
+
+        """
         if quantiles is None:
             quantiles = [5, 10, 20, 30, 40]
         if figax is None:
@@ -548,6 +879,17 @@ class GauLS:
         return fig, ax
     
     def optimize_penalty(self, approx_hess=False, opt_kws={}):
+        """
+        Parameters
+        ----------
+        approx_hess: bool, optional
+            Whether to calculate the hessian or use a numerical approximation.
+            Defaults to False (i.e. calculate exact hessian)
+        
+        opt_kws: dict, optional
+            scipy.optimize.minimize keyword arguments
+        
+        """
         if approx_hess:
             hess = lambda x: so_gc_cd(self.gradient, x)
         else:
@@ -604,6 +946,20 @@ class GauLS:
         self.res_smooths = pd.DataFrame(s_table).T
         
     def fit(self, approx_hess=False, opt_kws={}, confint=95):
+        """
+        Parameters
+        ----------
+        approx_hess: bool, optional
+            Whether to calculate the hessian or use a numerical approximation.
+            Defaults to False (i.e. calculate exact hessian)
+        
+        opt_kws: dict, optional
+            scipy.optimize.minimize keyword arguments
+        
+        confint: int, float, optional
+            Confidence intervals for summary table
+        
+        """
         self.optimize_penalty(approx_hess=approx_hess, opt_kws=opt_kws)
 
         b, se = self.beta, np.sqrt(np.diag(self.Vc))

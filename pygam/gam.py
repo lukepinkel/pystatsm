@@ -28,6 +28,20 @@ def wcrossp(X, w):
 class GAM:
     
     def __init__(self, formula, data, family=None):
+        """
+        parameters
+        ----------
+        
+        formula: str
+            Formula for model
+        
+        data: dataframe
+            Model data
+        
+        family: Family, optional
+            Model family. Defaults to Gaussian.
+        
+        """
         if family is None:
             family = Gaussian()
         smooth_info = parse_smooths(formula, data)
@@ -323,7 +337,7 @@ class GAM:
         Parameters
         ----------
         theta: array of shape (ns+1,)
-            Paramete vector. First ns elements are log smoothing parameters
+            Parameter vector. First ns elements are log smoothing parameters
             and the last is scale
         
         Returns
@@ -352,7 +366,7 @@ class GAM:
         Parameters
         ----------
         theta: array of shape (ns+1,)
-            Paramete vector. First ns elements are log smoothing parameters
+            Parameter vector. First ns elements are log smoothing parameters
             and the last is scale
         
         Returns
@@ -436,6 +450,24 @@ class GAM:
         return H
     
     def get_smooth_comps(self, beta, ci=90):
+        """
+        Parameters
+        ----------
+        beta: array of shape (nx,)
+            Model coefficients
+        
+        ci: int or float, optional
+            Confidence level to return intervals with
+            
+        
+        Returns
+        -------
+        f: dict of arrays
+            Each key-value pair corresponds to a smooth and an array ranging
+            over the values at which the smooth is being evaluated, x, 
+            the estimated value, f(x), and the standard error.
+
+        """
         methods = {"cr":crspline_basis, "cc":ccspline_basis,"bs":bspline_basis} 
         f = {}
         ci = sp.stats.norm(0, 1).ppf(1.0 - (100 - ci) / 200)
@@ -453,6 +485,35 @@ class GAM:
             
     def plot_smooth_comp(self, beta, single_fig=True, subplot_map=None, 
                          ci=95, fig_kws={}):
+        """
+        Parameters
+        ----------
+        beta: array of shape (nx,), optional
+            Model coefficients.  Defaults to estimated values
+        
+        single_fig: bool, optional
+            Whether or not to plot smooth components on a single figure
+        
+        subplot_map: function, array, or dict, optional
+            Maps the ith smooth to a subplot (e.g. subplot_map[0]=[0, 0],
+            subplot_map[1]=[0, 1], subplot_map[2]=[1, 0], subplot_map[3]=[1, 1])
+        
+        ci: int or float, optional
+            Confidence level of interval
+        
+        fig_kws: dict, optional
+            Figure keyword arguments
+            
+        
+        Returns
+        -------
+        fig: matplotlib object
+            Figure object
+            
+        ax: matplotlib object
+            Axis object
+
+        """
         ci = sp.stats.norm(0, 1).ppf(1.0 - (100 - ci) / 200)
         methods = {"cr":crspline_basis, "cc":ccspline_basis,"bs":bspline_basis} 
         if single_fig:
@@ -479,6 +540,17 @@ class GAM:
         return fig, ax
     
     def optimize_penalty(self, approx_hess=False, opt_kws={}):
+        """
+        Parameters
+        ----------
+        approx_hess: bool, optional
+            Whether to calculate the hessian or use a numerical approximation.
+            Defaults to False (i.e. calculate exact hessian)
+        
+        opt_kws: dict, optional
+            scipy.optimize.minimize keyword arguments
+        
+        """
         if approx_hess:
             hess = lambda x: so_gc_cd(self.gradient, x)
         else:
@@ -507,8 +579,43 @@ class GAM:
         self.opt, self.theta, self.scale = opt, theta, scale
         self.beta, self.eta, self.dev, self.mu = beta, eta, dev, mu
         self.F, self.edf, self.Hbeta = F, np.trace(F), Hbeta
+        s_table = {}    
+        for term in self.smooths.keys():
+            
+            ix = self.smooths[term]['ix']
+            Vb = self.Vb[ix, ix[:, None]]
+            X = self.X[:, ix]
+            b = self.beta[ix]
+            Q, R = np.linalg.qr(X)
+            Rb = R.dot(b)
+            W = np.linalg.pinv(R.dot(Vb).dot(R.T))
+            Tr = Rb.dot(W).dot(Rb)
+            edf = np.sum(self.F[ix, ix])
+            if (edf - np.floor(edf)) < 0.05:
+                r = np.floor(edf)
+            else:
+                r = np.ceil(edf)
+            p = sp.stats.chi2(r).sf(Tr)
+            s_table[term] = {"edf":edf, "rdf":r, "chisq":Tr, 
+                             "p_approx":p}
+            
+        self.res_smooths = pd.DataFrame(s_table).T
         
     def fit(self, approx_hess=False, opt_kws={}, confint=95):
+        """
+        Parameters
+        ----------
+        approx_hess: bool, optional
+            Whether to calculate the hessian or use a numerical approximation.
+            Defaults to False (i.e. calculate exact hessian)
+        
+        opt_kws: dict, optional
+            scipy.optimize.minimize keyword arguments
+        
+        confint: int, float, optional
+            Confidence intervals for summary table
+        
+        """
         self.optimize_penalty(approx_hess=approx_hess, opt_kws=opt_kws)
 
         b, se = self.beta, np.sqrt(np.diag(self.Vc))
