@@ -351,23 +351,50 @@ class GauLS:
             dH[i] = np.block([[dHmm, dHms], [dHms.T, dHss]])
         return -dH
     
+    def d2hess(self, beta, lam):
+        b1 = self.grad_beta_rho(beta, lam)
+        b2 = self.hess_beta_rho(beta, lam)
+        L1, L2, L3, L4  = self.ll_eta_derivs(beta[self.ixm], beta[self.ixs])
+        Xm, Xs, ixm, ixs = self.m.X, self.s.X, self.ixm, self.ixs
+        etam1, etas1 = Xm.dot(b1[ixm]), Xs.dot(b1[ixs])
+        etam2 = np.einsum("ij,jkl->ikl", Xm, b2.T[ixm])
+        etas2 = np.einsum("ij,jkl->ikl", Xs, b2.T[ixs])
+        d2H = np.zeros((self.ns, self.ns, self.nx, self.nx))
+        L3, L4 = L3.T, L4.T
+        for i in range(self.ns):
+            mi, si = etam1[:, i], etas1[:, i]
+            for j in range(i, self.ns):
+                mj, sj = etam1[:, j], etas1[:, j]
+                mij, sij = etam2[:, i, j], etas2[:, i, j]
+                
+                v1 = L4[0] * mi * mj + L4[1] * mi * sj + L4[1] * si * mj + \
+                     L4[2] * si * sj + L3[0] * mij + L3[1] * sij
+                v2 = L4[1] * mi * mj + L4[2] * mi * sj + L4[2] * si * mj + \
+                     L4[3] * si * sj + L3[1] * mij + L3[2] * sij
+                v3 = L4[2] * mi * mj + L4[3] * mi * sj + L4[3] * si * mj + \
+                     L4[4] * si * sj + L3[2] * mij + L3[3] * sij
+                
+                v1, v2, v3 = v1.reshape(-1, 1), v2.reshape(-1, 1), v3.reshape(-1, 1)
+                dHmm = (Xm * v1).T.dot(Xm)
+                dHms = (Xm * v2).T.dot(Xs)
+                dHss = (Xs * v3).T.dot(Xs)
+                d2H[i, j] = d2H[j, i] = np.block([[dHmm, dHms], [dHms.T, dHss]])
+        return -d2H
+    
     
     def hess_beta_rho(self, beta, lam):
         S, b1 = self.get_penalty_mat(lam), self.grad_beta_rho(beta, lam)
         H = self.hess_ll_beta(beta)
         Hp = np.linalg.inv(H + S)
-        L1, L2, L3, L4  = self.ll_eta_derivs(beta[self.ixm], beta[self.ixs])
+        dH = self.dhess(beta, lam)
         b2 = np.zeros((self.ns, self.ns, beta.shape[0]))
         for i in range(self.ns):
-            Si, ai, b1i = self.S[i], lam[i], b1[:, i]
-            eta1i = self.Xt.dot(b1i)             
+            Si, b1i, ai = self.S[i], b1[:, i], lam[i]
             for j in range(i, self.ns):
-                Sj, aj, b1j = self.S[j], lam[j], b1[:, j]
-                p, q = self.hix[self.xix[i], self.xix[j]]
-                eta1j = self.Xt.dot(b1j)    
-                v = (L3[:, p] + L3[:, q]) * eta1j * eta1i
-                u = self.Xt.T.dot(v) + ai * Si.dot(b1j) + aj * Sj.dot(b1i)
-                b2[i, j] = b2[j, i] = (i==j)*b1[:, j] - Hp.dot(u)
+                b1j = b1[:, j]
+                Sj, aj = self.S[j], lam[j]
+                u = dH[i].dot(b1[:, j]) + ai * Si.dot(b1j) + aj * Sj.dot(b1i)
+                b2[i, j] = b2[j, i] = (i==j)*b1i - Hp.dot(u)
         return b2
     
     def _grad_beta_rho(self, rho):
@@ -457,7 +484,26 @@ def f3prime(f, x, eps=None):
         D[i] = (f(x+h) - f(x - h)) / (2.0 * eps)
         h[i] = 0.0
     return D
-    
+
+def f4prime(f, x, eps=None):
+    eps = np.finfo(float).eps**(1/3) if eps is None else eps
+    J = f(x)
+    p, n, n = J.shape
+    Hn = np.zeros((p, p, n, n))
+    Hp = np.zeros((p, p, n, n))
+    H =  np.zeros((p, p, n, n))
+    h = np.zeros(p)
+    for i in range(p):
+        h[i] = eps
+        Hp[i] = f(x+h)
+        Hn[i] = f(x-h)
+        h[i] = 0.0
+    for i in range(p):
+        for j in range(i+1):
+            H[i, j] = (Hp[i, j] - Hn[i, j] + Hp[j, i] - Hn[j, i]) / (4 * eps)
+            H[j, i] = H[i, j]
+    return H
+
 rng = np.random.default_rng(123)
 
 
@@ -521,7 +567,9 @@ np.allclose(D1, D2, atol=atol)
 
 H1 = mod.hess_beta_rho(beta, lam)
 H2 = f2prime(mod._grad_beta_rho, rho, np.finfo(float).eps**(1/4))
+
 np.allclose(H1, H2, atol=atolh)
+
 
 mu = mod.m.X.dot(beta[mod.ixm])
 
@@ -535,6 +583,13 @@ f = lambda rho: mod.hess_ll_beta(mod.beta_rho(rho))
 dH1 = mod.dhess(beta, lam)
 dH2 = f3prime(f, rho, eps=np.finfo(float).eps**(1/3))
 np.allclose(dH1, dH2, atol=atolh, rtol=rtolh)
+
+
+
+f = lambda rho: mod.dhess(mod.beta_rho(rho), np.exp(rho))
+
+d2H1 = mod.d2hess(beta, lam)
+d2H2 = f4prime(f, rho, eps=np.finfo(float).eps**(1/3))
 
 
 T1 = np.eye(33)
