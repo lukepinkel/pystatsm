@@ -186,6 +186,7 @@ class ExponentialFamily(object):
 class Gaussian(ExponentialFamily):
     
     def __init__(self, link=IdentityLink, weights=1.0, scale=1.0):
+        self.name = "Gaussian"
         super().__init__(link, weights, scale)
     
  
@@ -277,6 +278,7 @@ class Gaussian(ExponentialFamily):
 class InverseGaussian(ExponentialFamily):
     
     def __init__(self, link=PowerLink(-2), weights=1.0, scale=1.0):
+        self.name = "InverseGaussian"
         super().__init__(link, weights, scale)
     
  
@@ -373,6 +375,7 @@ class InverseGaussian(ExponentialFamily):
 class Gamma(ExponentialFamily):
     
     def __init__(self, link=ReciprocalLink, weights=1.0, scale=1.0):
+        self.name = "Gamma"
         super().__init__(link, weights, scale)
     
  
