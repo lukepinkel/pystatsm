@@ -5,6 +5,8 @@ Created on Wed Apr 28 19:45:38 2021
 @author: lukepinkel
 """
 import pystan
+import scipy as sp
+import scipy.stats
 import numpy as np
 import pandas as pd
 from .transforms import diagonalize_smooth
@@ -88,7 +90,7 @@ class GAM_MCMC(GAM):
                                             chains=chains, algorithm="NUTS", 
                                             warmup=warmup)
         res = self.trace.summary(pars=["beta", "rho", "tau"])
-        self.res = pd.DataFrame(res['summary'], columns=res['summary_colnames'],
+        self.res_mcmc = pd.DataFrame(res['summary'], columns=res['summary_colnames'],
                                 index=res['summary_rownames'])
             
             
