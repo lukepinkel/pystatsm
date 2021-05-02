@@ -121,7 +121,7 @@ class OLS:
         pbar.close()
         return t_samples
         
-    def _permutation_test(self,n_perms, L, Linv, X, y):
+    def _permutation_test(self, n_perms, L, Linv, X, y):
         pbar = tqdm.tqdm(total=n_perms)
         p_values = np.zeros((self.p))
         p_values_fwer = np.zeros((self.p))
@@ -135,6 +135,40 @@ class OLS:
         pbar.close()
         return p_values_fwer, p_values
     
+    def _freedman_lane(self, vars_of_interest, n_perms=5000, verbose=True):
+        pbar = tqdm.tqdm(total=n_perms) if verbose else None
+        p_values = np.zeros(len(vars_of_interest))
+        p_values_fwer = np.zeros(len(vars_of_interest))
+        abst = np.abs(self.tvalues[vars_of_interest])
+        
+        ixc = np.setdiff1d(np.arange(self.p), vars_of_interest)
+        Xi, Xc, y = self.X[:, vars_of_interest], self.X[:, ixc], self.y
+        L = np.linalg.cholesky(Xi.T.dot(Xi))
+        Linv = np.linalg.inv(L)
+        g, _ = self._fit_mats(Xc, y)
+        u = Xc.dot(g)
+        r = y - u
+        for i in range(n_perms):
+            b, se = self._fit_y(L, Linv, Xi, u + r[np.random.permutation(self.n)])
+            abstp = np.abs(b / se)
+            p_values_fwer += (abstp.max()>abst) / n_perms
+            p_values +=  (abstp>abst) / n_perms
+            if verbose:
+                pbar.update(1)
+        if verbose:
+            pbar.close()
+        return p_values_fwer, p_values
+        
+    def freedman_lane(self, vars_of_interest, n_perms=5000, verbose=True):
+        if hasattr(self, 'res')==False:
+            self.fit()
+        pvals_fwer, pvals = self._freedman_lane(vars_of_interest, n_perms, verbose)
+        rows = self.res.index[vars_of_interest]
+        self.res['freedman_lane_p'] = '-'
+        self.res['freedman_lane_p_fwer'] = '-'
+        self.res.loc[rows, 'freedman_lane_p'] = pvals
+        self.res.loc[rows, 'freedman_lane_p_fwer'] = pvals_fwer
+        
     def permutation_test(self, n_perms=5_000, store_samples=False):
         if hasattr(self, 'res')==False:
             self.fit()

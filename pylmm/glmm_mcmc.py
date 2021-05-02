@@ -144,7 +144,7 @@ class MixedMCMC(LMM):
         y_z = y - (self.Z.dot(a_star) + x2 * s)
         ofs = self.offset.copy()
         ofs[-self.n_re:] = a_star
-        location = ofs + sp.sparse.linalg.spsolve(M, WtR.dot(y_z))
+        location = ofs + cholesky(M.tocsc()).solve_A(WtR.dot(y_z))#sp.sparse.linalg.spsolve(M, WtR.dot(y_z))
         return location
     
     def mh_lvar_binomial(self, pred, s, z, x_step, u_accept, propC):
