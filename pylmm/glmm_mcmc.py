@@ -194,18 +194,21 @@ class MixedMCMC(LMM):
         z[self.ix0] = trnorm(mu=pred[self.ix0], sd=s*self.jv0, 
                              lb=-200*self.jv0, ub=v[self.ix0])
         return z
-   
+       
     def sample_mh_gibbs(self, n_samples, propC=1.0, chain=0, save_pred=False, 
-                        save_u=False, save_lvar=False,
-                        freeR=True):
+                        save_u=False, save_lvar=False, freeR=True, damping=0.99, 
+                        adaption_rate=1.01,  target_accept=0.44,
+                        n_adapt=None):
+        if n_adapt is None:
+            n_adapt = np.minimum(int(n_samples/2), 1000)
+            
         param_samples = np.zeros((n_samples, self.n_params))
-        acceptances = np.zeros((n_samples, self.n_ob))
         
         x_step = sp.stats.norm(0.0, 1.0).rvs((n_samples, self.n_ob))
         x_astr = sp.stats.norm(0.0, 1.0).rvs((n_samples, self.n_ob))
         x_ranf = sp.stats.norm(0.0, 1.0).rvs((n_samples, self.n_re))
         u_accp = np.log(sp.stats.uniform(0, 1).rvs(n_samples, self.n_ob))
-        
+        acceptances = np.zeros((n_samples))
         location = self.location.copy()
         pred =  self.W.dot(location)
         z = sp.stats.norm(self.y, self.y.var()).rvs()
@@ -217,35 +220,38 @@ class MixedMCMC(LMM):
             secondary_samples['u'] = np.zeros((n_samples, self.n_re))
         if save_lvar:
             secondary_samples['lvar'] = np.zeros((n_samples, self.n_ob))
-        progress_bar = tqdm.tqdm(range(n_samples))
-        counter = 1
+        progress_bar = tqdm.tqdm(range(n_samples), smoothing=0.01)
+        wtrace, waccept = 1.0, 1.0
+
         for i in progress_bar:
             s2 = theta[-1]
             s = np.sqrt(s2)
             z, accept = self.mh_lvar_binomial(pred, s, z, x_step[i], u_accp[i], propC)
+            
+            mean_accept = accept.mean()
+            wtrace = wtrace * damping + 1.0
+            waccept = waccept * damping + mean_accept
+
+            if i<n_adapt:
+                propC = propC * np.sqrt(adaption_rate**((waccept/wtrace)-target_accept))
+                
             location = self.sample_location(theta, x_ranf[i], x_astr[i], z)
             pred = self.W.dot(location)
             u = location[-self.n_re:]
-            theta  = self.sample_theta(theta, u, z, pred, freeR)
-            
+            theta = self.sample_theta(theta, u, z, pred, freeR)
+            acceptances[i] = mean_accept
             param_samples[i, self.n_fe:] = theta.copy()
             param_samples[i, :self.n_fe] = location[:self.n_fe]
-            acceptances[i] = accept
             if save_pred:
                 secondary_samples['pred'][i] = pred
             if save_u:
                 secondary_samples['u'][i] = u
             if save_lvar:
                 secondary_samples['lvar'][i] = z
-            counter+=1
-            if counter==1000:
-                acceptance = np.sum(acceptances)/(float((i+1)*self.n_ob))
-                progress_bar.set_description(f"Chain {chain} Acceptance Prob: {acceptance:.4f}")
-                counter = 1
+            if i>1:
+                progress_bar.set_description(f"Chain {chain+1} Acceptance Prob: {acceptances[:i].mean():.4f} C: {propC:.5f}")
         progress_bar.close()
-        secondary_samples['acceptances'] = acceptances
         return param_samples, secondary_samples
-        
     def sample_slice_gibbs(self, n_samples, chain=0, save_pred=False, save_u=False, save_lvar=False,
                            freeR=False):
         normdist = sp.stats.norm(0.0, 1.0).rvs
@@ -267,7 +273,7 @@ class MixedMCMC(LMM):
         if save_lvar:
             secondary_samples['lvar'] = np.zeros((n_smp, n_ob))
         v = np.zeros_like(z).astype(float)
-        progress_bar = tqdm.tqdm(range(n_smp))
+        progress_bar = tqdm.tqdm(range(n_smp), smoothing=0.01)
         progress_bar.set_description(f"Chain {chain}")
         for i in progress_bar:
             #P(z|location, theta)
@@ -341,7 +347,7 @@ class MixedMCMC(LMM):
 
         az_dict = to_arviz_dict(samples,  vnames, burnin=burnin)
         az_data = az.from_dict(az_dict)
-        summary = az.summary(az_data, credible_interval=0.95, round_to=6)
+        summary = az.summary(az_data, round_to=6)
         return samples, az_data, summary, samples_a
            
             
