@@ -267,13 +267,8 @@ def _binom_glmnet(b, X, Xsq, y, la, dla, acs, ix, n, n_iters=2000,
     for i in range(n_iters):
         eta = X.dot(b)
         mu = inv_logit(eta)
-#        mlb, mub = (mu<=pmin), (mu>= (1.0 - pmin))
-#        mu[mlb] = 0.0
-#        mu[mub] = 1.0
         muconj = 1.0 - mu
         w = mu * muconj
-#        w[mlb] = pmin
-#        w[mub] = pmin
         r = y - mu
         fvals[i] = -2.0*np.sum(y * np.log(mu) + np.log(muconj) * yconj)/n
         b_new, acs_new, xvd = binom_glm_cd(b.copy(), X, Xsq, r, w, xv, la, dla, 
@@ -283,8 +278,6 @@ def _binom_glmnet(b, X, Xsq, y, la, dla, acs, ix, n, n_iters=2000,
             break
         if i>0 and 0<(fvals[i-1]-fvals[i])<dtol:
             break
-#        elif i>0 and (fvals[i-1]-fvals[i])<0:
-#            ffc = ffc * 1.1
         else:
             b = b_new
         if nr_ent:
