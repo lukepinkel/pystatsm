@@ -1,10 +1,10 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Mon Jul 27 20:00:38 2020
+Created on Tue May 11 19:19:18 2021
 
 @author: lukepinkel
 """
+
 import tqdm
 import arviz as az
 import numpy as np
@@ -71,10 +71,10 @@ def sample_rcov(theta, y, yhat, wsinfo, priors):
 
 
 
+
 class MixedMCMC(LMM):
     
-    def __init__(self, formula, data, priors=None, weights=None,
-                 rng=None):
+    def __init__(self, formula, data, priors=None, weights=None):
         super().__init__(formula, data) 
         self.t_init, _ = make_theta(self.dims)
         self.W = sp.sparse.csc_matrix(self.XZ)
@@ -104,9 +104,6 @@ class MixedMCMC(LMM):
         self.zero_mat = sp.sparse.eye(self.n_fe)*0.0
         self.ix0, self.ix1 = self.y==0, self.y==1
         self.jv0, self.jv1 = np.ones(len(self.ix0)), np.ones(len(self.ix1))
-        rng = np.random.default_rng() if rng is None else rng
-        self.rng = rng
-        self.WtW = self.W.T.dot(self.W)
     
     def sample_location(self, theta, x1, x2, y):
         """
@@ -137,7 +134,8 @@ class MixedMCMC(LMM):
         
         """
         s, s2 =  np.sqrt(theta[-1]), theta[-1]
-        M = self.WtW.copy() / s2
+        WtR = self.W.copy().T / s2
+        M = WtR.dot(self.W)
         Ginv = self.update_gmat(theta, inverse=True).copy()
         Omega = sp.sparse.block_diag([self.zero_mat, Ginv])
         M+=Omega
@@ -146,9 +144,7 @@ class MixedMCMC(LMM):
         y_z = y - (self.Z.dot(a_star) + x2 * s)
         ofs = self.offset.copy()
         ofs[-self.n_re:] = a_star
-        m_chol = cholesky(M.tocsc())
-        u = sp.sparse.csc_matrix.dot(y_z, self.W) / s2
-        location = ofs + m_chol.solve_A(u) 
+        location = ofs + cholesky(M.tocsc()).solve_A(WtR.dot(y_z))#sp.sparse.linalg.spsolve(M, WtR.dot(y_z))
         return location
     
     def mh_lvar_binomial(self, pred, s, z, x_step, u_accept, propC):
@@ -207,7 +203,11 @@ class MixedMCMC(LMM):
             n_adapt = np.minimum(int(n_samples/2), 1000)
             
         param_samples = np.zeros((n_samples, self.n_params))
-        rng = self.rng
+        
+        x_step = sp.stats.norm(0.0, 1.0).rvs((n_samples, self.n_ob))
+        x_astr = sp.stats.norm(0.0, 1.0).rvs((n_samples, self.n_ob))
+        x_ranf = sp.stats.norm(0.0, 1.0).rvs((n_samples, self.n_re))
+        u_accp = np.log(sp.stats.uniform(0, 1).rvs(n_samples, self.n_ob))
         acceptances = np.zeros((n_samples))
         location = self.location.copy()
         pred =  self.W.dot(location)
@@ -226,8 +226,7 @@ class MixedMCMC(LMM):
         for i in progress_bar:
             s2 = theta[-1]
             s = np.sqrt(s2)
-            z, accept = self.mh_lvar_binomial(pred, s, z, rng.normal(0, 1, size=self.n_ob),
-                                              np.log(rng.uniform(0, 1, size=self.n_ob)), propC)
+            z, accept = self.mh_lvar_binomial(pred, s, z, x_step[i], u_accp[i], propC)
             
             mean_accept = accept.mean()
             wtrace = wtrace * damping + 1.0
@@ -236,8 +235,7 @@ class MixedMCMC(LMM):
             if i<n_adapt:
                 propC = propC * np.sqrt(adaption_rate**((waccept/wtrace)-target_accept))
                 
-            location = self.sample_location(theta, rng.normal(0, 1, size=self.n_re), 
-                                             rng.normal(0, 1, size=self.n_ob), z)
+            location = self.sample_location(theta, x_ranf[i], x_astr[i], z)
             pred = self.W.dot(location)
             u = location[-self.n_re:]
             theta = self.sample_theta(theta, u, z, pred, freeR)
@@ -254,13 +252,17 @@ class MixedMCMC(LMM):
                 progress_bar.set_description(f"Chain {chain+1} Acceptance Prob: {acceptances[:i].mean():.4f} C: {propC:.5f}")
         progress_bar.close()
         return param_samples, secondary_samples
-    
     def sample_slice_gibbs(self, n_samples, chain=0, save_pred=False, save_u=False, save_lvar=False,
                            freeR=False):
-        rng = self.rng
+        normdist = sp.stats.norm(0.0, 1.0).rvs
+
         n_pr, n_ob, n_re = self.n_params, self.n_ob, self.n_re
         n_smp = n_samples
         samples = np.zeros((n_smp, n_pr))
+        
+        x_astr, x_ranf = normdist((n_smp, n_ob)), normdist((n_smp, n_re))
+        rexpon = sp.stats.expon(scale=1).rvs((n_smp, n_ob))
+        
         location, pred = self.location.copy(), self.W.dot(self.location)
         theta, z = self.t_init.copy(), sp.stats.norm(0, 1).rvs(n_ob)
         secondary_samples = {}
@@ -275,11 +277,9 @@ class MixedMCMC(LMM):
         progress_bar.set_description(f"Chain {chain}")
         for i in progress_bar:
             #P(z|location, theta)
-            z = self.slice_sample_lvar(rng.exponential(scale=1.0, size=self.n_ob),
-                                       v, z, theta, pred)
+            z = self.slice_sample_lvar(rexpon[i], v, z, theta, pred)
             #P(location|z, theta)
-            location = self.sample_location(theta, rng.normal(0, 1, size=self.n_re), 
-                                             rng.normal(0, 1, size=self.n_ob), z)
+            location = self.sample_location(theta, x_ranf[i], x_astr[i], z)
             pred, u = self.W.dot(location), location[-self.n_re:]
             #P(theta|z, location)
             theta  = self.sample_theta(theta, u, z, pred, freeR)
@@ -296,12 +296,13 @@ class MixedMCMC(LMM):
     
     def gibbs_normal(self, n_samples, chain=0, save_pred=False, save_u=False, save_lvar=False,
                      freeR=True):
+        normdist = sp.stats.norm(0.0, 1.0).rvs
 
-        rng = self.rng
         n_pr, n_ob, n_re = self.n_params, self.n_ob, self.n_re
         n_smp = n_samples
         samples = np.zeros((n_smp, n_pr))
         
+        x_astr, x_ranf = normdist((n_smp, n_ob)), normdist((n_smp, n_re))
         y = self.y
         location, pred = self.location.copy(), self.W.dot(self.location)
         theta = self.t_init.copy()
@@ -314,8 +315,7 @@ class MixedMCMC(LMM):
         progress_bar.set_description(f"Chain {chain}")
         for i in progress_bar:
             #P(location|y, theta)
-            location = self.sample_location(theta, rng.normal(0, 1, size=self.n_re), 
-                                             rng.normal(0, 1, size=self.n_ob), y)
+            location = self.sample_location(theta, x_ranf[i], x_astr[i], y)
             pred, u = self.W.dot(location), location[-self.n_re:]
             #P(theta|z, location)
             theta  = self.sample_theta(theta, u, y, pred, freeR)
@@ -345,11 +345,13 @@ class MixedMCMC(LMM):
         for i in range(n_chains):
             samples[i], samples_a[i] = func(n_samples, chain=i, **sample_kws)
 
-        az_dict = to_arviz_dict(samples, vnames, burnin=burnin)
+        az_dict = to_arviz_dict(samples,  vnames, burnin=burnin)
         az_data = az.from_dict(az_dict)
         summary = az.summary(az_data, round_to=6)
         return samples, az_data, summary, samples_a
            
+            
+        
                     
                         
 
@@ -389,5 +391,4 @@ def to_arviz_dict(samples, var_dict, burnin=0):
     
     
     
-
 
