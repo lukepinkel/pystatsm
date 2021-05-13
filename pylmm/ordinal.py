@@ -294,7 +294,7 @@ class OrdinalMCMC(LMM):
             samples[i], acceptances[i], z_samples[i] = func(n_samples, chain=i, **sampler_kws)
         az_dict = to_arviz_dict(samples,  vnames, burnin=burnin)      
         az_data = az.from_dict(az_dict)
-        summary = az.summary(az_data, credible_interval=0.95, round_to='none')
+        summary = az.summary(az_data, hdi_prob=0.95, round_to='none')
         return samples, az_data, summary, acceptances, z_samples
            
 # formula = "y~x1+x2+x3+x4+(1+x5|id1)"
