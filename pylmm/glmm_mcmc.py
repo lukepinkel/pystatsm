@@ -14,11 +14,12 @@ import pandas as pd # analysis:ignore
 from .lmm import LMM, make_theta
 from ..utilities.linalg_operations import vech, _check_shape
 from sksparse.cholmod import cholesky
-from ..utilities.trnorm import trnorm
+from ..utilities.trnorm import trnorm, scalar_truncnorm
 from ..utilities.wishart import r_invwishart, r_invgamma
 from ..utilities.poisson import poisson_logp
 
-    
+SQRT2 = np.sqrt(2)
+
 def log1p(x):
     return np.log(1+x)
 
@@ -28,6 +29,11 @@ def rtnorm(mu, sd, lower, upper):
     b = (upper - mu) / sd
     return sp.stats.truncnorm(a=a, b=b, loc=mu, scale=sd).rvs()
     
+
+def norm_cdf(x, mean=0.0, sd=1.0):
+    z = (x - mean) / sd
+    p = (sp.special.erf(z/SQRT2) + 1.0) / 2.0
+    return p
 
 def get_u_indices(dims): 
     u_indices = {}
@@ -73,25 +79,31 @@ def sample_rcov(theta, y, yhat, wsinfo, priors):
 
 class MixedMCMC(LMM):
     
-    def __init__(self, formula, data, priors=None, weights=None,
-                 rng=None):
+    def __init__(self, formula, data, response_dist, priors=None, weights=None, 
+                 rng=None, vnames=None, freeR=None):
         super().__init__(formula, data) 
+        
+        #Initialize parameters, get misc information for sampling
         self.t_init, _ = make_theta(self.dims)
         self.W = sp.sparse.csc_matrix(self.XZ)
+        self.WtW = self.W.T.dot(self.W)
         self.wsinfo = wishart_info(self.dims)
         self.y = _check_shape(self.y, 1)
+        self.indices['u'] = get_u_indices(self.dims)
+        
         if weights is None:
             self.weights = np.ones_like(self.y)
         else:
             self.weights=weights
-        
-        self.indices['u'] = get_u_indices(self.dims)
+            
+        #Get various model constants 
         self.n_re = self.G.shape[0]
         self.n_fe = self.X.shape[1]
         self.n_lc = self.W.shape[1]
         self.n_ob = self.W.shape[0]
-        self.re_mu = np.zeros(self.n_re)
         self.n_params = len(self.t_init)+self.n_fe
+        
+        #Handle priors
         if priors is None:
             priors = dict(R=dict(V=0.500*self.n_ob, n=self.n_ob))
             for level in self.levels:
@@ -99,15 +111,60 @@ class MixedMCMC(LMM):
                 priors[level] = dict(V=Vi, n=4)
         self.priors = priors
         self.wsinfo['r'] = dict(nu=self.n_ob-2)
+        
+        #Initialize containers requiring constants above
         self.offset = np.zeros(self.n_lc)
         self.location = np.zeros(self.n_re+self.n_fe)
         self.zero_mat = sp.sparse.eye(self.n_fe)*0.0
-        self.ix0, self.ix1 = self.y==0, self.y==1
-        self.jv0, self.jv1 = np.ones(len(self.ix0)), np.ones(len(self.ix1))
-        rng = np.random.default_rng() if rng is None else rng
-        self.rng = rng
-        self.WtW = self.W.T.dot(self.W)
-    
+        self.re_mu = np.zeros(self.n_re)
+        
+        #Get model specific indices and constants
+        if response_dist == 'bernoulli':
+            self.ix0, self.ix1 = self.y==0, self.y==1
+            self.jv0, self.jv1 = np.ones(len(self.ix0)), np.ones(len(self.ix1))
+            freeR = False if freeR is None else freeR
+        elif response_dist == 'ordinal_probit':
+            self.jv = np.ones(self.n_ob)
+            self.n_cats = np.unique(self.y).shape[0]
+            self.n_thresh = self.n_cats - 1
+            self.n_tau = self.n_cats + 1
+            self.y_cat = np.zeros((self.n_ob, self.n_cats))
+            self.y_ix = {}
+            for i in range(self.n_cats):
+                self.y_ix[i] = self.y==i
+                self.y_cat[self.y==i, i] = 1
+            freeR = False if freeR is None else freeR
+        elif response_dist == 'binomial':
+            freeR = False if freeR is None else freeR
+        elif response_dist == 'normal':
+            freeR = True if freeR is None else freeR
+            
+        self.response_dist = response_dist
+        self.freeR = freeR
+        self.rng = np.random.default_rng() if rng is None else rng
+        
+        #Handle variable names for arviz and variable names for results
+        if vnames is None:
+            vnames = {"$\\beta$":np.arange(self.n_fe), 
+                       "$\\theta$":np.arange(self.n_fe, self.n_params)}
+            if response_dist == 'ordinal_probit':
+                    vnames["$\\tau$"]=np.arange(self.n_params+1, self.n_params+self.n_thresh)
+                    if not self.freeR:
+                        vnames["$\\theta$"] = np.arange(self.n_fe, self.n_params-1)
+        self.vnames = vnames
+
+        param_names = list(self.fe_vars)
+        for level in self.levels:
+            for i, j in list(zip(*np.triu_indices(self.dims[level]['n_vars']))):
+                param_names.append(f"{level}:G[{i}][{j}]")
+        
+        param_names.append("error_cov")
+        if response_dist=='ordinal_probit':
+            if not self.freeR:
+                param_names = param_names[:-1]
+            param_names = param_names + [f"t{i}" for i in range(1, self.n_thresh)]
+        self.param_names = param_names
+
     def sample_location(self, theta, x1, x2, y):
         """
 
@@ -129,11 +186,6 @@ class MixedMCMC(LMM):
         -------
         location: array_like
             Sample from P(beta, u|y, G, R)
-        
-        Notes
-        -----
-        
-        
         
         """
         s, s2 =  np.sqrt(theta[-1]), theta[-1]
@@ -176,6 +228,19 @@ class MixedMCMC(LMM):
         z[accept] = z_prop[accept]
         return z, accept
     
+    def mh_lvar_ordinal_probit(self, theta, t, pred, v):
+        tau = np.pad(t, ((1, 1)), mode='constant', constant_values=[-1e17, 1e17])
+        mu, sd = np.zeros_like(pred), np.ones_like(pred)
+        for i in range(1, self.y_cat.shape[1]+1):
+            ix = self.y_ix[i-1]
+            j = self.jv[ix]
+            mu = pred[ix] - v[ix]
+            sd = j
+            lb = j*tau[i-1]
+            ub = j*tau[i]
+            v[ix] = trnorm(mu, sd, lb, ub)
+        return v
+    
     def sample_theta(self, theta, u, z, pred, freeR=True):
         for key in self.levels:
             theta = sample_gcov(theta.copy(), u, self.wsinfo, self.indices,
@@ -198,11 +263,97 @@ class MixedMCMC(LMM):
         z[self.ix0] = trnorm(mu=pred[self.ix0], sd=s*self.jv0, 
                              lb=-200*self.jv0, ub=v[self.ix0])
         return z
-       
-    def sample_mh_gibbs(self, n_samples, propC=1.0, chain=0, save_pred=False, 
-                        save_u=False, save_lvar=False, freeR=True, damping=0.99, 
+    
+    def sample_tau(self, t, pred, v, propC):
+        t_prop = t.copy()
+        ll = 0.0
+        tau = np.pad(t, ((1, 1)), mode='constant', constant_values=[-1e17, 1e17])
+        for i in range(1, self.n_thresh):
+            t_prop[i] = scalar_truncnorm(t[i], propC, t_prop[i-1], tau[i+2])
+        for i in range(1, self.n_thresh-1):
+            a = (t[i+1]-t[i])/propC
+            b = (t_prop[i-1]-t[i])/propC
+            c = (t_prop[i+1]-t_prop[i])/propC
+            d = (t[i-1]-t_prop[i])/propC
+            ll += np.sum(np.log(norm_cdf(a)-norm_cdf(b)))
+            ll -= np.sum(np.log(norm_cdf(c)-norm_cdf(d)))
+        for i in range(1, self.n_thresh):
+            m = v[self.y_ix[i]]
+            ll += (np.log(norm_cdf(t_prop[i]-m)-norm_cdf(t_prop[i-1]-m))).sum()
+            ll -= (np.log(norm_cdf(t[i]-m)-norm_cdf(t[i-1]-m))).sum()
+        m = v[self.y_ix[i+1]]
+        ll += np.sum(np.log(1.0 - norm_cdf(t_prop[i]-m)))
+        ll -= np.sum(np.log(1.0 - norm_cdf(t[i]-m)))
+        if ll>np.log(np.random.uniform(0, 1)):
+            t_accept = True
+            t = t_prop
+        else:
+            t_accept = False
+            t = t
+        return t, t_accept 
+    
+    def sample_ordinal_probit(self, n_samples, chain=0, save_pred=False, 
+                        save_u=False, save_lvar=False, propC=0.04, damping=0.99,
+                        adaption_rate=1.01,  target_accept=0.44, n_adapt=None):
+        secondary_samples = {}
+        if save_pred:
+            secondary_samples['pred'] = np.zeros((n_samples, self.n_ob))
+        if save_u:
+            secondary_samples['u'] = np.zeros((n_samples, self.n_re))
+        if save_lvar:
+            secondary_samples['lvar'] = np.zeros((n_samples, self.n_ob))
+            
+        if n_adapt is None:
+            n_adapt = np.minimum(int(n_samples/2), 1000)
+        
+        freeR = self.freeR
+        param_samples = np.zeros((n_samples, self.n_params+self.n_thresh))
+        t_acceptances = np.zeros((n_samples))
+        rng = self.rng
+        location = self.location.copy()
+        pred =  self.W.dot(location)
+        theta = self.t_init.copy()
+        t = sp.stats.norm(0, 1).ppf((self.y_cat.sum(axis=0).cumsum()/np.sum(self.y_cat))[:-1])
+        t = t - t[0]
+        z = np.zeros_like(self.y).astype(float)
+        wtrace, waccept = 1.0, 1.0
+        pbar = tqdm.tqdm(range(n_samples), smoothing=0.01)
+        for i in range(n_samples):
+            t, t_accept = self.sample_tau(t, pred, z, propC)
+            wtrace = wtrace * damping + 1.0
+            waccept *= damping
+            if t_accept:
+                waccept +=1
+            if i<n_adapt:
+                propC = propC * np.sqrt(adaption_rate**((waccept/wtrace)-target_accept))
+            z = self.mh_lvar_ordinal_probit(theta, t, pred, z)
+            location = self.sample_location(theta, rng.normal(0, 1, size=self.n_re), 
+                                            rng.normal(0, 1, size=self.n_ob), z)
+            pred = self.W.dot(location)
+            u = location[-self.n_re:]
+            theta  = self.sample_theta(theta, u, z, pred, freeR)
+            param_samples[i, self.n_fe:-self.n_thresh] = theta.copy()
+            param_samples[i, :self.n_fe] = location[:self.n_fe]
+            param_samples[i, -self.n_thresh:] = t
+            t_acceptances[i] = t_accept
+            if save_pred:
+                secondary_samples['pred'][i] = pred
+            if save_u:
+                secondary_samples['u'][i] = u
+            if save_lvar:
+                secondary_samples['lvar'][i] = z
+            if i>1:
+                pbar.set_description(f"Chain {chain} Tau Acceptance Prob: {t_acceptances[:i].mean():.4f} C: {propC:.3f}")
+            pbar.update(1)
+        pbar.close() 
+        secondary_samples['t_accept'] = t_acceptances
+        return param_samples, secondary_samples
+    
+    def sample_binomial(self, n_samples, propC=1.0, chain=0, save_pred=False, 
+                        save_u=False, save_lvar=False, damping=0.99, 
                         adaption_rate=1.01,  target_accept=0.44,
                         n_adapt=None):
+        freeR = self.freeR
         if n_adapt is None:
             n_adapt = np.minimum(int(n_samples/2), 1000)
             
@@ -237,7 +388,7 @@ class MixedMCMC(LMM):
                 propC = propC * np.sqrt(adaption_rate**((waccept/wtrace)-target_accept))
                 
             location = self.sample_location(theta, rng.normal(0, 1, size=self.n_re), 
-                                             rng.normal(0, 1, size=self.n_ob), z)
+                                            rng.normal(0, 1, size=self.n_ob), z)
             pred = self.W.dot(location)
             u = location[-self.n_re:]
             theta = self.sample_theta(theta, u, z, pred, freeR)
@@ -255,8 +406,8 @@ class MixedMCMC(LMM):
         progress_bar.close()
         return param_samples, secondary_samples
     
-    def sample_slice_gibbs(self, n_samples, chain=0, save_pred=False, save_u=False, save_lvar=False,
-                           freeR=False):
+    def sample_bernoulli(self, n_samples, chain=0, save_pred=False, save_u=False, save_lvar=False):
+        freeR = self.freeR
         rng = self.rng
         n_pr, n_ob, n_re = self.n_params, self.n_ob, self.n_re
         n_smp = n_samples
@@ -294,9 +445,8 @@ class MixedMCMC(LMM):
         progress_bar.close()
         return samples, secondary_samples
     
-    def gibbs_normal(self, n_samples, chain=0, save_pred=False, save_u=False, save_lvar=False,
-                     freeR=True):
-
+    def sample_normal(self, n_samples, chain=0, save_pred=False, save_u=False, save_lvar=False):
+        freeR = self.freeR
         rng = self.rng
         n_pr, n_ob, n_re = self.n_params, self.n_ob, self.n_re
         n_smp = n_samples
@@ -310,7 +460,7 @@ class MixedMCMC(LMM):
             secondary_samples['pred'] = np.zeros((n_smp, n_ob))
         if save_u:
             secondary_samples['u'] = np.zeros((n_smp, n_re))
-        progress_bar = tqdm.tqdm(range(n_smp))
+        progress_bar = tqdm.tqdm(range(n_smp), smoothing=0.01)
         progress_bar.set_description(f"Chain {chain}")
         for i in progress_bar:
             #P(location|y, theta)
@@ -328,30 +478,30 @@ class MixedMCMC(LMM):
         progress_bar.close()
         return samples, secondary_samples
     
-    def fit(self, n_samples=5000, n_chains=8, burnin=1000, vnames=None, sample_kws={},
-            method='MH-Gibbs'):
-        samples = np.zeros((n_chains, n_samples, self.n_params))
+    def sample(self, n_samples=5000, n_chains=8, burnin=1000, sampling_kws={}, summary_kws={}):
+        n_params = self.n_params
+        if self.response_dist=="ordinal_probit":
+            n_params = n_params+np.unique(self.y).shape[0]-1
+        samples = np.zeros((n_chains, n_samples, n_params))
         samples_a = {}
-        if vnames is None:
-            vnames =  {"$\\beta$":np.arange(self.n_fe), 
-                       "$\\theta$":np.arange(self.n_fe, self.n_params)}
-    
-        if method=='MH-Gibbs':
-            func = self.sample_mh_gibbs
-        elif method=='Normal-Gibbs':
-            func = self.gibbs_normal
-        elif method=='Slice-Gibbs':
-            func = self.sample_slice_gibbs
-        for i in range(n_chains):
-            samples[i], samples_a[i] = func(n_samples, chain=i, **sample_kws)
 
-        az_dict = to_arviz_dict(samples, vnames, burnin=burnin)
-        az_data = az.from_dict(az_dict)
-        summary = az.summary(az_data, round_to=6)
-        return samples, az_data, summary, samples_a
-           
-                    
-                        
+        if self.response_dist=='binomial':
+            func = self.sample_binomial
+        elif self.response_dist=='bernoulli':
+            func = self.sample_bernoulli
+        elif self.response_dist=='ordinal_probit':
+            func = self.sample_ordinal_probit
+        elif self.response_dist=='normal':
+            func = self.sample_normal
+            
+        for i in range(n_chains):
+            samples[i], samples_a[i] = func(n_samples, chain=i, **sampling_kws)
+
+        self.az_dict = to_arviz_dict(samples, self.vnames, burnin=burnin)
+        self.az_data = az.from_dict(self.az_dict)
+        self.summary = az.summary(self.az_data, round_to=6, **summary_kws)
+        self.res = self.summary.copy()
+        self.res.index = self.param_names
 
 
 def to_arviz_dict(samples, var_dict, burnin=0):

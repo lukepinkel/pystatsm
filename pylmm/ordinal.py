@@ -83,7 +83,7 @@ def norm_cdf(x, mean=0.0, sd=1.0):
 
 class OrdinalMCMC(LMM):
     
-    def __init__(self, formula, data, priors=None, freeR=False):
+    def __init__(self, formula, data, priors=None, freeR=False, rng=None):
         super().__init__(formula, data) 
         self.t_init, _ = make_theta(self.dims)
         self.W = sp.sparse.csc_matrix(self.XZ)
@@ -116,11 +116,13 @@ class OrdinalMCMC(LMM):
         for i in range(self.n_cats):
             self.y_ix[i] = self.y==i
             self.y_cat[self.y==i, i] = 1
-    
+        
+        self.rng = np.random.default_rng() if rng is None else rng
+        self.WtW = self.W.T.dot(self.W)
+        
     def sample_location(self, theta, x1, x2, y):
         s, s2 =  np.sqrt(theta[-1]), theta[-1]
-        WtR = self.W.copy().T / s2
-        M = WtR.dot(self.W)
+        M = self.WtW.copy() / s2
         Ginv = self.update_gmat(theta, inverse=True).copy()
         Omega = sp.sparse.block_diag([self.zero_mat, Ginv])
         M+=Omega
@@ -129,8 +131,11 @@ class OrdinalMCMC(LMM):
         y_z = y - (self.Z.dot(a_star) + x2 * s)
         ofs = self.offset.copy()
         ofs[-self.n_re:] = a_star
-        location = ofs + cholesky(M).solve_A(WtR.dot(y_z))#sp.sparse.linalg.spsolve(M, WtR.dot(y_z))
+        m_chol = cholesky(M.tocsc())
+        u = sp.sparse.csc_matrix.dot(y_z, self.W) / s2
+        location = ofs + m_chol.solve_A(u) 
         return location
+    
     
     
     def sample_tau(self, t, pred, v, propC):
@@ -182,43 +187,6 @@ class OrdinalMCMC(LMM):
             theta = sample_rcov(theta, z, pred, self.wsinfo, self.priors)
         return theta
     
-    def _sample(self, n_samples, chain=0, store_z=False, freeR=False,
-               propC=0.1):
-        if store_z:
-            z_samples = np.zeros((n_samples, self.n_ob))
-        else:
-            z_samples = None
-        freeR = self.freeR
-        param_samples = np.zeros((n_samples, self.n_params+self.n_thresh))
-        t_acceptances = np.zeros((n_samples))
-
-        x_astr = sp.stats.norm(0.0, 1.0).rvs((n_samples, self.n_ob))
-        x_ranf = sp.stats.norm(0.0, 1.0).rvs((n_samples, self.n_re))
-        location = self.location.copy()
-        pred =  self.W.dot(location)
-        theta = self.t_init.copy()
-        t = sp.stats.norm(0, 1).ppf((self.y_cat.sum(axis=0).cumsum()/np.sum(self.y_cat))[:-1])
-        t = t - t[0]
-        z = np.zeros_like(self.y).astype(float)
-        pbar = tqdm.tqdm(range(n_samples))
-        for i in range(n_samples):
-            t, t_accept = self.sample_tau(t, pred, z, propC)
-            z = self.sample_lvar(theta, t, pred, z)
-            location = self.sample_location(theta, x_ranf[i], x_astr[i], z)
-            pred = self.W.dot(location)
-            u = location[-self.n_re:]
-            theta  = self.sample_theta(theta, u, z, pred, freeR)
-            param_samples[i, self.n_fe:-self.n_thresh] = theta.copy()
-            param_samples[i, :self.n_fe] = location[:self.n_fe]
-            param_samples[i, -self.n_thresh:] = t
-            t_acceptances[i] = t_accept
-            if store_z:
-                z_samples[i] = z.copy()
-            if i>1:
-                pbar.set_description(f"Chain {chain} Tau Acceptance Prob: {t_acceptances[:i].mean():.4f}")
-            pbar.update(1)
-        pbar.close() 
-        return param_samples, t_acceptances, z_samples
         
     def sample_adaptive(self, n_samples, chain=0, store_z=False, propC=0.04, 
                         damping=0.99, adaption_rate=1.0,  target_accept=0.44, 
@@ -234,8 +202,7 @@ class OrdinalMCMC(LMM):
         freeR = self.freeR
         param_samples = np.zeros((n_samples, self.n_params+self.n_thresh))
         t_acceptances = np.zeros((n_samples))
-        x_astr = sp.stats.norm(0.0, 1.0).rvs((n_samples, self.n_ob))
-        x_ranf = sp.stats.norm(0.0, 1.0).rvs((n_samples, self.n_re))
+        rng = self.rng
         location = self.location.copy()
         pred =  self.W.dot(location)
         theta = self.t_init.copy()
@@ -253,7 +220,8 @@ class OrdinalMCMC(LMM):
             if i<n_adapt:
                 propC = propC * np.sqrt(adaption_rate**((waccept/wtrace)-target_accept))
             z = self.sample_lvar(theta, t, pred, z)
-            location = self.sample_location(theta, x_ranf[i], x_astr[i], z)
+            location = self.sample_location(theta, rng.normal(0, 1, size=self.n_re), 
+                                            rng.normal(0, 1, size=self.n_ob), z)
             pred = self.W.dot(location)
             u = location[-self.n_re:]
             theta  = self.sample_theta(theta, u, z, pred, freeR)
@@ -269,8 +237,7 @@ class OrdinalMCMC(LMM):
         pbar.close() 
         return param_samples, t_acceptances, z_samples
         
-    def fit(self, n_samples=20000, n_chains=8, burnin=5000, vnames=None, sampler_kws={},
-            method='Adaptive'):
+    def fit(self, n_samples=20000, n_chains=8, burnin=5000, vnames=None, sampler_kws={}):
         samples = np.zeros((n_chains, n_samples, self.n_params+np.unique(self.y).shape[0]-1))        
         acceptances = np.zeros((n_chains, n_samples))
         if 'store_z' in sampler_kws.keys():
@@ -286,10 +253,7 @@ class OrdinalMCMC(LMM):
             vnames =  {"$\\beta$":np.arange(self.n_fe), 
                        "$\\theta$":np.arange(self.n_fe, self.n_params-1),
                        "$\\tau$":np.arange(self.n_params+1, self.n_params+self.n_thresh)}
-        if method=='Adaptive':
-            func = self.sample_adaptive
-        else:
-            func = self.sample
+        func = self.sample_adaptive
         for i in range(n_chains):
             samples[i], acceptances[i], z_samples[i] = func(n_samples, chain=i, **sampler_kws)
         az_dict = to_arviz_dict(samples,  vnames, burnin=burnin)      
