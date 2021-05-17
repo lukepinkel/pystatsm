@@ -73,7 +73,7 @@ class SEM:
         
         if indicator_vars is None:
             for i, var in enumerate(Lambda.columns):
-                if (Phi.loc[var, var]==1.0) or ((LAf.loc[:, var]!=0).sum()==1):
+                if (Phi.loc[var, var]!=0.0) or ((LAf.loc[:, var]!=0).sum()==1):
                     vi = np.argmax(LAf.loc[:, var])
                     LAf.iloc[vi, i] = 0.0
         else:
@@ -280,10 +280,14 @@ class SEM:
         LL = np.linalg.slogdet(Sigma)[1] + np.trace(self.S.dot(Sigma_inv))
         return LL
     
-    def fit(self, opt_kws={}):
+    def fit(self, use_hess=False, opt_kws={}):
+        if use_hess:
+            hess = self.hessian
+        else:
+            hess = None
         theta = self.theta.copy()
         opt = sp.optimize.minimize(self.loglike, theta, jac=self.gradient,
-                                   hess=self.hessian, method='trust-constr',
+                                   hess=hess, method='trust-constr',
                                    bounds=self.bounds, **opt_kws)
         theta = opt.x
         theta_cov = np.linalg.pinv(self.hessian(theta))*2.0 / self.n_obs
