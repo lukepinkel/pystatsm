@@ -144,7 +144,7 @@ class SEM:
         self.param_parts = param_parts
         self.slices = slices
         self.mat_shapes = mat_shapes
-        self.n_mvars, self.n_lvars=  n_mvars, n_lvars
+        self.n_mvars, self.n_lvars = n_mvars, n_lvars
         self.n_params = len(params_template)
         self.I_nlvars = np.eye(n_lvars)
         self.Lp = lmat(self.n_mvars).A
@@ -167,6 +167,12 @@ class SEM:
         self.bounds = [(None, None) if x==0 else (0, None) for x in self.bounds]
         self.n_obs = data.shape[0]
         self.data = data
+        self.p = self.S.shape[0]
+        self.df_cov = self.p * (self.p+1) // 2
+        self._default_null_model = {"Sigma":np.diag(np.diag(self.S)),
+                                    "df":self.df_cov - self.p,
+                                    "n_free_params":self.p}
+        _, self.ldS = np.linalg.slogdet(self.S)
         
     def model_matrices(self, theta):
         theta = _check_shape(theta, 1)
@@ -280,11 +286,50 @@ class SEM:
         LL = np.linalg.slogdet(Sigma)[1] + np.trace(self.S.dot(Sigma_inv))
         return LL
     
-    def fit(self, use_hess=False, opt_kws={}):
-        if use_hess:
-            hess = self.hessian
+    def _goodness_of_fit(self, model_dict):
+        Sigma, df = model_dict['Sigma'], model_dict['df']
+        t = model_dict["n_free_params"]
+        _, ldSigma = np.linalg.slogdet(Sigma)
+        SV = np.linalg.pinv(Sigma).dot(self.S)
+        trSV = np.trace(SV)
+        LL = ldSigma + trSV
+        LLF = self.n_obs * LL + self.n_obs * self.p * np.log(2.0 * np.pi)
+        fval =  LL - self.ldS - self.p
+        Chi2 = (self.n_obs - 1) * fval
+        Chi2_pval = sp.stats.chi2(t).sf(Chi2)
+        GFI = 1.0 - np.trace((SV - self.Ip).dot(SV-self.Ip)) / np.trace(SV.dot(SV))
+        if df!=0:
+            AGFI = 1.0 - (self.df_cov / df) *  (1.0 - GFI)
+            Standardized_Chi2 = (Chi2 - df) / np.sqrt(2.0 * df)
+            RMSEA = np.sqrt(np.maximum(Chi2 - df, 0) / (df * (self.n_obs - 1)))
         else:
-            hess = None
+            AGFI = np.nan
+            Standardized_Chi2 = np.nan
+            RMSEA = np.nan
+        CN01, CN05 = sp.stats.chi2(df).ppf([0.95, 0.99]) / fval + 1.0
+
+        AIC = LLF + 2.0  * t
+        BIC = LLF + np.log(self.n_obs) * t
+        EVCI = LL + 2.0 * t / (self.n_obs - self.p - 2.0)
+        resids = Sigma - self.S
+        v = np.diag(np.sqrt(1.0 / np.diag(self.S)))
+        std_sq_resids = vech(v.dot(resids**2).dot(v))
+        resids = vech(resids)
+        
+        RMR = np.sqrt(np.mean(resids**2))
+        SRMR = np.sqrt(np.mean(std_sq_resids))
+        
+        overall_fit_measures = dict(loglikelihood=-LLF/2.0, Chi2=Chi2, 
+                                    Chi2_pval=Chi2_pval,GFI=GFI, AGFI=AGFI,
+                                    CN01=CN01, CN05=CN05, Standardized_Chi2=Standardized_Chi2,
+                                    AIC=AIC, BIC=BIC, EVCI=EVCI, RMR=RMR, SRMR=SRMR, 
+                                    RMSEA=RMSEA)
+        return overall_fit_measures         
+    
+    def fit(self, null_model=None, use_hess=False, opt_kws={}):
+        hess = self.hessian if use_hess else None
+        null_model = self._default_null_model if null_model is None else null_model
+        
         theta = self.theta.copy()
         opt = sp.optimize.minimize(self.loglike, theta, jac=self.gradient,
                                    hess=hess, method='trust-constr',
@@ -299,7 +344,27 @@ class SEM:
         res = pd.DataFrame(res, columns=['est', 'SE', 't', 'p'],
                            index=self.labels)
         
-                
+        Sigma = self.implied_cov(theta)
+        full_model = dict(Sigma=Sigma, df=self.df_cov - len(theta),
+                          n_free_params=len(theta))
+        null_fit_indices = self._goodness_of_fit(null_model)
+        full_fit_indices = self._goodness_of_fit(full_model)
+        sumstats = full_fit_indices.copy()
+        Chi2n, Chi2f = null_fit_indices["Chi2"], full_fit_indices["Chi2"]
+        dfn, dff = null_model["df"], full_model["df"]
+        sumstats["NFI1"] = (Chi2n - Chi2f) / Chi2n
+        sumstats["NFI2"]= (Chi2n - Chi2f) / (Chi2n - dff)
+        if dff!=0:
+            sumstats["Rho1"] = (Chi2n / dfn - Chi2f / dff) / (Chi2n / dfn)
+            sumstats["Rho2"] = (Chi2n / dfn - Chi2f / dff) / (Chi2n / dfn - 1.0)
+        else:
+            sumstats["Rho1"], sumstats["Rho2"] = np.nan, np.nan
+        sumstats["CFI"] = 1.0 - np.maximum(Chi2f - dff, 0) / np.maximum(Chi2f - dff, Chi2n - dfn)
+        self._null_fit_indices = null_fit_indices
+        self._full_fit_indices = full_fit_indices
+        self.sumstats = sumstats
+        self.Sigma = Sigma
+        
         self.opt = opt
         self.theta = theta
         self.theta_cov = theta_cov
