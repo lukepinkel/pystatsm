@@ -131,7 +131,7 @@ class SEM:
                 ix1.append(x)
                 ix2.append(y)
             
-        psi_labels = [f"cov({x}, {y})" for x,y in list(zip(ovn[ix1], ovn[ix2]))]
+        psi_labels = [f"residual cov({x}, {y})" for x,y in list(zip(ovn[ix1], ovn[ix2]))]
         
         
         self.labels = lambda_labels + beta_labels + phi_labels + psi_labels
