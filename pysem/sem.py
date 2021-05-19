@@ -21,7 +21,7 @@ class SEM:
     def __init__(self, Lambda, Beta, Phi, Psi, data=None, S=None, 
                  indicator_vars=None):
         """
-        Structural Equation Modeling
+        Structural Equation Model
         
         Parameters
         ----------
@@ -53,6 +53,16 @@ class SEM:
             For a model with free latent variable covariances, 
             identification requires a fixed indicator variable, which is
             by default taken as the first specified variable
+        
+        Notes
+        -----
+        In order to specify the model, for each free parameter, set the 
+        corresponding matrix element to a valid nonzero value 
+        (i.e. for covariance matrices its usually best practice to set
+         off diags to small values).  Fixed nonzero values aren't yet 
+        technically supported, but they can be set by modifying the
+        attribute 'params_template', setting the corresponding element
+        to the desired fixed value.
         
         """
         if S is None:
@@ -175,6 +185,33 @@ class SEM:
         _, self.ldS = np.linalg.slogdet(self.S)
         
     def model_matrices(self, theta):
+        """
+        Parameters
+        ----------
+        
+        theta : array_like
+            Vector of free parameters
+        
+        
+        Returns
+        -------
+        LA : ndarray
+            Matrix of shape (p x q) specifying latent variable
+            loadings
+        
+        BE : ndarray
+            Matrix of shape (q x q) specifying the structural model
+        
+        IB : ndarray
+            Matrix of shape (q x q) equal to the inverse of (I-BE)
+        
+        PH : ndarray
+            Matrix of shape (q x q) containing the latent variable covariances
+        
+        PS : ndarray
+            Matrix of shape (p x p) containing the residual covariance matrix
+        
+        """
         theta = _check_shape(theta, 1)
         params = self.params_template.copy()
         if theta.dtype==complex:
@@ -188,12 +225,61 @@ class SEM:
         return LA, BE, IB, PH, PS
     
     def implied_cov(self, theta):
+        """
+        Parameters
+        ----------
+        theta : array_like
+            Vector of free parameters
+        
+        
+        Returns
+        -------
+        Sigma: ndarray
+            Matrix of size (p x p) containing the covariance matrix implied
+            by the model evaluated at theta
+            
+        
+        """
         LA, _, IB, PH, PS = self.model_matrices(theta)
         A = LA.dot(IB)
         Sigma = A.dot(PH).dot(A.T) + PS
         return Sigma
     
     def _dsigma(self, LA, BE, IB, PH, PS):
+        """
+        Parameters
+        ----------
+        LA : ndarray
+            Matrix of shape (p x q) specifying latent variable
+            loadings
+        
+        BE : ndarray
+            Matrix of shape (q x q) specifying the structural model
+        
+        IB : ndarray
+            Matrix of shape (q x q) equal to the inverse of (I-BE)
+        
+        PH : ndarray
+            Matrix of shape (q x q) containing the latent variable covariances
+        
+        PS : ndarray
+            Matrix of shape (p x p) containing the residual covariance matrix
+        
+        Returns
+        -------
+        G: ndarray
+            Matrix containing the derivatives of Sigma with respect to 
+            each of the model matrices
+        
+        Notes
+        -----
+        
+        The matrix G has structure [DLambda, DBeta, DPhi, DPsi] with each
+        sub-matrix containing the derivatives of the lower half unique components
+        of Sigma with respect to a model matrix.  Each matrix shares the first
+        dimension p(p+1)/2. The second dimension of each matrix is, in the 
+        same order as in G, pq, q^2, q(q+1)/2, p(p+1)/2
+        """
         A = np.dot(LA, IB)
         B = np.linalg.multi_dot([A, PH, IB.T])
         DLambda = np.dot(self.LpNp, np.kron(B, self.Ip))
@@ -204,11 +290,44 @@ class SEM:
         return G
     
     def dsigma(self, theta):
+        """
+        Parameters
+        ----------
+        theta : array_like
+            Vector of free parameters
+        
+        Returns
+        -------
+        G: ndarray
+            Matrix containing the derivatives of Sigma with respect to 
+            each of the model matrices
+        
+        Notes
+        -----
+        
+        The matrix G has structure [DLambda, DBeta, DPhi, DPsi] with each
+        sub-matrix containing the derivatives of the lower half unique components
+        of Sigma with respect to a model matrix.  Each matrix shares the first
+        dimension p(p+1)/2. The second dimension of each matrix is, in the 
+        same order as in G, pq, q^2, q(q+1)/2, p(p+1)/2
+        """
         LA, BE, IB, PH, PS = self.model_matrices(theta)
         return self._dsigma(LA, BE, IB, PH, PS)
         
     
     def _gradient(self, theta):
+        """
+        Parameters
+        ----------
+        theta : array_like
+            Vector of free parameters
+        
+        Returns
+        -------
+        g : ndarray
+            Derivative of the negative log likelihood with respect to the
+            model matrices 
+        """
         LA, BE, IB, PH, PS = self.model_matrices(theta)
         A = LA.dot(IB)
         Sigma = A.dot(PH).dot(A.T) + PS
@@ -220,9 +339,34 @@ class SEM:
         return g
     
     def gradient(self, theta):
-        return self._gradient(theta)[self.theta_indices, 0]
+        """
+        Parameters
+        ----------
+        theta : array_like
+            Vector of free parameters
+        
+        Returns
+        -------
+        g : ndarray
+            Derivative of the negative log likelihood with respect to the
+            free parameters
+        """
+        g = self._gradient(theta)[self.theta_indices, 0]
+        return g
     
     def _hessian(self, theta):
+        """
+        Parameters
+        ----------
+        theta : array_like
+            Vector of free parameters
+        
+        Returns
+        -------
+        H : ndarray
+            Second derivatives of the negative log likelihood with respect to 
+            the model matrices
+        """
         LA, BE, IB, PH, PS = self.model_matrices(theta)
         A = LA.dot(IB)
         Sigma = A.dot(PH).dot(A.T) + PS
@@ -276,9 +420,32 @@ class SEM:
         return H
     
     def hessian(self, theta):
+        """
+        Parameters
+        ----------
+        theta : array_like
+            Vector of free parameters
+        
+        Returns
+        -------
+        H : ndarray
+            Second derivatives of the negative log likelihood with respect to 
+            the free parameters
+        """
         return self._hessian(theta)[self.theta_indices][:, self.theta_indices]
     
     def loglike(self, theta):
+        """
+        Parameters
+        ----------
+        theta : array_like
+            Vector of free parameters
+        
+        Returns
+        -------
+        LL : float
+            Twice the negative log likelihood
+        """
         LA, _, IB, PH, PS = self.model_matrices(theta)
         A = LA.dot(IB)
         Sigma = A.dot(PH).dot(A.T) + PS
@@ -287,6 +454,19 @@ class SEM:
         return LL
     
     def _goodness_of_fit(self, model_dict):
+        """
+        Parameters
+        ----------
+        model_dict : dict
+            Dictionary with the key value pairs ('Sigma', implied covariance)
+            (df, model degrees of freedom), and 
+            ('n_free_params', number of free parameters)
+        
+        Returns
+        -------
+        overall_fit_measures : dict
+            Dictionary containing goodness of fit measures
+        """
         Sigma, df = model_dict['Sigma'], model_dict['df']
         t = model_dict["n_free_params"]
         _, ldSigma = np.linalg.slogdet(Sigma)
@@ -327,6 +507,20 @@ class SEM:
         return overall_fit_measures         
     
     def fit(self, null_model=None, use_hess=False, opt_kws={}):
+        """
+        Parameters
+        ----------
+        null_model : dict
+            Dictionary specifying the model to use when computing relative
+            goodness of fit measures
+        
+        use_hess : bool
+            If true the analytical hessian is used during optimization.
+        
+        opt_kws : dict
+            Optimizer options for use in scipy.optimize.minimize
+            
+        """
         hess = self.hessian if use_hess else None
         null_model = self._default_null_model if null_model is None else null_model
         
