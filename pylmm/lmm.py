@@ -184,7 +184,26 @@ def get_jacmats2(Zs, dims, indices, g_indices, theta):
 class LMM:
     
     def __init__(self, formula, data, weights=None):
-      
+        """
+        Parameters
+        ----------
+        formula : string
+            lme4 style formula with random effects specified by terms in 
+            parentheses with a bar
+            
+        data : dataframe
+            Dataframe containing data.  Missing values should be dropped 
+            manually before passing the dataframe.
+            
+        weights : ndarray, optional
+            Array of model weights. The default is None, which sets the
+            weights to one internally.
+
+        Returns
+        -------
+        None.
+
+        """
         indices = {}
         X, Z, y, dims, levels, fe_vars = construct_model_matrices(formula, data, return_fe=True)
         theta, theta_indices = make_theta(dims)
@@ -233,7 +252,7 @@ class LMM:
         Ginv: sparse matrix
              scipy sparse matrix with inverse covariance block diagonal
             
-        s: scalar
+        s: float
             error covariance
         
         Returns
@@ -691,6 +710,30 @@ class LMM:
         return H
     
     def _compute_effects(self, theta=None):
+        """
+
+        Parameters
+        ----------
+        theta : ndarray, optional
+            Model parameters in the covariance form
+
+        Returns
+        -------
+        beta : ndarray
+            Fixed effects estimated at theta.
+        XtViX_inv : ndarray
+            Fixed effects covariance matrix.
+        u : ndarray
+            Random effect estimate at theta.
+        G : csc_matrix
+            Random effects covariance matrix.
+        R : dia_matrix
+            Matrix of residual covariance.
+        V : csc_matrix
+            Model covariance matrix given fixed effects.
+
+        """
+        theta = self.theta if theta is None else theta
         G = self.update_gmat(theta, inverse=False)
         R = self.R * theta[-1]
         V = self.Zs.dot(G).dot(self.Zs.T) + R
@@ -707,7 +750,25 @@ class LMM:
         return beta, XtViX_inv, u, G, R, V
     
     def _fit(self, use_grad=True, use_hess=False, opt_kws={}):
-        
+        """
+
+        Parameters
+        ----------
+        use_grad : bool, optional
+            If true, the analytic gradient is used during optimization.
+            The default is True.
+        use_hess : bool, optional
+            If true, the analytic hessian is used during optimization.
+            The default is False.
+        opt_kws : dict, optional
+            Dictionary of options to use in scipy.optimize.minimize.
+            The default is {}.
+
+        Returns
+        -------
+        None.
+
+        """
         
         if use_grad:
             default_opt_kws = dict(verbose=0, gtol=1e-6, xtol=1e-6)
@@ -750,6 +811,22 @@ class LMM:
         self.llf = self.ll / -2.0
         
     def _post_fit(self, use_grad=True, analytic_se=False):
+        """
+
+        Parameters
+        ----------
+        use_grad : bool, optional
+            If true and analytic_se is False, the gradient is used in the
+            numerical approximation of the hessian. The default is True.
+        analytic_se : bool, optional
+            If true, then the hessian is used to compute standard errors.
+            The default is False.
+
+        Returns
+        -------
+        None.
+
+        """
         if analytic_se:
             Htheta = self.hessian(self.theta)
         elif use_grad:
@@ -761,13 +838,51 @@ class LMM:
         self.se_params = np.concatenate([self.se_beta, self.se_theta])        
     
     def predict(self, X=None, Z=None):
+        """
+        Parameters
+        ----------
+        X : ndarray, optional
+            Model matrix for fixed effects. The default is None.
+        Z : ndarray, optional
+            Model matrix from random effects. The default is None.
+
+        Returns
+        -------
+        yhat : ndarray
+            Model predictions evaluated at X and Z.
+
+        """
         if X is None:
             X = self.X
         if Z is None:
             Z = self.Z
-        return X.dot(self.beta)+Z.dot(self.u)
+        yhat = X.dot(self.beta)+Z.dot(self.u)
+        return yhat
     
     def fit(self, use_grad=True, use_hess=False, analytic_se=False, opt_kws={}):
+        """
+        
+
+        Parameters
+        ----------
+        use_grad : bool, optional
+            If true, the analytic gradient is used during optimization.
+            The default is True.
+        use_hess : bool, optional
+            If true, the analytic hessian is used during optimization.
+            The default is False.
+        analytic_se : bool, optional
+            If true, then the hessian is used to compute standard errors.
+            The default is False.
+        opt_kws : dict, optional
+            Dictionary of options to use in scipy.optimize.minimize.
+            The default is {}.
+
+        Returns
+        -------
+        None.
+
+        """
         self._fit(use_grad, use_hess, opt_kws)
         self._post_fit(use_grad, analytic_se)
         param_names = list(self.fe_vars)
