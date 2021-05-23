@@ -209,18 +209,18 @@ class CLM:
         self.fit()
         t_init = self.params.copy()
         beta_samples = np.zeros((n_boot, len(t_init)))
-        o1, o2 = self.o1.copy(), self.o2.copy()
+        o1, o2, ix = self.o1.copy(), self.o2.copy(), self.ix.copy()
         B1, B2 = self.B1, self.B2
         n = self.X.shape[0]
-        ix = np.random.choice(n, n)
+        j = np.random.choice(n, n)
         
-        B1b, B2b, o1b, o2b = B1[ix], B2[ix], o1[ix], o2[ix]
-        self.o1, self.o2 = o1b, o2b
+        B1b, B2b, o1b, o2b, ixb = B1[j], B2[j], o1[j], o2[j], ix[j]
+        self.o1, self.o2, self.ix = o1b, o2b, ixb
         pbar = tqdm.tqdm(total=n_boot)
         for i in range(n_boot):
-            ix = np.random.choice(n, n)
-            B1b, B2b, o1b, o2b = B1[ix], B2[ix], o1[ix], o2[ix]
-            self.o1, self.o2 = o1b, o2b
+            j = np.random.choice(n, n)
+            B1b, B2b, o1b, o2b, ixb = B1[j], B2[j], o1[j], o2[j], ix[j]
+            self.o1, self.o2, self.ix = o1b, o2b, ixb
             optf = self._optimize(t_init, (B1b, B2b), 
                                   {'options':dict(verbose=0,  gtol=1e-4, 
                                                   xtol=1e-4)})
@@ -228,7 +228,7 @@ class CLM:
             pbar.update(1)
         pbar.close()
         self.beta_samples = beta_samples
-        self.o1, self.o2 = o1, o2
+        self.o1, self.o2, self.ix = o1, o2, ix
         samples_df = pd.DataFrame(self.beta_samples, columns=self.res.index)
         boot_res = samples_df.agg(["mean", "std", "min"]).T
         boot_res["pct1.0%"] = sp.stats.scoreatpercentile(beta_samples, 1.0, axis=0)
