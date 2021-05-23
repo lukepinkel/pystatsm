@@ -216,7 +216,7 @@ class CLM:
         
         B1b, B2b, o1b, o2b, ixb = B1[j], B2[j], o1[j], o2[j], ix[j]
         self.o1, self.o2, self.ix = o1b, o2b, ixb
-        pbar = tqdm.tqdm(total=n_boot)
+        pbar = tqdm.tqdm(total=n_boot, smoothing=0.001)
         for i in range(n_boot):
             j = np.random.choice(n, n)
             B1b, B2b, o1b, o2b, ixb = B1[j], B2[j], o1[j], o2[j], ix[j]
