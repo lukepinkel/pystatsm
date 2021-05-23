@@ -205,7 +205,8 @@ class LMM:
 
         """
         indices = {}
-        X, Z, y, dims, levels, fe_vars = construct_model_matrices(formula, data, return_fe=True)
+        X, Z, y, dims, levels, fe_vars = construct_model_matrices(formula, data, 
+                                                                  return_fe=True)
         theta, theta_indices = make_theta(dims)
     
         indices['theta'] = theta_indices

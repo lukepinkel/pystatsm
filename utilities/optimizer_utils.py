@@ -8,9 +8,8 @@ Created on Tue May 19 21:42:34 2020
 
 LBFGSB_options = dict(disp=10, maxfun=5000, maxiter=5000, gtol=1e-8)
 SLSQP_options = dict(disp=True, maxiter=1000)
-TrustConstr_options = dict(verbose=3, gtol=1e-5)
+TrustConstr_options = dict(verbose=0, gtol=1e-8)
 TrustNewton_options = dict(gtol=1e-5)
-TrustConstr2_options = dict(verbose=0, gtol=1e-6)
 default_opts = {'L-BFGS-B':LBFGSB_options, 
                 'l-bfgs-b':LBFGSB_options,
                 'lbfgsb':LBFGSB_options,

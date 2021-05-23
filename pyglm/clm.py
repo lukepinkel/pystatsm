@@ -9,6 +9,7 @@ import tqdm
 import patsy
 import numpy as np
 import scipy as sp
+import scipy.stats
 import pandas as pd
 from ..utilities.linalg_operations import _check_shape
 from ..utilities.data_utils import _check_type
@@ -34,8 +35,8 @@ class CLM:
                 ['ineq', lambda params: params[i+1]-params[i]])) 
                 for i in range(self.n_cats-2)]
         self.A1, self.A2 = self.Y[:, :-1], self.Y[:, 1:]
-        self.o1, self.o2 = self.Y[:, -1]*10e1, self.Y[:, 0]*-10e5
-        
+        self.o1, self.o2 = self.Y[:, -1]*30e1, self.Y[:, 0]*-10e5
+        self.ix = self.o1!=0
         self.B1 = np.block([self.A1, -self.X])
         self.B2 = np.block([self.A2, -self.X])
        
@@ -66,19 +67,21 @@ class CLM:
     
     def gradient(self, params, B1=None, B2=None):
         W = self.W
-        o1, o2 = self.o1, self.o2
+        o2 = self.o2
         
         if B1 is None:
             B1 = self.B1
         if B2 is None:
             B2 = self.B2
             
-        Nu_1, Nu_2 = B1.dot(params)+o1, B2.dot(params)+o2
+        Nu_1, Nu_2 = B1.dot(params), B2.dot(params)+o2
         Phi_11, Phi_12 = self.f.dinv_link(Nu_1), self.f.dinv_link(Nu_2)
+        Phi_11[self.ix] = 0.0
         Phi_11, Phi_12 = _check_shape(Phi_11, 2), _check_shape(Phi_12, 2)
         
         dPi = (B1 * Phi_11).T - (B2*Phi_12).T
         Gamma_1, Gamma_2 = self.f.inv_link(Nu_1), self.f.inv_link(Nu_2)
+        Gamma_1[self.ix] = 1.0
         Pi = Gamma_1 - Gamma_2
         g = -np.dot(dPi, W / Pi)
         return g
@@ -86,36 +89,42 @@ class CLM:
     def hessian(self, params, B1=None, B2=None):
         
         W = self.W
-        o1, o2 = self.o1, self.o2
+        o2 = self.o2
         
         if B1 is None:
             B1 = self.B1
         if B2 is None:
             B2 = self.B2
         
-        Nu_1, Nu_2 = B1.dot(params)+o1, B2.dot(params)+o2
+        Nu_1, Nu_2 = B1.dot(params), B2.dot(params)+o2
         
         Phi_21, Phi_22 = self.f.d2inv_link(Nu_1),  self.f.d2inv_link(Nu_2)
         Phi_11, Phi_12 = self.f.dinv_link(Nu_1), self.f.dinv_link(Nu_2)
+        
+        Phi_11[self.ix] = 0.0
+        Phi_21[self.ix] = 0.0
         
         Phi_11, Phi_12 = _check_shape(Phi_11, 2), _check_shape(Phi_12, 2)
         Phi_21, Phi_22 = _check_shape(Phi_21, 2), _check_shape(Phi_22, 2)
         
         Gamma_1, Gamma_2 = self.f.inv_link(Nu_1), self.f.inv_link(Nu_2)
+        Gamma_1[self.ix] = 1.0
         Pi = Gamma_1 - Gamma_2
         Phi3 =_check_shape(W / Pi**2, 2)
         dPi = (B1 * Phi_11).T - (B2*Phi_12).T
-        T0 = (B1 * Phi_21).T.dot(B1)
-        T1 = (B2 * Phi_22).T.dot(B2)
+        Pi = _check_shape(Pi, 2)
+        T0 = (B1 * Phi_21 / Pi).T.dot(B1)
+        T1 = (B2 * Phi_22 / Pi).T.dot(B2)
         T2 = dPi.dot(dPi.T*Phi3)
-        H=T0-T1-T2
+        H = T0 - T1 - T2
         return -H
     
     def _optimize(self, params=None, model_args=(None, None), 
                   optimizer_kwargs={}):
-        if params is None:
-            params = self.params_init.copy()
+        params = self.params_init.copy() if params is None else params
+        
         optimizer_kwargs = process_optimizer_kwargs(optimizer_kwargs)
+        
         opt = sp.optimize.minimize(self.loglike, params, args=model_args,
                                    jac=self.gradient, hess=self.hessian, 
                                    constraints=self.constraints, 
