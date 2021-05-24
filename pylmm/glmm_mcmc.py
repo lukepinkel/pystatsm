@@ -24,12 +24,6 @@ def log1p(x):
     return np.log(1+x)
 
 
-def rtnorm(mu, sd, lower, upper):
-    a = (lower - mu) / sd
-    b = (upper - mu) / sd
-    return sp.stats.truncnorm(a=a, b=b, loc=mu, scale=sd).rvs()
-    
-
 def norm_cdf(x, mean=0.0, sd=1.0):
     z = (x - mean) / sd
     p = (sp.special.erf(z/SQRT2) + 1.0) / 2.0
@@ -69,18 +63,59 @@ def sample_rcov(theta, y, yhat, wsinfo, priors):
     resid = y - yhat
     sse = resid.T.dot(resid)
     nu = wsinfo['r']['nu'] 
-    ss =r_invgamma((nu+priors['R']['n']), 
-                            scale=(sse+priors['R']['V']))
+    ss = r_invgamma((nu+priors['R']['n']), 
+                    scale=(sse+priors['R']['V']))
     theta[-1] = ss 
     return theta
 
 
+def to_arviz_dict(samples, var_dict, burnin=0):
+    az_dict = {}
+    for key, val in var_dict.items():
+        az_dict[key] = samples[:, burnin:, val]
+    return az_dict    
+
+            
 
 
 class MixedMCMC(LMM):
     
     def __init__(self, formula, data, response_dist, priors=None, weights=None, 
                  rng=None, vnames=None, freeR=None):
+        """
+        
+
+        Parameters
+        ----------
+        formula : string
+            lme4 style formula specifying random effects with parentheses and 
+            a vertical bar.
+        data : dataframe
+            Dataframe containing data.  Missing values should be dropped 
+            manually before passing the dataframe.
+        response_dist : string
+            String specifying the type of model. One of `ordinal_probit`,
+            `bernoulli`, `binomial`, or `normal`.
+        priors : dict, optional
+            A dictionary with keys consisting of random effect factors or 
+            `R` for the residual covariance. The corresponding value should be
+            a dictionary with keys `V` and `n`, specifying the prior covariance
+            matrix and number of observations. The default is None.
+        weights : ndarray, optional
+            Weight matrix. The default is None.
+        rng : numpy.random._generator.Generator, optional
+            Numpy random generator. The default is None.
+        vnames : list, optional
+            List of variable names. The default is None.
+        freeR : bool, optional
+            If true, allows the residual covariance to vary in `binomial` and
+            `bernoulli` models. The default is None.
+
+        Returns
+        -------
+        None.
+
+        """
         super().__init__(formula, data) 
         
         #Initialize parameters, get misc information for sampling
@@ -343,7 +378,7 @@ class MixedMCMC(LMM):
             if save_lvar:
                 secondary_samples['lvar'][i] = z
             if i>1:
-                pbar.set_description(f"Chain {chain} Tau Acceptance Prob: {t_acceptances[:i].mean():.4f} C: {propC:.3f}")
+                pbar.set_description(f"Chain {chain+1} Tau Acceptance Prob: {t_acceptances[:i].mean():.4f} C: {propC:.3f}")
             pbar.update(1)
         pbar.close() 
         secondary_samples['t_accept'] = t_acceptances
@@ -423,7 +458,7 @@ class MixedMCMC(LMM):
             secondary_samples['lvar'] = np.zeros((n_smp, n_ob))
         v = np.zeros_like(z).astype(float)
         progress_bar = tqdm.tqdm(range(n_smp), smoothing=0.01)
-        progress_bar.set_description(f"Chain {chain}")
+        progress_bar.set_description(f"Chain {chain+1}")
         for i in progress_bar:
             #P(z|location, theta)
             z = self.slice_sample_lvar(rng.exponential(scale=1.0, size=self.n_ob),
@@ -461,7 +496,7 @@ class MixedMCMC(LMM):
         if save_u:
             secondary_samples['u'] = np.zeros((n_smp, n_re))
         progress_bar = tqdm.tqdm(range(n_smp), smoothing=0.01)
-        progress_bar.set_description(f"Chain {chain}")
+        progress_bar.set_description(f"Chain {chain+1}")
         for i in progress_bar:
             #P(location|y, theta)
             location = self.sample_location(theta, rng.normal(0, 1, size=self.n_re), 
@@ -478,7 +513,8 @@ class MixedMCMC(LMM):
         progress_bar.close()
         return samples, secondary_samples
     
-    def sample(self, n_samples=5000, n_chains=8, burnin=1000, sampling_kws={}, summary_kws={}):
+    def sample(self, n_samples=5000, n_chains=8, burnin=1000, sampling_kws={},
+               summary_kws={}):
         n_params = self.n_params
         if self.response_dist=="ordinal_probit":
             n_params = n_params+np.unique(self.y).shape[0]-1
@@ -504,13 +540,6 @@ class MixedMCMC(LMM):
         self.res.index = self.param_names
 
 
-def to_arviz_dict(samples, var_dict, burnin=0):
-    az_dict = {}
-    for key, val in var_dict.items():
-        az_dict[key] = samples[:, burnin:, val]
-    return az_dict    
-
-            
                 
         
         
