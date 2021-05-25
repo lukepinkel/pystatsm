@@ -140,7 +140,10 @@ class MixedMCMC(LMM):
         
         #Handle priors
         if priors is None:
-            priors = dict(R=dict(V=0.500*self.n_ob, n=self.n_ob))
+            if response_dist == 'normal':
+                priors = dict(R=dict(V=0, n=-2))
+            else:
+                priors = dict(R=dict(V=0.500*self.n_ob, n=self.n_ob))
             for level in self.levels:
                 Vi = np.eye(self.dims[level]['n_vars'])*0.001
                 priors[level] = dict(V=Vi, n=4)

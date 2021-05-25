@@ -64,6 +64,23 @@ def construct_model_matrices(formula, data, return_fe=False):
     else:
         return X, Z, y, dim_dict, list(dim_dict.keys())
 
+def handle_missing(formula, data):
+    fe_form, groups = parse_random_effects(formula)
+    yvars, fe_form = re.split("[~]", fe_form)
+    fe_form = re.sub("\+$", "", fe_form)
+    g_vars = [x for y in groups for x in y]
+    g_vars = [re.split("[+\-\*:]", x) for x in g_vars]
+    re_vars = [x for y in g_vars for x in y]
+    fe_vars = re.split("[+\-\*:]", fe_form)
+    if type(yvars) is str:
+        yvars = [yvars]
+    vars_ = set(re_vars + fe_vars+yvars)
+    cols = set(data.columns)
+    var_subset = vars_.intersection(cols)
+    valid_ind = ~data[var_subset].isnull().any(axis=1)
+    return valid_ind
+
+
 def make_theta(dims):
     theta, indices, index_start = [], {}, 0
     dims = dims.copy()
@@ -800,6 +817,10 @@ class LMM:
         
         beta, XtWX_inv, u, G, R,  V = self._compute_effects(theta)
         params = np.concatenate([beta, theta])
+        re_covs = {}
+        for key, value in self.dims.items():
+            re_covs[key] = invech(theta[self.indices['theta'][key]].copy())
+            
         self.theta, self.beta, self.u, self.params = theta, beta, u, params
         self.Hinv_beta = XtWX_inv
         self.se_beta = np.sqrt(np.diag(XtWX_inv))
@@ -810,6 +831,7 @@ class LMM:
         self.lltheta = self.optimizer.fun
         self.ll = (self.llconst + self.lltheta)
         self.llf = self.ll / -2.0
+        self.re_covs = re_covs
         
     def _post_fit(self, use_grad=True, analytic_se=False):
         """
