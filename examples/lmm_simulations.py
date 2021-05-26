@@ -56,10 +56,6 @@ se_samples = pd.DataFrame(se_samples, columns=model.res.index)
 comp = param_samples.agg(["mean", "std"]).T
 comp["se_mean"] = se_samples.mean()
 
-model2 = MixedMCMC(formula, df, response_dist="normal", rng=rng)
-model2.sample(n_samples=15000, burnin=2500, n_chains=8)
-comp["se_mcmc"] = model2.res["sd"]
-
 
 
 
