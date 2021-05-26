@@ -23,6 +23,8 @@ def exact_rmvnorm(S, n=1000, mu=None, seed=None):
     R = corr(X)
     L = L.dot(np.linalg.inv(np.linalg.cholesky(R)))
     X = X.dot(L.T)
+    if mu is not None:
+        X = X + mu
     return X
 
 
