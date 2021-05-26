@@ -63,8 +63,7 @@ def sample_rcov(theta, y, yhat, wsinfo, priors):
     resid = y - yhat
     sse = resid.T.dot(resid)
     nu = wsinfo['r']['nu'] 
-    ss = r_invgamma((nu+priors['R']['n']), 
-                    scale=(sse+priors['R']['V']))
+    ss = r_invgamma((nu+priors['R']['n'])/2, scale=(sse+priors['R']['V'])/2)
     theta[-1] = ss 
     return theta
 
@@ -535,7 +534,8 @@ class MixedMCMC(LMM):
             
         for i in range(n_chains):
             samples[i], samples_a[i] = func(n_samples, chain=i, **sampling_kws)
-
+        
+        self.samples_a = samples_a
         self.az_dict = to_arviz_dict(samples, self.vnames, burnin=burnin)
         self.az_data = az.from_dict(self.az_dict)
         self.summary = az.summary(self.az_data, round_to=6, **summary_kws)
