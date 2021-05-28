@@ -71,15 +71,16 @@ def parse_vars(formula, model_dict):
 
 class MixedModelSim:
     
-    def __init__(self, formula, model_dict, rng=None):
+    def __init__(self, formula, model_dict, rng=None, group_dict={}):
         df, re_groupings, cont_vars = parse_vars(formula, model_dict)
         rng = np.random.default_rng() if rng is None else rng
         ginfo = model_dict['ginfo']
         for x in re_groupings:
-            if (df[x]==0).all():
+            if x not in group_dict.keys():
                 n_grp, n_per =  ginfo[x]['n_grp'],  ginfo[x]['n_per']
                 df[x] = np.kron(np.arange(n_grp), np.ones(n_per))
-                
+            else:
+                df[x] = group_dict[x]
         n_obs = model_dict['n_obs']
         x_mean, x_cov = model_dict['mu'], np.atleast_2d(model_dict['vcov'])
         xvals = exact_rmvnorm(x_cov, n_obs, mu=x_mean)

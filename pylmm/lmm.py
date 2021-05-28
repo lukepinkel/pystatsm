@@ -13,7 +13,7 @@ import scipy as sp # analysis:ignore
 import scipy.sparse as sps # analysis:ignore
 from ..utilities.linalg_operations import (dummy, vech, invech, _check_np, 
                                            khatri_rao, sparse_woodbury_inversion,
-                                           _check_shape, woodbury_inversion)
+                                           _check_shape)
 from ..utilities.special_mats import lmat, nmat
 from ..utilities.numerical_derivs import so_gc_cd, so_fc_cd
 from .families import (Binomial, ExponentialFamily, Poisson, NegativeBinomial, Gaussian, InverseGaussian)
@@ -84,7 +84,7 @@ def handle_missing(formula, data):
 def make_theta(dims):
     theta, indices, index_start = [], {}, 0
     dims = dims.copy()
-    dims['error'] = dict(n_groups=0, n_vars=1)
+    dims['resid'] = dict(n_groups=0, n_vars=1)
     for key, value in dims.items():
         n_vars = value['n_vars']
         n_params = int(n_vars * (n_vars+1) //2)
@@ -193,16 +193,18 @@ def get_jacmats2(Zs, dims, indices, g_indices, theta):
             dVi = Zi.dot(dGi).dot(Zi.T)
             jac_mats[key].append(dVi)
         start+=ng*nv
-    jac_mats['error'] = [sps.eye(Zs.shape[0])]
+    jac_mats['resid'] = [sps.eye(Zs.shape[0])]
     return jac_mats
          
 def get_jacmats(Zs, dims, indices, g_indices, theta):
     start = 0
     jac_mats = {}
+    jac_inds = {}
     for key, value in dims.items():
         nv, ng =  value['n_vars'], value['n_groups']
         jac_mats[key] = []
         theta_i = theta[indices[key]]
+        jac_inds[key] = np.arange(start, start+ng*nv)
         nv2, nvng = nv*nv, nv*ng
         row = np.repeat(np.arange(nvng), nv)
         col = np.repeat(np.arange(ng)*nv, nv2)
@@ -215,8 +217,8 @@ def get_jacmats(Zs, dims, indices, g_indices, theta):
             dGi = sps.csc_matrix((data, (row, col)))
             jac_mats[key].append(dGi)
         start+=ng*nv
-    jac_mats['error'] = [sps.eye(Zs.shape[0])]
-    return jac_mats
+    jac_mats['resid'] = [sps.eye(Zs.shape[0])]
+    return jac_mats, jac_inds
     
 
 class LMM:
@@ -268,10 +270,9 @@ class LMM:
         self.indices = indices
         self.R = sps.eye(Z.shape[0])
         self.Zs = sps.csc_matrix(Z)
-        self.jac_mats = get_jacmats2(self.Zs, self.dims, self.indices['theta'], 
-                                     self.indices['g'], self.theta)
-        self.g_derivs = get_jacmats(self.Zs, self.dims, self.indices['theta'],
-                                    self.indices['g'], self.theta)
+        self.g_derivs, self.jac_inds = get_jacmats(self.Zs, self.dims, 
+                                                   self.indices['theta'],
+                                                   self.indices['g'], self.theta)
         self.t_indices = list(zip(*np.triu_indices(len(theta))))
         self.elim_mats, self.symm_mats, self.iden_mats = {}, {}, {}
         self.d2g_dchol = {}
@@ -294,7 +295,7 @@ class LMM:
              scipy sparse matrix with inverse covariance block diagonal
             
         s: float
-            error covariance
+            resid covariance
         
         Returns
         -------
@@ -303,7 +304,6 @@ class LMM:
             
         """
         M = self.M.copy()/s
-        #M[-Ginv.shape[0]-1:-1, -Ginv.shape[0]-1:-1] += Ginv
         Omega = sp.sparse.block_diag([self.zero_mat, Ginv, self.zero_mat2])
         M+=Omega
         return M
@@ -335,7 +335,7 @@ class LMM:
             G.data[self.indices['g'][key]] = np.tile(theta_i, ng)
         return G
         
-    def loglike(self, theta, use_sw=False):
+    def loglike(self, theta, reml=True, use_sw=False):
         """
         Parameters
         ----------
@@ -350,15 +350,22 @@ class LMM:
         """
         Ginv = self.update_gmat(theta, inverse=True)
         M = self.update_mme(Ginv, theta[-1])
-        logdetG = lndet_gmat(theta, self.dims, self.indices)
         L = np.linalg.cholesky(M.A)
         ytPy = np.diag(L)[-1]**2
-        logdetC = np.sum(2*np.log(np.diag(L))[:-1])
+        logdetG = lndet_gmat(theta, self.dims, self.indices)
         logdetR = np.log(theta[-1]) * self.Z.shape[0]
-        ll = logdetR + logdetC + logdetG + ytPy
+        if reml:
+            logdetC = np.sum(2*np.log(np.diag(L))[:-1])
+            ll = logdetR + logdetC + logdetG + ytPy
+        else:
+            Rinv = self.R / theta[-1]
+            RZ = Rinv.dot(self.Zs)
+            Q = Ginv + self.Zs.T.dot(RZ)
+            _, logdetV = cholesky(Q).slogdet()
+            ll = logdetR + logdetV + logdetG + ytPy
         return ll
 
-    def gradient(self, theta, use_sw=False):
+    def gradient(self, theta, reml=True, use_sw=False):
         """
         Parameters
         ----------
@@ -393,24 +400,34 @@ class LMM:
         ZtPy = self.Zs.T.dot(Py)
         grad = []
         for key in (self.levels):
+            ind = self.jac_inds[key]
+            ZtWZi = ZtWZ[ind][:, ind]
+            ZtWXi = ZtWX[ind]
+            ZtPyi = ZtPy[ind]
             for dGdi in self.g_derivs[key]:
-                g1 = dGdi.dot(ZtWZ).diagonal().sum() 
-                g2 = np.trace(np.linalg.solve(XtWX, ZtWX.T.dot(dGdi.dot(ZtWX))))
-                g3 = ZtPy.T.dot(dGdi.dot(ZtPy))
+                g1 = dGdi.dot(ZtWZi).diagonal().sum() 
+                g2 = ZtPyi.T.dot(dGdi.dot(ZtPyi))
+                if reml:
+                    g3 = np.trace(np.linalg.solve(XtWX, ZtWXi.T.dot(dGdi.dot(ZtWXi))))
+                else:
+                    g3 = 0
                 gi = g1 - g2 - g3
                 grad.append(gi)
         ZtR = self.Zs.T.dot(Rinv)
-        for dR in self.g_derivs['error']:
+        for dR in self.g_derivs['resid']:
             g1 = Rinv.diagonal().sum() - (M.dot((ZtR).dot(dR).dot(ZtR.T))).diagonal().sum()
-            g2 = np.trace(np.linalg.solve(XtWX, WX.T.dot(WX)))
-            g3 = Py.T.dot(Py)
+            g2 = Py.T.dot(Py)
+            if reml:
+                g3 = np.trace(np.linalg.solve(XtWX, WX.T.dot(WX)))
+            else:
+                g3 = 0
             gi = g1 - g2 - g3
             grad.append(gi)
         grad = np.concatenate(grad)
         grad = _check_shape(np.array(grad))
         return grad
     
-    def hessian(self, theta, use_sw=False):
+    def hessian(self, theta, reml=True, use_sw=False):
         """
         Parameters
         ----------
@@ -449,84 +466,37 @@ class LMM:
         ZtPPy =  self.Zs.T.dot(PPy)
         H = np.zeros((len(self.theta), len(self.theta)))
         PJ, yPZJ, ZPJ = [], [], []
-        
+        ix = []
         for key in (self.levels):
+            ind = self.jac_inds[key]
+            ZtPZi = ZtPZ[ind]
+            ZtPyi = ZtPy[ind]
+            ZtPi = ZtP[ind]
             for i in range(len(self.g_derivs[key])):
                 Gi = self.g_derivs[key][i]
-                PJ.append(Gi.dot(ZtPZ))
-                yPZJ.append(Gi.dot(ZtPy))
-                ZPJ.append((Gi.dot(ZtP)).T)
+                PJ.append(Gi.dot(ZtPZi))
+                yPZJ.append(Gi.dot(ZtPyi))
+                ZPJ.append((Gi.dot(ZtPi)).T)
+                ix.append(ind)
             
         t_indices = list(zip(*np.triu_indices(len(self.theta)-1)))
         for i, j in t_indices:
-            PJi, PJj = PJ[i], PJ[j]
+            ZtPZij = ZtPZ[ix[i]][:, ix[j]]
+            PJi, PJj = PJ[i][:, ix[j]], PJ[j][:, ix[i]]
             yPZJi, JjZPy = yPZJ[i], yPZJ[j]
             Hij = -np.einsum('ij,ji->', PJi, PJj)\
-                    + (2 * (yPZJi.T.dot(ZtPZ)).dot(JjZPy))[0]
+                    + (2 * (yPZJi.T.dot(ZtPZij)).dot(JjZPy))[0]
             H[i, j] = H[j, i] = Hij
-        dR = self.g_derivs['error'][0]
+        dR = self.g_derivs['resid'][0]
         dRZtP = (dR.dot(ZtP.T))
         for i in range(len(self.theta)-1):
             yPZJi = yPZJ[i]
             ZPJi = ZPJ[i]
-            H[i, -1] = H[-1, i] = 2*yPZJi.T.dot(ZtPPy) - np.einsum('ij,ji->', ZPJi.T, dRZtP)
+            ZtPPyi = ZtPPy[ix[i]]
+            H[i, -1] = H[-1, i] = 2*yPZJi.T.dot(ZtPPyi) - np.einsum('ij,ji->', ZPJi.T, dRZtP[:, ix[i]])
         P = W - WX.dot(U)
         H[-1, -1] = Py.T.dot(PPy)*2 - np.einsum("ij,ji->", P, P)
         return H
-
-  
-    
-    def gradient_me(self, theta):
-        """
-        Parameters
-        ----------
-        theta: array_like
-            The original parameterization of the components
-        
-        Returns
-        -------
-        gradient: array_like
-            The gradient of the log likelihood with respect to the covariance
-            parameterization
-        
-        Notes
-        -----
-        This function avoids forming the (n x n) matrix P, and instead takes
-        advantage of the fact that yP(dV)Py can be computed using mostly matrix
-        vector products, while tr(P(dV)) can be computed by accumulating
-        n vector-vector products where each component of P, P_i, can be formed
-        only when needed.
-        """
-        Ginv = self.update_gmat(theta, inverse=True)
-        Rinv = self.R / theta[-1]
-        X, Z, y = self.X, self.Zs, self.y
-        W = Rinv.dot(Z)
-        Omega = cholesky((Z.T.dot(W) + Ginv).tocsc()).inv()
-#        U = Rinv - W.dot(Omega).dot(W.T)
-        UX = Rinv.dot(X) - W.dot(Omega).dot(W.T.dot(X))
-        Uy = Rinv.dot(y) - W.dot(Omega).dot(W.T.dot(y))
-        self.jac_mats['error'] = [self.jac_mats['error'][0].tocsc()]
-        S = X.T.dot(UX)
-        Sinv = np.linalg.inv(S)
-        Py = Uy - UX.dot(np.linalg.inv(S).dot(UX.T.dot(y)))
-        UXS = UX.dot(Sinv)
-        grad = np.zeros_like(theta)
-        k=0
-        for key in (self.levels+['error']):
-             for dVdi in self.jac_mats[key]:
-                 grad[k] += -Py.T.dot(dVdi.dot(Py))[0][0]
-                 k+=1  
-        for i in range(y.shape[0]):
-#            P_i = np.asarray(U[i] - UXS[i].dot(UX.T))
-            P_i = np.asarray((Rinv.tocsc()[i].T - W.dot(Omega.dot(W[i].T))).A.T[0] - UXS[i].dot(UX.T))
-            k=0
-            for key in (self.levels+['error']):
-                for dVdi in self.jac_mats[key]:
-#                    grad[k] = grad[k] + dVdi[:, i].T.dot(P_i[0])[0]
-                    grad[k] = grad[k] + dVdi[:, i].T.dot(P_i)[0]
-                    k=k+1
-        return grad
-    
     
     def update_chol(self, theta, inverse=False):
         """
@@ -589,7 +559,7 @@ class LMM:
             Jf[key] = E.dot(N.dot(np.kron(L, I))).dot(E.T)
         return Jf
     
-    def loglike_c(self, theta_chol, use_sw=False):
+    def loglike_c(self, theta_chol, reml=True, use_sw=False):
         """
         Parameters
         ----------
@@ -604,9 +574,9 @@ class LMM:
         """
         theta = inverse_transform_theta(theta_chol.copy(), self.dims, self.indices)
         theta[-1] = theta_chol[-1]
-        return self.loglike(theta, use_sw)
+        return self.loglike(theta, reml, use_sw)
     
-    def gradient_c(self, theta_chol, use_sw=False):
+    def gradient_c(self, theta_chol, reml=True, use_sw=False):
         """
         Parameters
         ----------
@@ -623,29 +593,10 @@ class LMM:
         """
         theta = inverse_transform_theta(theta_chol.copy(), self.dims, self.indices)
         theta[-1] = theta_chol[-1]
-        return self.gradient(theta, use_sw)
+        return self.gradient(theta, reml, use_sw)
     
-        
-    def gradient_me_c(self, theta_chol):
-        """
-        Parameters
-        ----------
-        
-        theta_chol: array_like
-            The cholesky parameterization of the components
-        
-        Returns
-        -------
-        gradient: array_like
-            The gradient of the log likelihood with respect to the covariance
-            parameterization
-            
-        """
-        theta = inverse_transform_theta(theta_chol.copy(), self.dims, self.indices)
-        theta[-1] = theta_chol[-1]
-        return self.gradient_me(theta)
     
-    def hessian_c(self, theta_chol):
+    def hessian_c(self, theta_chol, reml=True):
         """
         Parameters
         ----------
@@ -662,9 +613,9 @@ class LMM:
         """
         theta = inverse_transform_theta(theta_chol.copy(), self.dims, self.indices)
         theta[-1] = theta_chol[-1]
-        return self.hessian(theta)
+        return self.hessian(theta, reml)
     
-    def gradient_chol(self, theta_chol, use_sw=False):
+    def gradient_chol(self, theta_chol, reml=True, use_sw=False):
         """
         Parameters
         ----------
@@ -681,38 +632,13 @@ class LMM:
         """
         L_dict = self.update_chol(theta_chol)
         Jf_dict = self.dg_dchol(L_dict)
-        Jg = self.gradient_c(theta_chol, use_sw)
+        Jg = self.gradient_c(theta_chol, reml, use_sw)
         Jf = sp.linalg.block_diag(*Jf_dict.values()) 
         Jf = np.pad(Jf, [[0, 1]])
         Jf[-1, -1] = 1
         return Jg.dot(Jf)
     
-        
-    def gradient_me_chol(self, theta_chol):
-        """
-        Parameters
-        ----------
-        
-        theta_chol: array_like
-            The cholesky parameterization of the components
-        
-        Returns
-        -------
-        gradient: array_like
-            The gradient of the log likelihood with respect to the cholesky
-            parameterization
-            
-        """
-        L_dict = self.update_chol(theta_chol)
-        Jf_dict = self.dg_dchol(L_dict)
-        Jg = self.gradient_me_c(theta_chol)
-        Jf = sp.linalg.block_diag(*Jf_dict.values()) 
-        Jf = np.pad(Jf, [[0, 1]])
-        Jf[-1, -1] = 1
-        return Jg.dot(Jf)
-    
-    
-    def hessian_chol(self, theta_chol):
+    def hessian_chol(self, theta_chol, reml=True):
         """
         Parameters
         ----------
@@ -729,8 +655,8 @@ class LMM:
         """
         L_dict = self.update_chol(theta_chol)
         Jf_dict = self.dg_dchol(L_dict)
-        Hq = self.hessian_c(theta_chol)
-        Jg = self.gradient_c(theta_chol)
+        Hq = self.hessian_c(theta_chol, reml)
+        Jg = self.gradient_c(theta_chol, reml)
         Hf = self.d2g_dchol
         Jf = sp.linalg.block_diag(*Jf_dict.values()) 
         Jf = np.pad(Jf, [[0, 1]])
@@ -775,19 +701,23 @@ class LMM:
         G = self.update_gmat(theta, inverse=False)
         R = self.R * theta[-1]
         V = self.Zs.dot(G).dot(self.Zs.T) + R
-        chol_fac = cholesky(V)
-        XtVi = (chol_fac.solve_A(self.X)).T
+        Ginv = self.update_gmat(theta, inverse=True)
+        Rinv = self.R / theta[-1]
+        RZ = Rinv.dot(self.Zs)
+        Q = Ginv + self.Zs.T.dot(RZ)
+        M = cholesky(Q).inv()
+        Vinv = Rinv - RZ.dot(M).dot(RZ.T)
+
+        XtVi = (Vinv.dot(self.X)).T
         XtViX = XtVi.dot(self.X)
         XtViX_inv = np.linalg.inv(XtViX)
         beta = _check_shape(XtViX_inv.dot(XtVi.dot(self.y)))
         fixed_resids = _check_shape(self.y) - _check_shape(self.X.dot(beta))
-        #Should be G.dot(Z).T.dot(solve(fixed_resids))
-        Vinvr = chol_fac.solve_A(fixed_resids)
+        Vinvr = Vinv.dot(fixed_resids)
         u = G.dot(self.Zs.T).dot(Vinvr)
-        
         return beta, XtViX_inv, u, G, R, V
     
-    def _fit(self, use_grad=True, use_hess=False, opt_kws={}):
+    def _optimize(self, reml=True, use_grad=True, use_hess=False, opt_kws={}):
         """
 
         Parameters
@@ -817,7 +747,7 @@ class LMM:
             for key, value in default_opt_kws.items():
                 if key not in opt_kws.keys():
                     opt_kws[key] = value
-            optimizer = sp.optimize.minimize(self.loglike_c, self.theta, 
+            optimizer = sp.optimize.minimize(self.loglike_c, self.theta, args=(reml,),
                                              jac=self.gradient_chol, hess=hess, 
                                              options=opt_kws, bounds=self.bounds,
                                              method='trust-constr')
@@ -829,31 +759,16 @@ class LMM:
                 if key not in opt_kws.keys():
                     opt_kws[key] = value
             optimizer = sp.optimize.minimize(self.loglike_c, self.theta, 
-                                             bounds=self.bounds_2, 
+                                             args=(reml,),bounds=self.bounds_2, 
                                              method='L-BFGS-B',
                                              options=opt_kws)
         theta_chol = optimizer.x
         theta = inverse_transform_theta(theta_chol.copy(), self.dims, self.indices)
+        return theta, theta_chol, optimizer
         
-        beta, XtWX_inv, u, G, R,  V = self._compute_effects(theta)
-        params = np.concatenate([beta, theta])
-        re_covs = {}
-        for key, value in self.dims.items():
-            re_covs[key] = invech(theta[self.indices['theta'][key]].copy())
-            
-        self.theta, self.beta, self.u, self.params = theta, beta, u, params
-        self.Hinv_beta = XtWX_inv
-        self.se_beta = np.sqrt(np.diag(XtWX_inv))
-        self._G, self._R, self._V = G, R, V
-        self.optimizer = optimizer
-        self.theta_chol = theta_chol
-        self.llconst = (self.X.shape[0] - self.X.shape[1])*np.log(2*np.pi)
-        self.lltheta = self.optimizer.fun
-        self.ll = (self.llconst + self.lltheta)
-        self.llf = self.ll / -2.0
-        self.re_covs = re_covs
         
-    def _post_fit(self, use_grad=True, analytic_se=False):
+    def _post_fit(self, theta, theta_chol, optimizer, reml=True,
+                  use_grad=True, analytic_se=False):
         """
 
         Parameters
@@ -870,15 +785,54 @@ class LMM:
         None.
 
         """
+        beta, XtWX_inv, u, G, R,  V = self._compute_effects(theta)
+        params = np.concatenate([beta, theta])
+        re_covs, re_corrs = {}, {}
+        for key, value in self.dims.items():
+            re_covs[key] = invech(theta[self.indices['theta'][key]].copy())
+            C = re_covs[key]
+            v = np.diag(np.sqrt(1/np.diag(C)))
+            re_corrs[key] = v.dot(C).dot(v)
+        
         if analytic_se:
-            Htheta = self.hessian(self.theta)
+            Htheta = self.hessian(theta)
         elif use_grad:
-            Htheta = so_gc_cd(self.gradient, self.theta)
+            Htheta = so_gc_cd(self.gradient, theta)
         else:
-            Htheta = so_fc_cd(self.loglike, self.theta)
+            Htheta = so_fc_cd(self.loglike, theta)
+        
+        self.theta, self.beta, self.u, self.params = theta, beta, u, params
+        self.Hinv_beta = XtWX_inv
         self.Hinv_theta = np.linalg.pinv(Htheta/2.0)
+        self.se_beta = np.sqrt(np.diag(XtWX_inv))
         self.se_theta = np.sqrt(np.diag(self.Hinv_theta))
-        self.se_params = np.concatenate([self.se_beta, self.se_theta])        
+        self.se_params = np.concatenate([self.se_beta, self.se_theta])  
+        self._G, self._R, self._V = G, R, V
+        self.optimizer = optimizer
+        self.theta_chol = theta_chol
+        if reml:
+            self.llconst = (self.X.shape[0] - self.X.shape[1])*np.log(2*np.pi)
+        else:
+            self.llconst = self.X.shape[0] * np.log(2*np.pi)
+        self.lltheta = self.optimizer.fun
+        self.ll = (self.llconst + self.lltheta)
+        self.llf = self.ll / -2.0
+        self.re_covs = re_covs
+        self.re_corrs = re_corrs
+        if reml:
+            n = self.X.shape[0] - self.X.shape[1]
+            d = len(self.theta)
+        else:
+            n = self.X.shape[0]
+            d = self.X.shape[1] + len(self.theta)
+        self.AIC = self.ll + 2.0 * d
+        self.AICC = self.ll + 2 * d * n / (n-d-1)
+        self.BIC = self.ll + d * np.log(n)
+        self.CAIC = self.ll + d * (np.log(n) + 1)
+        sumstats = np.array([self.ll, self.llf, self.AIC, self.AICC,
+                             self.BIC, self.CAIC])
+        self.sumstats = pd.DataFrame(sumstats, index=['ll', 'llf', 'AIC', 'AICC',
+                                                      'BIC', 'CAIC'], columns=['value'])
     
     def predict(self, X=None, Z=None):
         """
@@ -902,7 +856,8 @@ class LMM:
         yhat = X.dot(self.beta)+Z.dot(self.u)
         return yhat
     
-    def fit(self, use_grad=True, use_hess=False, analytic_se=False, opt_kws={}):
+    def fit(self, reml=True, use_grad=True, use_hess=False, analytic_se=False,
+            opt_kws={}):
         """
         
 
@@ -926,13 +881,15 @@ class LMM:
         None.
 
         """
-        self._fit(use_grad, use_hess, opt_kws)
-        self._post_fit(use_grad, analytic_se)
+        theta, theta_chol, optimizer = self._optimize(reml, use_grad, use_hess, 
+                                                      opt_kws)
+        self._post_fit(theta, theta_chol, optimizer, reml, use_grad, 
+                       analytic_se)
         param_names = list(self.fe_vars)
         for level in self.levels:
             for i, j in list(zip(*np.triu_indices(self.dims[level]['n_vars']))):
                 param_names.append(f"{level}:G[{i}][{j}]")
-        param_names.append("error_cov")
+        param_names.append("resid_cov")
         self.param_names = param_names
         res = np.vstack((self.params, self.se_params)).T
         res = pd.DataFrame(res, index=param_names, columns=['estimate', 'SE'])
@@ -945,7 +902,7 @@ class LMM:
 
 class WLMM:
     
-    def __init__(self, formula, data, weights=None, fix_error=False):
+    def __init__(self, formula, data, weights=None, fix_resid_cov=False):
         if weights is None:
             weights = np.eye(len(data))
         self.weights = sps.csc_matrix(weights)
@@ -988,7 +945,7 @@ class WLMM:
             self.iden_mats[key] = np.eye(p)
             self.d2g_dchol[key] = get_d2_chol(self.dims[key])
         self.bounds = [(0, None) if x==1 else (None, None) for x in self.theta]
-        self.fix_error = fix_error
+        self.fix_resid_cov = fix_resid_cov
         
     def update_mme(self, Ginv, Rinv, s):
         C = sps.csc_matrix(self.F.T.dot(Rinv).dot(self.F))
@@ -1011,7 +968,7 @@ class WLMM:
         return G
         
     def loglike(self, theta):
-        if self.fix_error:
+        if self.fix_resid_cov:
             s = 1
         else:
             s = theta[-1]
@@ -1028,7 +985,7 @@ class WLMM:
         return ll
     
     def gradient(self, theta):
-        if self.fix_error:
+        if self.fix_resid_cov:
             s = 1
         else:
             s = theta[-1]
@@ -1041,7 +998,7 @@ class WLMM:
         P = Vinv - np.linalg.multi_dot([W, XtW_inv, W.T])
         Py = P.dot(self.y)
         grad = []
-        for key in (self.levels+['error']):
+        for key in (self.levels+['resid']):
             for dVdi in self.jac_mats[key]:
                 gi = np.einsum("ij,ji->", dVdi.A, P) - Py.T.dot(dVdi.dot(Py))
                 grad.append(gi)
@@ -1050,7 +1007,7 @@ class WLMM:
         return grad
     
     def hessian(self, theta):
-        if self.fix_error:
+        if self.fix_resid_cov:
             s = 1
         else:
             s = theta[-1]
@@ -1064,7 +1021,7 @@ class WLMM:
         Py = P.dot(self.y)
         H = []
         PJ, yPJ = [], []
-        for key in (self.levels+['error']):
+        for key in (self.levels+['resid']):
             J_list = self.jac_mats[key]
             for i in range(len(J_list)):
                 Ji = J_list[i].T
@@ -1225,7 +1182,7 @@ class GLMM(WLMM):
                                isinstance(self.f, Poisson)]
         if np.any(self.non_continuous):
             self.mod.bounds = self.mod.bounds[:-1]+[(1, 1)]
-            self.mod.fix_error=True
+            self.mod.fix_resid_cov=True
         self.mod._fit()
         
         if isinstance(self.f, Binomial):
