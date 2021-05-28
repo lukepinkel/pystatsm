@@ -416,6 +416,70 @@ class LMM:
         grad = _check_shape(np.array(grad))
         return grad
     
+    def hessian(self, theta, use_sw=False):
+        """
+        Parameters
+        ----------
+        theta: array_like
+            The original parameterization of the components
+        
+        Returns
+        -------
+        gradient: array_like
+            The gradient of the log likelihood with respect to the covariance
+            parameterization
+        
+        Notes
+        -----
+        This function has a memory requirement proportional to O(n^2), as
+        a dense (n x n) matrix (P) needs to be formed.  For models with
+        n>10000, it is generally both faster and more feasible to use 
+        gradient_me
+            
+        """
+        G = self.update_gmat(theta, inverse=False)
+        R = self.R * theta[-1]
+        V = self.Zs.dot(G).dot(self.Zs.T) + R
+        chol_fac = cholesky(V)
+        WZ = chol_fac.solve_A(self.Zs)
+        WX = chol_fac.solve_A(self.X)
+        XtWX = WX.T.dot(self.X)
+        ZtWX = self.Zs.T.dot(WX)
+        U = np.linalg.solve(XtWX, WX.T)
+        ZtP = WZ.T - ZtWX.dot(np.linalg.solve(XtWX, WX.T))
+        ZtPZ = self.Zs.T.dot(ZtP.T)
+        Py = chol_fac.solve_A(self.y) - WX.dot(U.dot(self.y))
+        ZtPy = self.Zs.T.dot(Py)
+        PPy = chol_fac.solve_A(Py) - WX.dot(U.dot(Py))
+        ZtPPy =  self.Zs.T.dot(PPy)
+        H = np.zeros((len(self.theta), len(self.theta)))
+        PJ, yPZJ, ZPJ = [], [], []
+        
+        for key in (self.levels):
+            for i in range(len(self.g_derivs[key])):
+                Gi = self.g_derivs[key][i]
+                PJ.append(Gi.dot(ZtPZ))
+                yPZJ.append(Gi.dot(ZtPy))
+                ZPJ.append((Gi.dot(ZtP)).T)
+            
+        t_indices = list(zip(*np.triu_indices(len(self.theta)-1)))
+        for i, j in t_indices:
+            PJi, PJj = PJ[i], PJ[j]
+            yPZJi, JjZPy = yPZJ[i], yPZJ[j]
+            Hij = -np.einsum('ij,ji->', PJi, PJj)\
+                    + (2 * (yPZJi.T.dot(ZtPZ)).dot(JjZPy))[0]
+            H[i, j] = H[j, i] = Hij
+        dR = self.g_derivs['error'][0]
+        dRZtP = (dR.dot(ZtP.T))
+        for i in range(len(self.theta)-1):
+            yPZJi = yPZJ[i]
+            ZPJi = ZPJ[i]
+            H[i, -1] = H[-1, i] = 2*yPZJi.T.dot(ZtPPy) - np.einsum('ij,ji->', ZPJi.T, dRZtP)
+        W = chol_fac.inv()
+        Q = W - WX.dot(U)
+        H[-1, -1] = Py.T.dot(PPy)*2 - np.einsum("ij,ji->", Q, Q)
+        return H
+    
     def gradient2(self, theta, use_sw=False):
         """
         Parameters
@@ -521,7 +585,7 @@ class LMM:
                     k=k+1
         return grad
     
-    def hessian(self, theta):
+    def hessian2(self, theta):
         Ginv = self.update_gmat(theta, inverse=True)
         Rinv = self.R / theta[-1]
         Vinv = sparse_woodbury_inversion(self.Zs, Cinv=Ginv, Ainv=Rinv.tocsc())
