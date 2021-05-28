@@ -148,5 +148,5 @@ class MixedModelSim:
         se_theta = np.sqrt(np.diag(Hinv_theta))
         params = np.concatenate((beta, theta))
         se = np.concatenate((se_beta, se_theta))
-        return params, se
+        return params, se, opt
         

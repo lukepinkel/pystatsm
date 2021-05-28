@@ -195,7 +195,28 @@ def get_jacmats2(Zs, dims, indices, g_indices, theta):
         start+=ng*nv
     jac_mats['error'] = [sps.eye(Zs.shape[0])]
     return jac_mats
-      
+         
+def get_jacmats(Zs, dims, indices, g_indices, theta):
+    start = 0
+    jac_mats = {}
+    for key, value in dims.items():
+        nv, ng =  value['n_vars'], value['n_groups']
+        jac_mats[key] = []
+        theta_i = theta[indices[key]]
+        nv2, nvng = nv*nv, nv*ng
+        row = np.repeat(np.arange(nvng), nv)
+        col = np.repeat(np.arange(ng)*nv, nv2)
+        col = col + np.tile(np.arange(nv), nvng)
+        for i in range(len(theta_i)):
+            dtheta_i = np.zeros_like(theta_i)
+            dtheta_i[i] = 1.0
+            dtheta_i = invech(dtheta_i).reshape(-1, order='F')
+            data = np.tile(dtheta_i, ng)
+            dGi = sps.csc_matrix((data, (row, col)))
+            jac_mats[key].append(dGi)
+        start+=ng*nv
+    jac_mats['error'] = [sps.eye(Zs.shape[0])]
+    return jac_mats
     
 
 class LMM:
@@ -249,6 +270,8 @@ class LMM:
         self.Zs = sps.csc_matrix(Z)
         self.jac_mats = get_jacmats2(self.Zs, self.dims, self.indices['theta'], 
                                      self.indices['g'], self.theta)
+        self.g_derivs = get_jacmats(self.Zs, self.dims, self.indices['theta'],
+                                    self.indices['g'], self.theta)
         self.t_indices = list(zip(*np.triu_indices(len(theta))))
         self.elim_mats, self.symm_mats, self.iden_mats = {}, {}, {}
         self.d2g_dchol = {}
@@ -335,7 +358,7 @@ class LMM:
         ll = logdetR + logdetC + logdetG + ytPy
         return ll
     
-    def gradient2(self, theta, use_sw=False):
+    def gradient(self, theta, use_sw=False):
         """
         Parameters
         ----------
@@ -356,27 +379,44 @@ class LMM:
         gradient_me
             
         """
-        Ginv = self.update_gmat(theta, inverse=True)
+        G = self.update_gmat(theta, inverse=False)
+        R = self.R * theta[-1]
+        V = self.Zs.dot(G).dot(self.Zs.T) + R
+        chol_fac = cholesky(V)
         Rinv = self.R / theta[-1]
-        if use_sw:
-            Vinv = sparse_woodbury_inversion(self.Zs, Cinv=Ginv, Ainv=Rinv.tocsc())
-        else:
-            Vinv = woodbury_inversion(self.Z, Cinv=Ginv.A, Ainv=Rinv.A)
-        W = (Vinv.dot(self.X))
-        XtW = W.T.dot(self.X)
-        XtW_inv = np.linalg.inv(XtW)
-        P = Vinv - np.linalg.multi_dot([W, XtW_inv, W.T])
-        Py = P.dot(self.y)
+        Ginv = self.update_gmat(theta, inverse=True)
+        RZ = Rinv.dot(self.Zs)
+        Q = Ginv + self.Zs.T.dot(RZ)
+        M = cholesky(Q).inv()
+
+        WZ = chol_fac.solve_A(self.Zs)
+        ZtWZ = self.Zs.T.dot(WZ)
+        WX = chol_fac.solve_A(self.X)
+        XtWX = WX.T.dot(self.X)
+        ZtWX = self.Zs.T.dot(WX)
+        U = np.linalg.solve(XtWX, WX.T)
+        Py = chol_fac.solve_A(self.y) - WX.dot(U.dot(self.y))
+        ZtPy = self.Zs.T.dot(Py)
         grad = []
-        for key in (self.levels+['error']):
-            for dVdi in self.jac_mats[key]:
-                gi = np.einsum("ij,ji->", dVdi.A, P) - Py.T.dot(dVdi.dot(Py))
+        for key in (self.levels):
+            for dGdi in self.g_derivs[key]:
+                g1 = dGdi.dot(ZtWZ).diagonal().sum() 
+                g2 = np.trace(np.linalg.solve(XtWX, ZtWX.T.dot(dGdi.dot(ZtWX))))
+                g3 = ZtPy.T.dot(dGdi.dot(ZtPy))
+                gi = g1 - g2 - g3
                 grad.append(gi)
+        ZtR = self.Zs.T.dot(Rinv)
+        for dR in self.g_derivs['error']:
+            g1 = Rinv.diagonal().sum() - (M.dot((ZtR).dot(dR).dot(ZtR.T))).diagonal().sum()
+            g2 = np.trace(np.linalg.solve(XtWX, WX.T.dot(WX)))
+            g3 = Py.T.dot(Py)
+            gi = g1 - g2 - g3
+            grad.append(gi)
         grad = np.concatenate(grad)
         grad = _check_shape(np.array(grad))
         return grad
     
-    def gradient(self, theta, use_sw=False):
+    def gradient2(self, theta, use_sw=False):
         """
         Parameters
         ----------
