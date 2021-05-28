@@ -357,7 +357,7 @@ class LMM:
         logdetR = np.log(theta[-1]) * self.Z.shape[0]
         ll = logdetR + logdetC + logdetG + ytPy
         return ll
-    
+
     def gradient(self, theta, use_sw=False):
         """
         Parameters
@@ -373,29 +373,23 @@ class LMM:
         
         Notes
         -----
-        This function has a memory requirement proportional to O(n^2), as
-        a dense (n x n) matrix (P) needs to be formed.  For models with
-        n>10000, it is generally both faster and more feasible to use 
-        gradient_me
+
             
         """
-        G = self.update_gmat(theta, inverse=False)
-        R = self.R * theta[-1]
-        V = self.Zs.dot(G).dot(self.Zs.T) + R
-        chol_fac = cholesky(V)
         Rinv = self.R / theta[-1]
         Ginv = self.update_gmat(theta, inverse=True)
         RZ = Rinv.dot(self.Zs)
         Q = Ginv + self.Zs.T.dot(RZ)
         M = cholesky(Q).inv()
+        W = Rinv - RZ.dot(M).dot(RZ.T)
 
-        WZ = chol_fac.solve_A(self.Zs)
+        WZ = W.dot(self.Zs)
         ZtWZ = self.Zs.T.dot(WZ)
-        WX = chol_fac.solve_A(self.X)
+        WX = W.dot(self.X)
         XtWX = WX.T.dot(self.X)
         ZtWX = self.Zs.T.dot(WX)
         U = np.linalg.solve(XtWX, WX.T)
-        Py = chol_fac.solve_A(self.y) - WX.dot(U.dot(self.y))
+        Py = W.dot(self.y) - WX.dot(U.dot(self.y))
         ZtPy = self.Zs.T.dot(Py)
         grad = []
         for key in (self.levels):
@@ -425,32 +419,33 @@ class LMM:
         
         Returns
         -------
-        gradient: array_like
-            The gradient of the log likelihood with respect to the covariance
+        H: array_like
+            The hessian of the log likelihood with respect to the covariance
             parameterization
         
         Notes
         -----
-        This function has a memory requirement proportional to O(n^2), as
-        a dense (n x n) matrix (P) needs to be formed.  For models with
-        n>10000, it is generally both faster and more feasible to use 
-        gradient_me
-            
+        This function has the infrastructure to support more complex residual
+        covariances that are yet to be implemented.  
+
         """
-        G = self.update_gmat(theta, inverse=False)
-        R = self.R * theta[-1]
-        V = self.Zs.dot(G).dot(self.Zs.T) + R
-        chol_fac = cholesky(V)
-        WZ = chol_fac.solve_A(self.Zs)
-        WX = chol_fac.solve_A(self.X)
+        Ginv = self.update_gmat(theta, inverse=True)
+        Rinv = self.R / theta[-1]
+        RZ = Rinv.dot(self.Zs)
+        Q = Ginv + self.Zs.T.dot(RZ)
+        M = cholesky(Q).inv()
+        W = Rinv - RZ.dot(M).dot(RZ.T)
+
+        WZ = W.dot(self.Zs)
+        WX = W.dot(self.X)
         XtWX = WX.T.dot(self.X)
         ZtWX = self.Zs.T.dot(WX)
         U = np.linalg.solve(XtWX, WX.T)
         ZtP = WZ.T - ZtWX.dot(np.linalg.solve(XtWX, WX.T))
         ZtPZ = self.Zs.T.dot(ZtP.T)
-        Py = chol_fac.solve_A(self.y) - WX.dot(U.dot(self.y))
+        Py = W.dot(self.y) - WX.dot(U.dot(self.y))
         ZtPy = self.Zs.T.dot(Py)
-        PPy = chol_fac.solve_A(Py) - WX.dot(U.dot(Py))
+        PPy = W.dot(Py) - WX.dot(U.dot(Py))
         ZtPPy =  self.Zs.T.dot(PPy)
         H = np.zeros((len(self.theta), len(self.theta)))
         PJ, yPZJ, ZPJ = [], [], []
@@ -475,64 +470,11 @@ class LMM:
             yPZJi = yPZJ[i]
             ZPJi = ZPJ[i]
             H[i, -1] = H[-1, i] = 2*yPZJi.T.dot(ZtPPy) - np.einsum('ij,ji->', ZPJi.T, dRZtP)
-        W = chol_fac.inv()
-        Q = W - WX.dot(U)
-        H[-1, -1] = Py.T.dot(PPy)*2 - np.einsum("ij,ji->", Q, Q)
+        P = W - WX.dot(U)
+        H[-1, -1] = Py.T.dot(PPy)*2 - np.einsum("ij,ji->", P, P)
         return H
-    
-    def gradient2(self, theta, use_sw=False):
-        """
-        Parameters
-        ----------
-        theta: array_like
-            The original parameterization of the components
-        
-        Returns
-        -------
-        gradient: array_like
-            The gradient of the log likelihood with respect to the covariance
-            parameterization
-        
-        Notes
-        -----
-        This function has a memory requirement proportional to O(n^2), as
-        a dense (n x n) matrix (P) needs to be formed.  For models with
-        n>10000, it is generally both faster and more feasible to use 
-        gradient_me
-            
-        """
-        G = self.update_gmat(theta, inverse=False)
-        R = self.R * theta[-1]
-        V = self.Zs.dot(G).dot(self.Zs.T) + R
-        chol_fac = cholesky(V)
-        if use_sw:
-            Rinv = self.R / theta[-1]
-            Ginv = self.update_gmat(theta, inverse=True)
-            RZ = Rinv.dot(self.Zs)
-            Q = Ginv + self.Zs.T.dot(RZ)
-            Vinv = Rinv - RZ.dot(cholesky(Q).inv()).dot(RZ.T)
-        else:
-            Vinv = chol_fac.solve_A(sp.sparse.eye(V.shape[0], format='csc'))
-        
-        if Vinv.nnz / np.product(Vinv.shape) > 0.1:
-            Vinv = Vinv.A
-        W = chol_fac.solve_A(self.X)
-        XtW = W.T.dot(self.X)
-        U = np.linalg.solve(XtW, W.T)
-        Py = chol_fac.solve_A(self.y) - W.dot(U.dot(self.y))
-        
-        grad = []
-        for key in (self.levels+['error']):
-            for dVdi in self.jac_mats[key]:
-                VdVdi = dVdi.dot(Vinv).diagonal().sum()
-                trPdV = VdVdi - np.einsum('ij,ji->', W,
-                                          sp.sparse.csc_matrix.dot(U, dVdi))
-                gi = trPdV - Py.T.dot(dVdi.dot(Py))
-                grad.append(gi)
-        grad = np.concatenate(grad)
-        grad = _check_shape(np.array(grad))
-        return grad
-    
+
+  
     
     def gradient_me(self, theta):
         """
@@ -585,32 +527,6 @@ class LMM:
                     k=k+1
         return grad
     
-    def hessian2(self, theta):
-        Ginv = self.update_gmat(theta, inverse=True)
-        Rinv = self.R / theta[-1]
-        Vinv = sparse_woodbury_inversion(self.Zs, Cinv=Ginv, Ainv=Rinv.tocsc())
-        W = (Vinv.dot(self.X))
-        XtW = W.T.dot(self.X)
-        XtW_inv = np.linalg.inv(XtW)
-        P = Vinv - np.linalg.multi_dot([W, XtW_inv, W.T])
-        Py = P.dot(self.y)
-        H = []
-        PJ, yPJ = [], []
-        for key in (self.levels+['error']):
-            J_list = self.jac_mats[key]
-            for i in range(len(J_list)):
-                Ji = J_list[i].T
-                PJ.append((Ji.dot(P)).T)
-                yPJ.append((Ji.dot(Py)).T)
-        t_indices = self.t_indices
-        for i, j in t_indices:
-            PJi, PJj = PJ[i], PJ[j]
-            yPJi, JjPy = yPJ[i], yPJ[j].T
-            Hij = -np.einsum('ij,ji->', PJi, PJj)\
-                    + (2 * (yPJi.dot(P)).dot(JjPy))[0]
-            H.append(np.array(Hij[0]))
-        H = invech(np.concatenate(H)[:, 0])
-        return H
     
     def update_chol(self, theta, inverse=False):
         """
