@@ -286,6 +286,8 @@ class LMM:
         self.bounds_2 = [(1e-6, None) if x==1 else (None, None) for x in self.theta]
         self.zero_mat = sp.sparse.eye(self.X.shape[1])*0.0
         self.zero_mat2 = sp.sparse.eye(1)*0.0
+ 
+
         
     def update_mme(self, Ginv, s):
         """
