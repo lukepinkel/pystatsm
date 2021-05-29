@@ -700,7 +700,7 @@ class LMM:
 
         """
         theta = self.theta if theta is None else theta
-        G = self.update_gmat(theta, inverse=False)
+        G = self.update_gmat(theta, inverse=False).copy()
         R = self.R * theta[-1]
         V = self.Zs.dot(G).dot(self.Zs.T) + R
         Ginv = self.update_gmat(theta, inverse=True)
