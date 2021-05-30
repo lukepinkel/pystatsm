@@ -359,7 +359,7 @@ class LMM:
         Ginv = self.update_gmat(theta, inverse=True)
         M = self.update_mme(Ginv, theta[-1])
         if (M.nnz / np.product(M.shape) < 0.05) and use_sparse:
-            L = cholesky(M).L().A
+            L = cholesky(M.tocsc()).L().A
         else:
             L = np.linalg.cholesky(M.A)
         ytPy = np.diag(L)[-1]**2
@@ -743,7 +743,7 @@ class LMM:
         Ginv = self.update_gmat(theta, inverse=True)
         M = self.update_mme(Ginv, theta[-1])
         XZy = self.XZ.T.dot(self.y) / theta[-1]
-        chol_fac = cholesky(M[:-1, :-1])
+        chol_fac = cholesky(M[:-1, :-1].tocsc())
         betau = chol_fac.solve_A(XZy)
         u = betau[self.X.shape[1]:].reshape(-1)
         beta = betau[:self.X.shape[1]].reshape(-1)

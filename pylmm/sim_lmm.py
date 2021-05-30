@@ -128,19 +128,18 @@ class MixedModelSim:
             y = self.rng.normal(eta, scale=s)
         return y
     
-    def update_model(self, model, rsq=None, resid_scale=None, exact_ranefs=True,
-                     exact_resids=True):
-        y = self.simulate_response(rsq, resid_scale, exact_ranefs, exact_resids).reshape(-1, 1)
+    def update_model(self, model, y):
         model.y = y
         model.Xty, model.Zty, model.yty = model.X.T.dot(y), model.Z.T.dot(y), y.T.dot(y)
         model.m = sp.sparse.csc_matrix(np.vstack([model.Xty, model.Zty]))
         model.M = sp.sparse.bmat([[model.C, model.m], [model.m.T, model.yty]])
         return model
     
-    def sim_fit(self, model, theta_init, opt_kws={}):
-        opt = sp.optimize.minimize(model.loglike_c, theta_init.copy(), 
-                                   jac=model.gradient_chol, bounds=model.bounds, 
-                                   method='l-bfgs-b', **opt_kws)
+    def sim_fit(self, model, theta_init, method='l-bfgs-b', opt_kws={}):
+        
+        opt = sp.optimize.minimize(model.loglike_c, theta_init.copy(),
+                                   jac=model.gradient_chol, bounds=model.bounds,
+                                   method=method, **opt_kws)
         theta_chol = opt.x
         theta = inverse_transform_theta(theta_chol.copy(), model.dims, model.indices)
         beta, XtWX_inv, u = model._compute_effects(theta)
