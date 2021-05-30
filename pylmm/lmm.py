@@ -12,7 +12,7 @@ import numpy as np # analysis:ignore
 import scipy as sp # analysis:ignore
 import scipy.sparse as sps # analysis:ignore
 from ..utilities.linalg_operations import (dummy, vech, invech, _check_np, 
-                                           khatri_rao, sparse_woodbury_inversion,
+                                           sparse_woodbury_inversion,
                                            _check_shape)
 from ..utilities.special_mats import lmat, nmat
 from ..utilities.numerical_derivs import so_gc_cd, so_fc_cd
@@ -42,7 +42,7 @@ def construct_random_effects(groups, data, n_vars):
     for x, y in groups:
         Ji, Xi = Jdict[y], Zdict[x]
         dim_dict[y] = {'n_groups':Ji.shape[1], 'n_vars':Xi.shape[1]}
-        Zi = khatri_rao(Ji.T, Xi.T).T
+        Zi = sp.linalg.khatri_rao(Ji.T, Xi.T).T
         Z.append(Zi)
     Z = np.concatenate(Z, axis=1)
     return Z, dim_dict
@@ -245,10 +245,8 @@ class LMM:
 
         """
         indices = {}
-        X, Z, y, dims, levels, fe_vars = construct_model_matrices(formula, data, 
-                                                                  return_fe=True)
+        X, Z, y, dims, levels, fe_vars = construct_model_matrices(formula, data, return_fe=True)
         theta, theta_indices = make_theta(dims)
-    
         indices['theta'] = theta_indices
     
         G, g_indices = make_gcov(theta, indices, dims)
@@ -257,7 +255,7 @@ class LMM:
     
     
         XZ, Xty, Zty, yty = np.hstack([X, Z]), X.T.dot(y), Z.T.dot(y), y.T.dot(y)
-    
+        XZ = sp.sparse.csc_matrix(XZ)
         C, m = sps.csc_matrix(XZ.T.dot(XZ)), sps.csc_matrix(np.vstack([Xty, Zty]))
         M = sps.bmat([[C, m], [m.T, yty]])
         M = M.tocsc()
@@ -352,7 +350,10 @@ class LMM:
         """
         Ginv = self.update_gmat(theta, inverse=True)
         M = self.update_mme(Ginv, theta[-1])
-        L = np.linalg.cholesky(M.A)
+        if M.nnz / np.product(M.shape) < 0.05:
+            L = cholesky(M).L().A
+        else:
+            L = np.linalg.cholesky(M.A)
         ytPy = np.diag(L)[-1]**2
         logdetG = lndet_gmat(theta, self.dims, self.indices)
         logdetR = np.log(theta[-1]) * self.Z.shape[0]
@@ -700,24 +701,23 @@ class LMM:
 
         """
         theta = self.theta if theta is None else theta
-        G = self.update_gmat(theta, inverse=False).copy()
-        R = self.R * theta[-1]
-        V = self.Zs.dot(G).dot(self.Zs.T) + R
         Ginv = self.update_gmat(theta, inverse=True)
+        M = self.update_mme(Ginv, theta[-1])
+        XZy = self.XZ.T.dot(self.y) / theta[-1]
+        chol_fac = cholesky(M[:-1, :-1])
+        betau = chol_fac.solve_A(XZy)
+        u = betau[self.X.shape[1]:].reshape(-1)
+        beta = betau[:self.X.shape[1]].reshape(-1)
+        
         Rinv = self.R / theta[-1]
         RZ = Rinv.dot(self.Zs)
         Q = Ginv + self.Zs.T.dot(RZ)
         M = cholesky(Q).inv()
-        Vinv = Rinv - RZ.dot(M).dot(RZ.T)
-
-        XtVi = (Vinv.dot(self.X)).T
-        XtViX = XtVi.dot(self.X)
-        XtViX_inv = np.linalg.inv(XtViX)
-        beta = _check_shape(XtViX_inv.dot(XtVi.dot(self.y)))
-        fixed_resids = _check_shape(self.y) - _check_shape(self.X.dot(beta))
-        Vinvr = Vinv.dot(fixed_resids)
-        u = G.dot(self.Zs.T).dot(Vinvr)
-        return beta, XtViX_inv, u, G, R, V
+        XtRinvX = self.X.T.dot(Rinv.dot(self.X)) 
+        XtRinvZ = self.X.T.dot(Rinv.dot(self.Z)) 
+        XtVinvX = XtRinvX - XtRinvZ.dot(M.dot(XtRinvZ.T))
+        XtVinvX_inv = np.linalg.inv(XtVinvX)
+        return beta, XtVinvX_inv, u
     
     def _optimize(self, reml=True, use_grad=True, use_hess=False, opt_kws={}):
         """
@@ -787,7 +787,7 @@ class LMM:
         None.
 
         """
-        beta, XtWX_inv, u, G, R,  V = self._compute_effects(theta)
+        beta, XtWX_inv, u = self._compute_effects(theta)
         params = np.concatenate([beta, theta])
         re_covs, re_corrs = {}, {}
         for key, value in self.dims.items():
@@ -809,7 +809,6 @@ class LMM:
         self.se_beta = np.sqrt(np.diag(XtWX_inv))
         self.se_theta = np.sqrt(np.diag(self.Hinv_theta))
         self.se_params = np.concatenate([self.se_beta, self.se_theta])  
-        self._G, self._R, self._V = G, R, V
         self.optimizer = optimizer
         self.theta_chol = theta_chol
         if reml:
