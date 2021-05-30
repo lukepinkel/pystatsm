@@ -143,7 +143,7 @@ class MixedModelSim:
                                    method='l-bfgs-b', **opt_kws)
         theta_chol = opt.x
         theta = inverse_transform_theta(theta_chol.copy(), model.dims, model.indices)
-        beta, XtWX_inv, _, _, _, _ = model._compute_effects(theta)
+        beta, XtWX_inv, u = model._compute_effects(theta)
         se_beta = np.sqrt(np.diag(XtWX_inv))
         Hinv_theta = np.linalg.pinv(so_gc_cd(model.gradient, theta)/2.0)
         se_theta = np.sqrt(np.diag(Hinv_theta))
