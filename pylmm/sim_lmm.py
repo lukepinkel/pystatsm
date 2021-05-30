@@ -135,10 +135,12 @@ class MixedModelSim:
         model.M = sp.sparse.bmat([[model.C, model.m], [model.m.T, model.yty]])
         return model
     
-    def sim_fit(self, model, theta_init, method='l-bfgs-b', opt_kws={}):
-        
+    def sim_fit(self, model, theta_init, method='l-bfgs-b', bounds=None,
+                opt_kws={}):
+        if bounds is None:
+            bounds = model.bounds_2
         opt = sp.optimize.minimize(model.loglike_c, theta_init.copy(),
-                                   jac=model.gradient_chol, bounds=model.bounds,
+                                   jac=model.gradient_chol, bounds=bounds,
                                    method=method, **opt_kws)
         theta_chol = opt.x
         theta = inverse_transform_theta(theta_chol.copy(), model.dims, model.indices)
