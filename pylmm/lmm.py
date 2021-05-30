@@ -286,8 +286,8 @@ class LMM:
         self.zero_mat2 = sp.sparse.eye(1)*0.0
  
 
-        
-    def update_mme(self, Ginv, s):
+       
+    def update_mme(self, Ginv, Rinv):
         """
         Parameters
         ----------
@@ -303,7 +303,15 @@ class LMM:
             updated mixed model matrix
             
         """
-        M = self.M.copy()/s
+        if type(Rinv) in [float, int, np.float64, np.float32, np.float16,
+                          np.int, np.int16, np.int32, np.int64]:
+            M = self.M.copy()/Rinv
+        else:
+            RZX = Rinv.dot(self.XZ)
+            C = sps.csc_matrix(RZX.T.dot(self.XZ))
+            Ry = Rinv.dot(self.y)
+            m = sps.csc_matrix(np.vstack([self.X.T.dot(Ry), self.Zs.T.dot(Ry)]))
+            M = sps.bmat([[C, m], [m.T, self.y.T.dot(Ry)]]).tocsc()
         Omega = sp.sparse.block_diag([self.zero_mat, Ginv, self.zero_mat2])
         M+=Omega
         return M
@@ -394,6 +402,7 @@ class LMM:
         XtVX = XtRX - XtRZ.dot(M.dot(XtRZ.T))
         return XtVX
 
+    
     def gradient(self, theta, reml=True, use_sw=False):
         """
         Parameters
@@ -417,15 +426,19 @@ class LMM:
         RZ = Rinv.dot(self.Zs)
         Q = Ginv + self.Zs.T.dot(RZ)
         M = cholesky(Q).inv()
-        W = Rinv - RZ.dot(M).dot(RZ.T)
+        
+        ZtRZ = RZ.T.dot(self.Zs)
+        ZtWZ = ZtRZ - ZtRZ.dot(M).dot(ZtRZ)
+        
+        XtRX = self.X.T.dot(Rinv.dot(self.X)) 
+        XtRZ = (RZ.T.dot(self.X)).T
+        XtWX = XtRX - XtRZ.dot(M.dot(XtRZ.T))
 
-        WZ = W.dot(self.Zs)
-        ZtWZ = self.Zs.T.dot(WZ)
-        WX = W.dot(self.X)
-        XtWX = WX.T.dot(self.X)
-        ZtWX = self.Zs.T.dot(WX)
+        ZtWX = XtRZ.T - ZtRZ.dot(M).dot(XtRZ.T)
+        WX = Rinv.dot(self.X) - RZ.dot(M).dot(RZ.T.dot(self.X))
         U = np.linalg.solve(XtWX, WX.T)
-        Py = W.dot(self.y) - WX.dot(U.dot(self.y))
+        Vy = Rinv.dot(self.y) - RZ.dot(M.dot(RZ.T.dot(self.y)))
+        Py = Vy - WX.dot(U.dot(self.y))
         ZtPy = self.Zs.T.dot(Py)
         grad = []
         for key in (self.levels):
@@ -442,9 +455,9 @@ class LMM:
                     g3 = 0
                 gi = g1 - g2 - g3
                 grad.append(gi)
-        ZtR = self.Zs.T.dot(Rinv)
+
         for dR in self.g_derivs['resid']:
-            g1 = Rinv.diagonal().sum() - (M.dot((ZtR).dot(dR).dot(ZtR.T))).diagonal().sum()
+            g1 = Rinv.diagonal().sum() - (M.dot((RZ.T).dot(dR).dot(RZ))).diagonal().sum()
             g2 = Py.T.dot(Py)
             if reml:
                 g3 = np.trace(np.linalg.solve(XtWX, WX.T.dot(WX)))
