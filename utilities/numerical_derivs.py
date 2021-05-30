@@ -8,18 +8,19 @@ Created on Sat Jun  6 14:40:17 2020
 
 import numpy as np
 import scipy as sp
-def fo_fc_fd(f, x, eps=None):
+
+def fo_fc_fd(f, x, eps=None, args=()):
     if eps is None:
         eps = (np.finfo(float).eps)**(1.0/3.0)
     n = len(np.asarray(x))
     g, h = np.zeros(n), np.zeros(n)
     for i in range(n):
         h[i] = eps
-        g[i] = (f(x+h) - f(x)) / eps
+        g[i] = (f(x+h, *args) - f(x, *args)) / eps
         h[i] = 0
     return g
 
-def so_fc_fd(f, x, eps=None):
+def so_fc_fd(f, x, eps=None, args=()):
     if eps is None:
         eps = (np.finfo(float).eps)**(1.0/3.0)
     n = len(np.asarray(x))
@@ -29,13 +30,13 @@ def so_fc_fd(f, x, eps=None):
         hi[i] = eps
         for j in range(i+1):
             hj[j] = eps
-            H[i, j] = (f(x+hi+hj) - f(x+hi) - f(x+hj) + f(x)) / eps2
+            H[i, j] = (f(x+hi+hj, *args) - f(x+hi, *args) - f(x+hj, *args) + f(x, *args)) / eps2
             H[j, i] = H[i, j]
             hj[j] = 0  
         hi[i] = 0
     return H
 
-def so_gc_fd(g, x, eps=None):
+def so_gc_fd(g, x, eps=None, args=()):
     if eps is None:
         eps = (np.finfo(float).eps)**(1.0/3.0)
     n = len(np.asarray(x))
@@ -43,8 +44,8 @@ def so_gc_fd(g, x, eps=None):
     gx, gxh = np.zeros((n, n)), np.zeros((n, n))
     for i in range(n):
         h[i] = eps
-        gx[i] = g(x)
-        gxh[i] = g(x+h)
+        gx[i] = g(x, *args)
+        gxh[i] = g(x+h, *args)
         h[i] = 0
     for i in range(n):
         for j in range(i+1):
@@ -52,19 +53,19 @@ def so_gc_fd(g, x, eps=None):
             H[j, i] = H[i, j]
     return H
 
-def fo_fc_cd(f, x, eps=None):
+def fo_fc_cd(f, x, eps=None, args=()):
     if eps is None:
         eps = (np.finfo(float).eps)**(1.0/3.0)
     n = len(np.asarray(x))
     g, h = np.zeros(n), np.zeros(n)
     for i in range(n):
         h[i] = eps
-        g[i] = (f(x+h) - f(x - h)) / (2 * eps)
+        g[i] = (f(x+h, *args) - f(x - h, *args)) / (2 * eps)
         h[i] = 0
     return g
 
 
-def so_fc_cd(f, x, *args, eps=None):
+def so_fc_cd(f, x, eps=None, args=()):
     p = len(np.asarray(x))
     if eps is None:
         eps = (np.finfo(float).eps)**(1./3.)
@@ -75,18 +76,19 @@ def so_fc_cd(f, x, *args, eps=None):
         for j in range(i+1):
             ei[i], ej[j] = eps, eps
             if i==j:
-                dn = -f(x+2*ei)+16*f(x+ei)-30*f(x)+16*f(x-ei)-f(x-2*ei)
+                dn = -f(x+2*ei, *args)+16*f(x+ei, *args)\
+                    -30*f(x, *args)+16*f(x-ei, *args)-f(x-2*ei, *args)
                 nm = 12*eps**2
                 H[i, j] = dn/nm  
             else:
-                dn = f(x+ei+ej)-f(x+ei-ej)-f(x-ei+ej)+f(x-ei-ej)
+                dn = f(x+ei+ej, *args)-f(x+ei-ej, *args)-f(x-ei+ej, *args)+f(x-ei-ej, *args)
                 nm = 4*eps*eps
                 H[i, j] = dn/nm  
                 H[j, i] = dn/nm  
             ei[i], ej[j] = 0.0, 0.0
     return H
         
-def so_gc_cd(g, x, *args, eps=None):
+def so_gc_cd(g, x, eps=None, args=()):
     if eps is None:
         eps = (np.finfo(float).eps)**(1./3.)
     n = len(np.asarray(x))

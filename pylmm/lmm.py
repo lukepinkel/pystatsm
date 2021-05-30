@@ -15,7 +15,7 @@ from ..utilities.linalg_operations import (dummy, vech, invech, _check_np,
                                            sparse_woodbury_inversion,
                                            _check_shape)
 from ..utilities.special_mats import lmat, nmat
-from ..utilities.numerical_derivs import so_gc_cd, so_fc_cd
+from ..utilities.numerical_derivs import so_gc_cd, so_fc_cd, fo_fc_cd
 from .families import (Binomial, ExponentialFamily, Poisson, NegativeBinomial, Gaussian, InverseGaussian)
 from ..utilities.output import get_param_table
 from sksparse.cholmod import cholesky
@@ -335,7 +335,7 @@ class LMM:
             G.data[self.indices['g'][key]] = np.tile(theta_i, ng)
         return G
         
-    def loglike(self, theta, reml=True, use_sw=False):
+    def loglike(self, theta, reml=True, use_sw=False, use_sparse=True):
         """
         Parameters
         ----------
@@ -350,7 +350,7 @@ class LMM:
         """
         Ginv = self.update_gmat(theta, inverse=True)
         M = self.update_mme(Ginv, theta[-1])
-        if M.nnz / np.product(M.shape) < 0.05:
+        if (M.nnz / np.product(M.shape) < 0.05) and use_sparse:
             L = cholesky(M).L().A
         else:
             L = np.linalg.cholesky(M.A)
@@ -367,6 +367,32 @@ class LMM:
             _, logdetV = cholesky(Q).slogdet()
             ll = logdetR + logdetV + logdetG + ytPy
         return ll
+
+    def vinvcrossprod(self, X, theta):
+        """
+
+        Parameters
+        ----------
+        X : ndarray
+            Array with first dimension equal to number of observations.
+        theta : ndarray
+            covariance parameters.
+
+        Returns
+        -------
+        XtVX : ndarray
+            X' V^{-1} X.
+
+        """
+        Rinv = self.R / theta[-1]
+        Ginv = self.update_gmat(theta, inverse=True)
+        RZ = Rinv.dot(self.Zs)
+        Q = Ginv + self.Zs.T.dot(RZ)
+        M = cholesky(Q).inv()
+        XtRX = X.T.dot(Rinv.dot(X)) 
+        XtRZ = X.T.dot(Rinv.dot(self.Z)) 
+        XtVX = XtRX - XtRZ.dot(M.dot(XtRZ.T))
+        return XtVX
 
     def gradient(self, theta, reml=True, use_sw=False):
         """
@@ -739,31 +765,26 @@ class LMM:
         None.
 
         """
-        
+        default_opt_kws = dict(verbose=0, gtol=1e-6, xtol=1e-6)
+        for key, value in default_opt_kws.items():
+                if key not in opt_kws.keys():
+                    opt_kws[key] = value
         if use_grad:
-            default_opt_kws = dict(verbose=0, gtol=1e-6, xtol=1e-6)
+
             if use_hess:
                hess = self.hessian_chol
             else:
                 hess = None
-            for key, value in default_opt_kws.items():
-                if key not in opt_kws.keys():
-                    opt_kws[key] = value
             optimizer = sp.optimize.minimize(self.loglike_c, self.theta, args=(reml,),
                                              jac=self.gradient_chol, hess=hess, 
                                              options=opt_kws, bounds=self.bounds,
                                              method='trust-constr')
         else:
-            default_opt_kws = dict(disp=True, gtol=1e-14, ftol=1e-14, 
-                                   finite_diff_rel_step='3-point', eps=1e-7,
-                                   iprint=99)
-            for key, value in default_opt_kws.items():
-                if key not in opt_kws.keys():
-                    opt_kws[key] = value
-            optimizer = sp.optimize.minimize(self.loglike_c, self.theta, 
-                                             args=(reml,),bounds=self.bounds_2, 
-                                             method='L-BFGS-B',
-                                             options=opt_kws)
+            jac = lambda x, reml: fo_fc_cd(self.loglike_c, x, args=(reml,))
+            hess = lambda x, reml: so_fc_cd(self.loglike_c, x, args=(reml,))
+            optimizer = sp.optimize.minimize(self.loglike_c, self.theta, args=(reml,),
+                                             jac=jac, hess=hess, bounds=self.bounds,
+                                             method='trust-constr', options=opt_kws)
         theta_chol = optimizer.x
         theta = inverse_transform_theta(theta_chol.copy(), self.dims, self.indices)
         return theta, theta_chol, optimizer
