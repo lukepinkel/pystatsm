@@ -96,8 +96,8 @@ def so_gc_cd(g, x, eps=None, args=()):
     gxp, gxn = np.zeros((n, n)), np.zeros((n, n))
     for i in range(n):
         h[i] = eps
-        gxp[i] = g(x+h)
-        gxn[i] = g(x-h)
+        gxp[i] = g(x+h, *args)
+        gxn[i] = g(x-h, *args)
         h[i] = 0
     for i in range(n):
         for j in range(i+1):

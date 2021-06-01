@@ -211,12 +211,12 @@ class Polychoric:
         return -ll
     
     def hessian(self, r):
-        prb = self.prob(r)
+        prb = np.maximum(self.prob(r), 1e-16)
         phi = self.dprob(r)
         gfn = self.gfunc(r)
         
         u = self.vecx / prb
-        v = self.vecx / (prb**2)
+        v = self.vecx / np.maximum(prb**2, 1e-16)
         
         H = u * gfn - v * phi**2
         return -np.sum(H)
