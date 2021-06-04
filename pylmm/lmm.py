@@ -147,6 +147,7 @@ def transform_theta(theta, dims, indices):
         G = invech(theta[indices['theta'][key]])
         L = np.linalg.cholesky(G)
         theta[indices['theta'][key]] = vech(L)
+    theta[-1] = np.log(theta[-1])
     return theta
         
     
@@ -155,6 +156,7 @@ def inverse_transform_theta(theta, dims, indices):
         L = invech_chol(theta[indices['theta'][key]])
         G = L.dot(L.T)
         theta[indices['theta'][key]] = vech(G)
+    theta[-1] = np.exp(theta[-1])
     return theta
         
 def get_d2_chol(dim_i):
@@ -280,8 +282,8 @@ class LMM:
             self.symm_mats[key] = nmat(p).A
             self.iden_mats[key] = np.eye(p)
             self.d2g_dchol[key] = get_d2_chol(self.dims[key])
-        self.bounds = [(0, None) if x==1 else (None, None) for x in self.theta]
-        self.bounds_2 = [(1e-6, None) if x==1 else (None, None) for x in self.theta]
+        self.bounds = [(0, None) if x==1 else (None, None) for x in self.theta[:-1]]+[(None, None)]
+        self.bounds_2 = [(1e-6, None) if x==1 else (None, None) for x in self.theta[:-1]]+[(None, None)]
         self.zero_mat = sp.sparse.eye(self.X.shape[1])*0.0
         self.zero_mat2 = sp.sparse.eye(1)*0.0
  
@@ -615,7 +617,6 @@ class LMM:
             Log likelihood of the model
         """
         theta = inverse_transform_theta(theta_chol.copy(), self.dims, self.indices)
-        theta[-1] = theta_chol[-1]
         return self.loglike(theta, reml, use_sw)
     
     def gradient_c(self, theta_chol, reml=True, use_sw=False):
@@ -634,7 +635,6 @@ class LMM:
             
         """
         theta = inverse_transform_theta(theta_chol.copy(), self.dims, self.indices)
-        theta[-1] = theta_chol[-1]
         return self.gradient(theta, reml, use_sw)
     
     
@@ -654,7 +654,6 @@ class LMM:
             
         """
         theta = inverse_transform_theta(theta_chol.copy(), self.dims, self.indices)
-        theta[-1] = theta_chol[-1]
         return self.hessian(theta, reml)
     
     def gradient_chol(self, theta_chol, reml=True, use_sw=False):
@@ -677,7 +676,7 @@ class LMM:
         Jg = self.gradient_c(theta_chol, reml, use_sw)
         Jf = sp.linalg.block_diag(*Jf_dict.values()) 
         Jf = np.pad(Jf, [[0, 1]])
-        Jf[-1, -1] = 1
+        Jf[-1, -1] =  np.exp(theta_chol[-1])
         return Jg.dot(Jf)
     
     def hessian_chol(self, theta_chol, reml=True):
@@ -702,7 +701,7 @@ class LMM:
         Hf = self.d2g_dchol
         Jf = sp.linalg.block_diag(*Jf_dict.values()) 
         Jf = np.pad(Jf, [[0, 1]])
-        Jf[-1, -1] = 1
+        Jf[-1, -1] = np.exp(theta_chol[-1])
         A = Jf.T.dot(Hq).dot(Jf)  
         B = np.zeros_like(Hq)
         
@@ -712,6 +711,7 @@ class LMM:
             Hf_i = Hf[key]
             C = np.einsum('i,ijk->jk', Jg_i, Hf_i)  
             B[ix, ix[:, None]] += C
+        B[-1, -1] = Jg[-1] * np.exp(theta_chol[-1])
         H = A + B
         return H
     
@@ -758,7 +758,8 @@ class LMM:
         XtVinvX_inv = np.linalg.inv(XtVinvX)
         return beta, XtVinvX_inv, u
     
-    def _optimize(self, reml=True, use_grad=True, use_hess=False, opt_kws={}):
+    def _optimize(self, reml=True, use_grad=True, use_hess=False, approx_hess=False,
+                  opt_kws={}):
         """
 
         Parameters
@@ -769,6 +770,8 @@ class LMM:
         use_hess : bool, optional
             If true, the analytic hessian is used during optimization.
             The default is False.
+        approx_hess: bool, optional
+            If true, uses the gradient to approximate the hessian
         opt_kws : dict, optional
             Dictionary of options to use in scipy.optimize.minimize.
             The default is {}.
@@ -786,6 +789,8 @@ class LMM:
 
             if use_hess:
                hess = self.hessian_chol
+            elif approx_hess:
+                hess = lambda x, reml: so_gc_cd(self.gradient_chol, x, args=(reml,))
             else:
                 hess = None
             optimizer = sp.optimize.minimize(self.loglike_c, self.theta, args=(reml,),
@@ -891,8 +896,8 @@ class LMM:
         yhat = X.dot(self.beta)+Z.dot(self.u)
         return yhat
     
-    def fit(self, reml=True, use_grad=True, use_hess=False, analytic_se=False,
-            opt_kws={}):
+    def fit(self, reml=True, use_grad=True, use_hess=False, approx_hess=False,
+            analytic_se=False, opt_kws={}):
         """
         
 
@@ -904,6 +909,8 @@ class LMM:
         use_hess : bool, optional
             If true, the analytic hessian is used during optimization.
             The default is False.
+        approx_hess: bool, optional
+            If true, uses the gradient to approximate the hessian
         analytic_se : bool, optional
             If true, then the hessian is used to compute standard errors.
             The default is False.
@@ -917,7 +924,7 @@ class LMM:
 
         """
         theta, theta_chol, optimizer = self._optimize(reml, use_grad, use_hess, 
-                                                      opt_kws)
+                                                      approx_hess, opt_kws)
         self._post_fit(theta, theta_chol, optimizer, reml, use_grad, 
                        analytic_se)
         param_names = list(self.fe_vars)
