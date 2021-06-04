@@ -25,6 +25,7 @@ def transform_theta(theta, dims, indices):
         G = invech(theta[indices['theta'][key]])
         L = np.linalg.cholesky(G)
         theta[indices['theta'][key]] = vech(L)
+    theta[-1] = np.log(theta[-1])
     return theta
         
     
@@ -33,6 +34,7 @@ def inverse_transform_theta(theta, dims, indices):
         L = invech_chol(theta[indices['theta'][key]])
         G = L.dot(L.T)
         theta[indices['theta'][key]] = vech(G)
+    theta[-1] = np.exp(theta[-1])
     return theta
         
 def replace_duplicate_operators(match):
