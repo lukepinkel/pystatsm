@@ -227,7 +227,7 @@ def get_jacmats(Zs, dims, indices, g_indices, theta):
 
 class LMM:
     
-    def __init__(self, formula, data, weights=None):
+    def __init__(self, formula, data, weights=None, rcov=None):
         """
         Parameters
         ----------
@@ -288,6 +288,12 @@ class LMM:
         self.bounds_2 = [(1e-6, None) if x==1 else (None, None) for x in self.theta[:-1]]+[(None, None)]
         self.zero_mat = sp.sparse.eye(self.X.shape[1])*0.0
         self.zero_mat2 = sp.sparse.eye(1)*0.0
+        self.rcov = rcov
+        
+        if rcov is None:
+            self.XtX = self.X.T.dot(self.X)
+            self.ZtZ = self.Zs.T.dot(self.Zs)
+            self.ZtX = self.Zs.T.dot(self.X)
  
 
        
@@ -425,23 +431,39 @@ class LMM:
 
             
         """
-        Rinv = self.R / theta[-1]
+        s = theta[-1]
+        Rinv = self.R / s
         Ginv = self.update_gmat(theta, inverse=True)
-        RZ = Rinv.dot(self.Zs)
-        Q = Ginv + self.Zs.T.dot(RZ)
+        if self.rcov is None:
+            RZ = self.Zs / s
+            RX = self.X / s
+            Ry = self.y / s
+            ZtRZ = self.ZtZ / s
+            XtRX = self.XtX / s
+            ZtRX = self.ZtX / s
+            ZtRy = self.Zty / s
+        else:
+            RZ = Rinv.dot(self.Zs)
+            RX = Rinv.dot(self.X)
+            Ry = Rinv.dot(self.y)
+            ZtRZ = RZ.T.dot(self.Zs)
+            XtRX = self.X.T.dot(RX) 
+            ZtRX = RZ.T.dot(self.X)
+            ZtRy = RZ.T.dot(self.y)
+            
+        Q = Ginv + ZtRZ
         M = cholesky(Q).inv()
         
-        ZtRZ = RZ.T.dot(self.Zs)
         ZtWZ = ZtRZ - ZtRZ.dot(M).dot(ZtRZ)
         
-        XtRX = self.X.T.dot(Rinv.dot(self.X)) 
-        XtRZ = (RZ.T.dot(self.X)).T
-        XtWX = XtRX - XtRZ.dot(M.dot(XtRZ.T))
-
-        ZtWX = XtRZ.T - ZtRZ.dot(M).dot(XtRZ.T)
-        WX = Rinv.dot(self.X) - RZ.dot(M).dot(RZ.T.dot(self.X))
-        U = np.linalg.solve(XtWX, WX.T)
-        Vy = Rinv.dot(self.y) - RZ.dot(M.dot(RZ.T.dot(self.y)))
+        MZtRX = M.dot(ZtRX)
+        
+        XtWX = XtRX - ZtRX.T.dot(MZtRX)
+        XtWX_inv = np.linalg.inv(XtWX)
+        ZtWX = ZtRX - ZtRZ.dot(MZtRX)
+        WX = RX - RZ.dot(MZtRX)
+        U = XtWX_inv.dot(WX.T)
+        Vy = Ry - RZ.dot(M.dot(ZtRy))
         Py = Vy - WX.dot(U.dot(self.y))
         ZtPy = self.Zs.T.dot(Py)
         grad = []
@@ -454,7 +476,7 @@ class LMM:
                 g1 = dGdi.dot(ZtWZi).diagonal().sum() 
                 g2 = ZtPyi.T.dot(dGdi.dot(ZtPyi))
                 if reml:
-                    g3 = np.trace(np.linalg.solve(XtWX, ZtWXi.T.dot(dGdi.dot(ZtWXi))))
+                    g3 = np.trace(XtWX_inv.dot(ZtWXi.T.dot(dGdi.dot(ZtWXi))))
                 else:
                     g3 = 0
                 gi = g1 - g2 - g3
@@ -464,7 +486,7 @@ class LMM:
             g1 = Rinv.diagonal().sum() - (M.dot((RZ.T).dot(dR).dot(RZ))).diagonal().sum()
             g2 = Py.T.dot(Py)
             if reml:
-                g3 = np.trace(np.linalg.solve(XtWX, WX.T.dot(WX)))
+                g3 = np.trace(XtWX_inv.dot(WX.T.dot(WX)))
             else:
                 g3 = 0
             gi = g1 - g2 - g3
