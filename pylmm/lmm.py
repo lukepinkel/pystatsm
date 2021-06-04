@@ -6,10 +6,12 @@ Created on Wed Feb 10 00:01:29 2021
 """
 
 import re
+import tqdm
 import patsy
 import pandas as pd
 import numpy as np # analysis:ignore
 import scipy as sp # analysis:ignore
+import matplotlib.pyplot as plt
 import scipy.sparse as sps # analysis:ignore
 from ..utilities.linalg_operations import (dummy, vech, invech, _check_np, 
                                            sparse_woodbury_inversion,
@@ -938,8 +940,85 @@ class LMM:
         res['t'] = res['estimate'] / res['SE']
         res['p'] = sp.stats.t(self.X.shape[0]-self.X.shape[1]).sf(np.abs(res['t']))
         self.res = res
+    
+    
+    def _restricted_ll_grad(self, theta_chol_f, free_ix, theta_chol_r, reml=True):
+        theta_chol_r[free_ix] = theta_chol_f
+        ll = self.loglike_c(theta_chol_r.copy(), reml)
+        g = self.gradient_chol(theta_chol_r.copy(), reml)[free_ix]
+        return ll, g
+    
+    def profile(self, n_points=40, par_ind=None, reml=True):
+        par_ind = np.ones_like(self.theta_chol) if par_ind is None else par_ind
+        theta_chol = self.theta_chol.copy()
+        n_theta = len(theta_chol)
         
+ 
+        llmax = self.loglike(self.theta.copy())
+        free_ix = np.ones_like(theta_chol, dtype=bool)
         
+        Hchol = so_gc_cd(self.gradient_chol, theta_chol, args=(reml,))
+        se_chol = np.diag(np.linalg.inv(Hchol/2.0))**0.5
+        thetas, zetas = np.zeros((n_theta*n_points, n_theta)), np.zeros(n_theta*n_points)
+        k = 0
+        pbar = tqdm.tqdm(total=n_theta*n_points, smoothing=0.001)
+        for i in range(n_theta):
+            free_ix[i] = False
+            t_mle = theta_chol[i]
+            theta_chol_r = theta_chol.copy()
+            if self.bounds[i][0]==0:
+                lb = np.maximum(0.01, t_mle-4.5*se_chol[i])
+            else:
+                lb = t_mle - 4.5 * se_chol[i]
+            ub = t_mle + 4.5 * se_chol[i]
+            tspace = np.linspace(lb, ub, n_points)
+            for t0 in tspace:
+                theta_chol_r = theta_chol.copy()
+                theta_chol_r[~free_ix] = t0
+                theta_chol_f = theta_chol[free_ix]
+                func = lambda x : self._restricted_ll_grad(x, free_ix, theta_chol_r,
+                                                           reml)
+                bounds = np.array(self.bounds)[free_ix].tolist()
+                opt = sp.optimize.minimize(func, theta_chol_f, jac=True,
+                                           bounds=bounds,
+                                           method='trust-constr')
+                theta_chol_f = opt.x
+                theta_chol_r[free_ix] = theta_chol_f
+                LR = 2.0 * (opt.fun - llmax)
+                zeta = np.sqrt(LR) * np.sign(t0 - theta_chol[~free_ix])
+                zetas[k] = zeta
+                thetas[k] = theta_chol_r
+                k+=1
+                pbar.update(1)
+            free_ix[i] = True
+        pbar.close()
+        ix = np.repeat(np.arange(n_theta), n_points)
+        return thetas, zetas, ix
+    
+    def plot_profile(self, n_points=40, par_ind=None, reml=True, quantiles=None):
+        if quantiles is None:
+            quantiles = [0.001, 0.05, 1, 5, 10, 20, 50, 80, 90, 95, 99, 99.5, 99.999]   
+        thetas, zetas, ix = self.profile(n_points, par_ind, reml)
+        n_thetas = thetas.shape[1]
+        q = sp.stats.norm(0, 1).ppf(np.array(quantiles)/100)
+        fig, axes = plt.subplots(figsize=(14, 4), ncols=n_thetas, sharey=True)
+        plt.subplots_adjust(wspace=0.05, left=0.05, right=0.95)
+        for i in range(n_thetas):
+            ax = axes[i]
+            x = thetas[ix==i, i]
+            y = zetas[ix==i]
+            trunc = (y>-5)&(y<5)
+            x, y = x[trunc], y[trunc]
+            f_interp = sp.interpolate.interp1d(y, x, fill_value="extrapolate")
+            xq = f_interp(q)
+            ax.plot(x,y)
+            ax.set_xlim(x.min(), x.max())
+            ax.axhline(0, color='k')
+            for a, b in list(zip(xq, q)):
+                ax.plot((a, a), (0, b), color='k')
+        ax.set_ylim(-5, 5)
+        return thetas, zetas, ix, fig, ax
+
  
 
 class WLMM:
