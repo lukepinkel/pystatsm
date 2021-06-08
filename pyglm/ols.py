@@ -111,18 +111,20 @@ class OLS:
         self.beta, self.beta_se = beta, beta_se
         self.tvalues = self.beta / self.beta_se
     
-    def _permutation_test_store(self,n_perms, L, Linv, X, y):
-        pbar = tqdm.tqdm(total=n_perms)
+    def _permutation_test_store(self,n_perms, L, Linv, X, y, verbose):
+        pbar = tqdm.tqdm(total=n_perms) if verbose else None
         t_samples = np.zeros((n_perms, self.p))
         for i in range(n_perms):
             b, se = self._fit_y(L, Linv, X, y[np.random.permutation(self.n)])
             t_samples[i] = b / se
-            pbar.update(1)
-        pbar.close()
+            if verbose:
+                pbar.update(1)
+        if verbose:
+            pbar.close()
         return t_samples
         
-    def _permutation_test(self, n_perms, L, Linv, X, y):
-        pbar = tqdm.tqdm(total=n_perms)
+    def _permutation_test(self, n_perms, L, Linv, X, y, verbose):
+        pbar = tqdm.tqdm(total=n_perms) if verbose else None
         p_values = np.zeros((self.p))
         p_values_fwer = np.zeros((self.p))
         abst = np.abs(self.tvalues)
@@ -131,8 +133,10 @@ class OLS:
             abstp = np.abs(b / se)
             p_values_fwer += (abstp.max()>abst) / n_perms
             p_values +=  (abstp>abst) / n_perms
-            pbar.update(1)
-        pbar.close()
+            if verbose:
+                pbar.update(1)
+        if verbose:
+            pbar.close()
         return p_values_fwer, p_values
     
     def _freedman_lane(self, vars_of_interest, n_perms=5000, verbose=True):
@@ -169,17 +173,17 @@ class OLS:
         self.res.loc[rows, 'freedman_lane_p'] = pvals
         self.res.loc[rows, 'freedman_lane_p_fwer'] = pvals_fwer
         
-    def permutation_test(self, n_perms=5_000, store_samples=False):
+    def permutation_test(self, n_perms=5_000, store_samples=False, verbose=True):
         if hasattr(self, 'res')==False:
             self.fit()
         L, Linv, X, y = self.L, self.Linv, self.X, self.y
         if store_samples:
-            t_samples = self._permutation_test_store(n_perms, L, Linv, X, y)
+            t_samples = self._permutation_test_store(n_perms, L, Linv, X, y, verbose)
             abst = t_samples
             p_values_fwer = (abst.max(axis=1)>np.abs(self.tvalues)).sum(axis=0)/n_perms
             p_values = (abst > np.abs(self.tvalues)).sum(axis=0) / n_perms
         else:
-            p_values_fwer, p_values =  self._permutation_test(n_perms, L, Linv, X, y)
+            p_values_fwer, p_values =  self._permutation_test(n_perms, L, Linv, X, y, verbose)
             t_samples = None
         self.permutation_t_samples = t_samples
         self.res['permutation_p'] = p_values

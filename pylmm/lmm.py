@@ -26,6 +26,22 @@ def replace_duplicate_operators(match):
     return match.group()[-1:]
 
 def parse_random_effects(formula):
+    """
+    Parameters
+    ----------
+    formula : string
+        Model formula.
+
+    Returns
+    -------
+    fe_form : string
+        Fixed effects formula.
+    groups : list
+        List of tuples of strings.  Each tuple contains the formula for the
+        random effect term as the first element and the group/level as the 
+        second element
+
+    """
     matches = re.findall("\([^)]+[|][^)]+\)", formula)
     groups = [re.search("\(([^)]+)\|([^)]+)\)", x).groups() for x in matches]
     frm = formula
