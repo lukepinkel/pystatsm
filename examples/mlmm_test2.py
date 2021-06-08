@@ -52,20 +52,4 @@ model.fit(opt_kws=dict(verbose=3))
 
 
 
-
-res_hess_appr = sp.optimize.minimize(model.loglike_c, model.theta, jac=model.gradient_chol, 
-                                      hess='3-point', bounds=model.bounds, 
-                                      method='trust-constr', 
-                                      options=dict(verbose=3))
-
-theta_hat = inverse_transform_theta(res_hess_appr.x.copy(), model.dims, model.indices)
-re_covs, re_corrs = {}, {}
-for key, value in model.dims.items():
-    re_covs[key] = invech(theta_hat[model.indices['theta'][key]].copy())
-    C = re_covs[key]
-    v = np.diag(np.sqrt(1/np.diag(C)))
-    re_corrs[key] = v.dot(C).dot(v)
-
-
-
     
