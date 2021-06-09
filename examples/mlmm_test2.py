@@ -9,12 +9,11 @@ import scipy as sp
 import scipy.stats
 import numpy as np
 import pandas as pd
-from pystats.pylmm.mlmm import MLMM, construct_model_matrices, vec, inverse_transform_theta, invech
+from pystats.pylmm.mlmm import MLMM, construct_model_matrices, vec
 from pystats.utilities.random_corr import vine_corr, exact_rmvnorm
 
 rng = np.random.default_rng(123)
-n_groups = 400
-n_per = 20
+n_groups, n_per = 400, 20
 n_obs = n_groups * n_per
 
 S = vine_corr(5, seed=123)
@@ -36,7 +35,7 @@ U1 = sp.stats.matrix_normal(mean=np.zeros((A.shape[0], Sigma_u.shape[0])),
 U = np.concatenate([U1[:, :2].reshape(-1, 1, order='C'),
                     U1[:, 2:].reshape(-1, 1, order='C')], axis=1)
 
-E = sp.stats.multivariate_normal(mean=np.zeros(2), cov=Sigma_e).rvs(n_obs,random_state=rng)
+E = sp.stats.multivariate_normal(mean=np.zeros(2), cov=Sigma_e).rvs(n_obs, random_state=rng)
 Y = X.dot(B) + Z.dot(U) + E
 y = vec(Y.T)
 data[['y1', 'y2']] = Y

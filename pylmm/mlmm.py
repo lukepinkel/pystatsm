@@ -511,8 +511,12 @@ class MLMM:
             for s in list(self.fe_vars):
                 param_names.append(f"y{i+1}~{s}")
         for level in self.levels:
-            for i, j in list(zip(*np.triu_indices(self.dims[level]['n_vars']))):
-                param_names.append(f"{level}:G[{i}][{j}]")
+            n_vars = self.dims[level]['n_vars']
+            nv = n_vars // self.n_yvars
+            a = np.repeat([f"y{i+1}" for i in range(self.n_yvars)], nv)
+            b = np.tile(np.arange(nv), self.n_yvars)
+            for i, j in list(zip(*np.triu_indices(n_vars))):
+                param_names.append(f"{level}:({a[j]}, {a[i]}):G[{b[j]+1}][{b[i]+1}]")
         for i in range(self.n_yvars):
             param_names.append(f"y{i+1} resid_cov")
         self.param_names = param_names
