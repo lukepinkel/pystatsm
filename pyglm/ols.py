@@ -146,15 +146,13 @@ class OLS:
         abst = np.abs(self.tvalues[vars_of_interest])
         
         ixc = np.setdiff1d(np.arange(self.p), vars_of_interest)
-        Xi, Xc, y = self.X[:, vars_of_interest], self.X[:, ixc], self.y
-        L = np.linalg.cholesky(Xi.T.dot(Xi))
-        Linv = np.linalg.inv(L)
+        Xc, y = self.X[:, ixc], self.y
         g, _ = self._fit_mats(Xc, y)
         u = Xc.dot(g)
         r = y - u
         for i in range(n_perms):
-            b, se = self._fit_y(L, Linv, Xi, u + r[np.random.permutation(self.n)])
-            abstp = np.abs(b / se)
+            b, se = self._fit_y(self.L, self.Linv, self.X, u + r[np.random.permutation(self.n)])
+            abstp = np.abs(b / se)[vars_of_interest]
             p_values_fwer += (abstp.max()>abst) / n_perms
             p_values +=  (abstp>abst) / n_perms
             if verbose:
