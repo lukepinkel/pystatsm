@@ -30,7 +30,7 @@ def kfold_indices(n, k):
 
 def process_cv(fval, lambdas):
     df = pd.DataFrame(fval)
-    summary = pd.concat([df.mean(axis=1), df.std(axis=1)], axis=1)
+    summary = pd.concat([df.mean(axis=1), df.std(axis=1) / np.sqrt(df.shape[1])], axis=1)
     summary.columns = ['mean', 'std']
     lambda_min = lambdas[summary.idxmin()['mean']]
     return summary, lambda_min
@@ -48,7 +48,7 @@ def plot_elnet_cv(f_path, lambdas, bfits=None):
     mng.window.showMaximized()
     
     ax[0].scatter(x=np.log(lambdas), y=mse.mean(axis=1), s=10, color='red', zorder=0)
-    ax[0].errorbar(x=np.log(lambdas), y=mse.mean(axis=1), yerr=mse.std(axis=1), 
+    ax[0].errorbar(x=np.log(lambdas), y=mse.mean(axis=1), yerr=mse.std(axis=1)/np.sqrt(mse.shape[1]), 
                 elinewidth=1.0, fmt='none', ecolor='grey', capsize=2.0)
     ax[0].axvline(np.log(lambda_min_mse))
     xpos = np.log(lambda_min_mse)
@@ -60,11 +60,11 @@ def plot_elnet_cv(f_path, lambdas, bfits=None):
     
     
     ax[1].scatter(x=np.log(lambdas), y=pen.mean(axis=1), s=10, color='red', zorder=0)
-    ax[1].errorbar(x=np.log(lambdas), y=pen.mean(axis=1), yerr=pen.std(axis=1), 
+    ax[1].errorbar(x=np.log(lambdas), y=pen.mean(axis=1), yerr=pen.std(axis=1)/np.sqrt(pen.shape[1]), 
                 elinewidth=1.0, fmt='none', ecolor='grey', capsize=2.0)
     
     ax[2].scatter(x=np.log(lambdas), y=pll.mean(axis=1), s=10, color='red', zorder=0)
-    ax[2].errorbar(x=np.log(lambdas), y=pll.mean(axis=1), yerr=pll.std(axis=1), 
+    ax[2].errorbar(x=np.log(lambdas), y=pll.mean(axis=1), yerr=pll.std(axis=1)/np.sqrt(pll.shape[1]), 
                 elinewidth=1.0, fmt='none', ecolor='grey', capsize=2.0)
     plt.subplots_adjust(left=0.3, right=0.7, top=0.96, bottom=0.05)
     ax[0].set_ylabel("Deviance", rotation=0, labelpad=50)
