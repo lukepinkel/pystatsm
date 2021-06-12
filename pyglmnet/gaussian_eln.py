@@ -137,8 +137,8 @@ def crossval_mats(X, y, n, cv):
     return Xf, yf, Xt, yt
     
 def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, tol=1e-4, n_iters=1000, 
-              refit=True, lmin_pct=0, lmax_pct=100, seq_rule=True, 
-              warm_start=True, intercept=True):
+              refit=True, lmin_pct=0, lmax_pct=100, lmin=None, lmax=None, 
+              seq_rule=True, warm_start=True, intercept=True):
     if b is None:
         b = X.T.dot(y) / X.shape[0]
     if (lambdas is None) or (type(lambdas) in [int, float]):
@@ -147,8 +147,8 @@ def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, tol=1e-4, n_iters=1000
         else:
             nl = int(lambdas)
         b0 = X.T.dot(y - y.mean()) / X.shape[0]
-        lambda_min = sp.stats.scoreatpercentile(np.abs(b0), lmin_pct)
-        lambda_max = sp.stats.scoreatpercentile(np.abs(b0), lmax_pct) / alpha
+        lambda_min = sp.stats.scoreatpercentile(np.abs(b0), lmin_pct) if lmin is None else lmin
+        lambda_max = sp.stats.scoreatpercentile(np.abs(b0), lmax_pct) / alpha if lmax is None else lmax
         lambdas = np.exp(np.linspace(np.log(lambda_max), np.log(lambda_min), nl))
     p = X.shape[1]
     betas = np.zeros((len(lambdas)+1, p))
@@ -174,7 +174,10 @@ def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, tol=1e-4, n_iters=1000
             bi, _, _, n_i = elnet(Xf[k], yf[k], lambda_, alpha, beta_start.copy(), 
                              tol=tol, n_iters=n_iters, active=active,
                              intercept=intercept)
-            fi = elnet_loglike(Xt[k], yt[k], bi, alpha, lambda_)
+            ytk = yt[k]
+            if intercept:
+                ytk = ytk - ytk.mean()
+            fi = elnet_loglike(Xt[k], ytk, bi, alpha, lambda_)
             betas_cv[i+1, k] = bi
             fvals[i, k] = fi
             n_its[i, k] = n_i
@@ -198,7 +201,7 @@ def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, tol=1e-4, n_iters=1000
                                      intercept=intercept)
             
     progress_bar.close()
-
+    fvals[:, :, 0] *= 2.0
     return betas_cv[1:], fvals, lambdas, betas[1:], n_its
                    
 def plot_elnet_cv(f_path, lambdas):
