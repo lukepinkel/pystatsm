@@ -5,47 +5,44 @@ Created on Sun Dec  6 21:39:29 2020
 @author: lukepinkel
 """
 
-import patsy
 import numpy as np
-import scipy as sp
-import scipy.stats
 import pandas as pd
-import statsmodels.api as sm
 from pystats.utilities.random_corr import exact_rmvnorm, vine_corr
-from pystats.utilities import numerical_derivs 
-
 from pystats.pyglm.glm import (GLM, Binomial, LogitLink, Poisson, LogLink, 
-                               Gamma, ReciprocalLink, InverseGaussian, PowerLink,
-                               NegativeBinomial, Gaussian, IdentityLink)
+                               Gamma, InverseGaussian, PowerLink,
+                               Gaussian, IdentityLink)
 
 
+
+seed = 1234
+rng = np.random.default_rng(seed)
 response_dists = ['Gaussian', 'Binomial', 'Poisson', 'Gamma', "InvGauss"]
 
-n_obs, nx, r = 1000, 4, 0.5
+n_obs, nx, r = 2000, 10, 0.5
 n_true = nx//4
-R = vine_corr(nx, 10)/10
+R = vine_corr(nx, 10, seed=seed)
 X = {}
 
-X1 = exact_rmvnorm(R, n_obs)
-X2 = exact_rmvnorm(R, n_obs)
-X2 = X2 - np.min(X2) + 0.1
+X1 = exact_rmvnorm(R, n_obs, seed=seed)
+X2 = exact_rmvnorm(R, n_obs, seed=seed)
+X2 = X2 - np.min(X2, axis=0) + 0.1
 
 X['Gaussian'] = X1.copy()
 X['Binomial'] = X1.copy()
 X['Poisson'] = X1.copy()
-X['Gamma'] = X2.copy()
+X['Gamma'] = X1.copy()
 X['InvGauss'] = X2.copy()
 
-beta = dict(Binomial=np.zeros(nx), Poisson=np.zeros(nx), Gamma=np.zeros(nx),
-            Gaussian=np.zeros(nx))
+beta = dict(Binomial=np.zeros(nx), Poisson=np.zeros(nx), Gamma=np.zeros(nx), 
+            Gaussian=np.zeros(nx), InvGauss=np.zeros(nx))
 beta['Gaussian'][:n_true*2] = np.concatenate((0.5*np.ones(n_true), -0.5*np.ones(n_true)))
 beta['Binomial'][:n_true*2] = np.concatenate((0.5*np.ones(n_true), -0.5*np.ones(n_true)))
 beta['Poisson'][:n_true*2] = np.concatenate((0.5*np.ones(n_true), -0.5*np.ones(n_true)))
-beta['Gamma'][:n_true*2] = np.concatenate((0.1*np.ones(n_true), 0.1*np.ones(n_true)))
-beta['InvGauss'] = beta['Gamma'].copy()
+beta['Gamma'][:n_true*2] = np.concatenate((0.1*np.ones(n_true), -0.1*np.ones(n_true)))
+beta['InvGauss'][:n_true*2] = np.concatenate((0.1*np.ones(n_true), 0.1*np.ones(n_true)))
 
 for dist in response_dists:
-    beta[dist] = beta[dist][np.random.choice(nx, nx, replace=False)]
+    beta[dist] = beta[dist][rng.choice(nx, nx, replace=False)]
 eta = {}
 eta_var = {}
 u_var = {}
@@ -56,18 +53,18 @@ for dist in response_dists:
     eta[dist] = X[dist].dot(beta[dist])
     eta_var[dist] = eta[dist].var()
     u_var[dist] = np.sqrt(eta_var[dist] * (1.0 - r) / r)
-    u[dist] = np.random.normal(0, u_var[dist], size=(n_obs))
-    if dist in ['Gamma', 'InvGauss']:
-        u[dist] -= u[dist].min()
-        u[dist]+=0.01
+    u[dist] = rng.normal(0, u_var[dist], size=(n_obs))
     linpred[dist] = u[dist]+eta[dist]
+    if dist in ['InvGauss']:
+        linpred[dist] -= linpred[dist].min()
+        linpred[dist] += 0.01
 
 Y = {}
 Y['Gaussian'] = IdentityLink().inv_link(linpred['Gaussian'])
-Y['Binomial'] = np.random.binomial(n=10, p=LogitLink().inv_link(linpred['Binomial']))/10.0
-Y['Poisson'] = np.random.poisson(lam=LogLink().inv_link(linpred['Poisson']))
-Y['Gamma'] = np.random.gamma(shape=LogLink().inv_link(linpred['Gamma']), scale=2.0)
-Y['InvGauss'] = np.random.wald(mean=PowerLink(-2).inv_link(eta['InvGauss']), scale=2.0)
+Y['Binomial'] = rng.binomial(n=10, p=LogitLink().inv_link(linpred['Binomial']))/10.0
+Y['Poisson'] = rng.poisson(lam=LogLink().inv_link(linpred['Poisson']))
+Y['Gamma'] = rng.gamma(shape=LogLink().inv_link(linpred['Gamma']), scale=3.0)
+Y['InvGauss'] = rng.wald(mean=PowerLink(-2).inv_link(eta['InvGauss']), scale=2.0)
 
 data = {}
 formula = "y~"+"+".join([f"x{i}" for i in range(1, nx+1)])
@@ -91,19 +88,13 @@ models['Gamma'].fit()
 models['Gamma2'].fit()
 models['InvGauss'].fit()
 
-sm_models = {}
-sm_models['Gaussian'] = sm.formula.glm(formula, data=data['Gaussian'], family=sm.families.Gaussian()).fit()
-sm_models['Binomial'] = sm.formula.glm(formula, data=data['Binomial'], family=sm.families.Binomial(), n_trials=np.ones(n_obs)*10).fit()
-sm_models['Poisson'] = sm.formula.glm(formula, data=data['Poisson'], family=sm.families.Poisson()).fit()
-sm_models['Gamma'] = sm.formula.glm(formula, data=data['Gamma'], family=sm.families.Gamma()).fit()
-sm_models['InvGauss'] = sm.formula.glm(formula, data=data['InvGauss'], family=sm.families.InverseGaussian()).fit()
+grad_conv = {}
+grad_conv["Gaussian"] = np.mean(models['Gaussian'].optimizer.grad**2)<1e-6
+grad_conv["Binomial"] = np.mean(models['Binomial'].optimizer.grad**2)<1e-6
+grad_conv["Poisson"] = np.mean(models['Poisson'].optimizer.grad**2)<1e-6
+grad_conv["Gamma"] = models['Gamma'].optimizer['|g|'][-1]<1e-6
+grad_conv["Gamma2"] = models['Gamma2'].optimizer['|g|'][-1]<1e-6
+grad_conv["InvGauss"] = np.mean(models['InvGauss'].optimizer.grad**2)<1e-6
 
+print(grad_conv)
 
-comparison = {}
-
-for dist in response_dists:
-    a = sm_models[dist].params
-    b = models[dist].params
-    if len(a)!=len(b):
-        a = np.concatenate([a, np.atleast_1d(np.log(sm_models[dist].scale))])
-    comparison[dist] = pd.DataFrame(np.vstack((a, b)).T)

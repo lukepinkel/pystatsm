@@ -611,7 +611,7 @@ class Poisson(ExponentialFamily):
     
     def _full_loglike(self, y, eta=None, mu=None, T=None, scale=1.0):
         ll = self._loglike(y, eta, mu, T, scale)
-        llf = ll + self.weights / scale * np.log(sp.special.factorial(y))
+        llf = ll + self.weights / scale * sp.special.gammaln(y+1)
         return llf 
 
     
