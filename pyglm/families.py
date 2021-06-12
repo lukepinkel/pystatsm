@@ -696,7 +696,7 @@ class Binomial(ExponentialFamily):
         ll = self._loglike(y, eta, mu, T, scale)
         w = self.weights / scale
         r = self.weights * y
-        llf = ll - _logbinom(self.weights, r) * w
+        llf = ll - _logbinom(self.weights, r)
         return llf 
 
     
