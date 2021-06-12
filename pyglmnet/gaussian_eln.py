@@ -59,7 +59,7 @@ def numba_sum(array, axis):
     return np_apply_along_axis(np.sum, axis, array)
 
 @numba.jit(nopython=True)
-def eln_cd(X, y, alpha, lambda_, b, active, n_iters=1000, tol=1e-5, btol=1e-9):
+def eln_cd(X, y, alpha, lambda_, b, active, n_iters=1000, dtol=1e-5, btol=1e-9):
     r = y - X.dot(b)
     n = y.shape[0]
     n2 = n * 2.0
@@ -85,7 +85,7 @@ def eln_cd(X, y, alpha, lambda_, b, active, n_iters=1000, tol=1e-5, btol=1e-9):
         msr = np.sum(r**2)/ n2
         pen = elnet_penalty(b, alpha, lambda_)
         f_new = msr + pen
-        if (f_old - f_new)<tol:
+        if (f_old - f_new)<dtol:
             fvals[i+1] = msr, pen, f_new
             break
         else:
@@ -95,15 +95,15 @@ def eln_cd(X, y, alpha, lambda_, b, active, n_iters=1000, tol=1e-5, btol=1e-9):
 
 
             
-def elnet(X, y, lambda_, alpha=0.99, b=None, active=None, n_iters=1000, tol=1e-9,
-          intercept=True):
+def elnet(X, y, lambda_, alpha=0.99, b=None, active=None, n_iters=1000, dtol=1e-9,
+          btol=1e-9, intercept=True):
     if b is None:
         b = X.T.dot(y) / X.shape[0]
     if active is None:
         active = np.ones(X.shape[1], dtype=bool)
     if intercept:
         y = y - y.mean()
-    beta, fvals, active, nits = eln_cd(X, y, alpha, lambda_, b, active, n_iters, tol)
+    beta, fvals, active, nits = eln_cd(X, y, alpha, lambda_, b, active, n_iters, dtol, btol)
     fvals = fvals[:(nits+2)]
     return beta, fvals, active, nits
 
@@ -114,7 +114,7 @@ def elnet_grad(b, X, y, lambda_, alpha):
     return g
   
 
-def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, tol=1e-4, n_iters=1000, 
+def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, dtol=1e-4, btol=1e-9, n_iters=1000, 
               refit=True, lmin_pct=0, lmax_pct=100, lmin=None, lmax=None, 
               seq_rule=True, warm_start=True, intercept=True):
     if b is None:
@@ -150,7 +150,7 @@ def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, tol=1e-4, n_iters=1000
             else:
                 active = np.ones(p, dtype=bool)
             bi, _, _, n_i = elnet(Xf[k], yf[k], lambda_, alpha, beta_start.copy(), 
-                             tol=tol, n_iters=n_iters, active=active,
+                             dtol=dtol, btol=btol, n_iters=n_iters, active=active,
                              intercept=intercept)
             ytk = yt[k]
             if intercept:
@@ -175,7 +175,7 @@ def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, tol=1e-4, n_iters=1000
             else:
                 active = np.ones(p, dtype=bool)
             betas[i+1], _, _, _ = elnet(X, y, lambda_, alpha, beta_start.copy(),
-                                     tol=tol, active=active, n_iters=n_iters,
+                                     dtol=dtol, btol=btol, active=active, n_iters=n_iters,
                                      intercept=intercept)
             
     progress_bar.close()

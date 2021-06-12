@@ -113,7 +113,7 @@ def binom_eval(y, eta, b, alpha, lambda_):
     return ll, P, f
 
 @numba.jit(nopython=True)
-def binom_glm_cd(b, X, Xsq, r, w, xv, la, dla, active, index, n, ffc):
+def binom_glm_cd(b, X, Xsq, r, w, xv, la, dla, active, index, n):
     '''
     Binomial GLM Coordinate descent.  This function performs one cycle
     of coordinate descent
@@ -155,10 +155,6 @@ def binom_glm_cd(b, X, Xsq, r, w, xv, la, dla, active, index, n, ffc):
     
     n : int
         Number of observations
-    
-    ffc : float
-        Adjustment factor that can be calibrated to avoid divergence of the NR
-        algorithm
 
     
     Returns
@@ -194,8 +190,7 @@ def binom_glm_cd(b, X, Xsq, r, w, xv, la, dla, active, index, n, ffc):
   
 @numba.jit(nopython=True)
 def _binom_glmnet(b, X, Xsq, y, la, dla, acs, ix, n, n_iters=2000, 
-                  btol=1e-4, dtol=1e-4, pmin=1e-9, nr_ent=False, 
-                  ffc=1.0):
+                  btol=1e-4, dtol=1e-4, pmin=1e-9, nr_ent=False):
     '''
     Binomial glmnet.  This function fits a binomial GLM via a doubly iterative
     outer approximation followed by an inner cycle of coordinate descent. 
@@ -243,10 +238,6 @@ def _binom_glmnet(b, X, Xsq, y, la, dla, acs, ix, n, n_iters=2000,
     
     nr_ent: bool, optional
         If variable reentry is allowed, default false
-        
-    ffc : float
-        Adjustment factor that can be calibrated to avoid divergence of the NR
-        algorithm
 
     
     Returns
@@ -272,7 +263,7 @@ def _binom_glmnet(b, X, Xsq, y, la, dla, acs, ix, n, n_iters=2000,
         r = y - mu
         fvals[i] = -2.0*np.sum(y * np.log(mu) + np.log(muconj) * yconj)/n
         b_new, acs_new, xvd = binom_glm_cd(b.copy(), X, Xsq, r, w, xv, la, dla, 
-                                      acs.copy(), ix, n, ffc)
+                                      acs.copy(), ix, n)
         
         if np.max(xvd) < btol:
             break
@@ -286,7 +277,7 @@ def _binom_glmnet(b, X, Xsq, y, la, dla, acs, ix, n, n_iters=2000,
 
 
 def binom_glmnet(X, y, lambda_, alpha, b=None, active=None, n_iters=2000, 
-                 btol=1e-4, dtol=1e-4, pmin=1e-9, nr_ent=False, ffc=1.0, 
+                 btol=1e-4, dtol=1e-4, pmin=1e-9, nr_ent=False, 
                  intercept=True):
     '''
     Binomial glmnet.  This function fits a binomial GLM via a doubly iterative
@@ -329,10 +320,6 @@ def binom_glmnet(X, y, lambda_, alpha, b=None, active=None, n_iters=2000,
     nr_ent: bool, optional
         If variable reentry is allowed, default false
         
-    ffc : float
-        Adjustment factor that can be calibrated to avoid divergence of the NR
-        algorithm
-
     
     Returns
     -------
@@ -365,13 +352,13 @@ def binom_glmnet(X, y, lambda_, alpha, b=None, active=None, n_iters=2000,
     la, dla = alpha * lambda_, (1 - alpha) * lambda_
     Xsq = X**2
     b, active, fvals = _binom_glmnet(b, X, Xsq, y, la, dla, active, index, n, 
-                                     n_iters, btol, dtol, pmin, nr_ent, ffc)
+                                     n_iters, btol, dtol, pmin, nr_ent)
     return b, active, fvals, len(fvals)
 
 
 def cv_binom_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, btol=1e-4, dtol=1e-4, 
-              n_iters=1000, warm_start=True, refit=True, lmin_pct=None,
-              pmin=1e-9, nr_ent=False, seq_rule=True, ffc=1.0, intercept=True,
+              n_iters=1000, warm_start=True, refit=True, lmin_pct=0,
+              pmin=1e-9, nr_ent=True, seq_rule=True, intercept=True,
               rng=None):
     '''
     Cross validated grid search for optimal elastic net penalty for a binomial
@@ -427,10 +414,6 @@ def cv_binom_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, btol=1e-4, dtol=
     seq_rule : bool, optional
         Whether or not use the sequential rule to speed up crossvalidation
         default, True
-        
-    ffc : float
-        Adjustment factor that can be calibrated to avoid divergence of the NR
-        algorithm
 
     
     Returns
@@ -494,7 +477,7 @@ def cv_binom_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, btol=1e-4, dtol=
             bi, _, _, ni = binom_glmnet(Xf[k], yf[k], lambda_, alpha, beta_start,
                                        active=active, btol=btol, dtol=dtol,
                                        n_iters=n_iters, pmin=pmin,nr_ent=nr_ent, 
-                                       ffc=ffc, intercept=intercept)
+                                       intercept=intercept)
             fi = binom_eval(yt[k], Xt[k].dot(bi), bi, alpha, lambda_)
             betas_cv[i+1, k] = bi
             fvals[i, k] = fi
@@ -514,9 +497,9 @@ def cv_binom_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, btol=1e-4, dtol=
                     active = np.abs(X.T.dot(resid)) > 2.0 * alpha * (lambda_ - lambdas.max())
             else:
                 active = np.ones(p, dtype=bool)
-            bfi, _, _ = binom_glmnet(X, y, lambda_, alpha, beta_start, active=active,
+            bfi, _, _, _ = binom_glmnet(X, y, lambda_, alpha, beta_start, active=active,
                                      btol=btol, dtol=dtol, n_iters=n_iters,
-                                     pmin=pmin,  nr_ent=nr_ent, ffc=ffc,
+                                     pmin=pmin,  nr_ent=nr_ent,
                                      intercept=intercept)
             betas[i+1] = bfi
     progress_bar.close()
