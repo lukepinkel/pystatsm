@@ -366,7 +366,7 @@ def binom_glmnet(X, y, lambda_, alpha, b=None, active=None, n_iters=2000,
     Xsq = X**2
     b, active, fvals = _binom_glmnet(b, X, Xsq, y, la, dla, active, index, n, 
                                      n_iters, btol, dtol, pmin, nr_ent, ffc)
-    return b, active, fvals
+    return b, active, fvals, len(fvals)
 
 
 def cv_binom_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, btol=1e-4, dtol=1e-4, 
@@ -491,14 +491,14 @@ def cv_binom_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, btol=1e-4, dtol=
                     active = np.abs(Xf[k].T.dot(resid)) > 2.0 * alpha * (lambda_ - lambdas.max())
             else:
                 active = np.ones(p, dtype=bool)
-            bi, _, ni = binom_glmnet(Xf[k], yf[k], lambda_, alpha, beta_start,
+            bi, _, _, ni = binom_glmnet(Xf[k], yf[k], lambda_, alpha, beta_start,
                                        active=active, btol=btol, dtol=dtol,
                                        n_iters=n_iters, pmin=pmin,nr_ent=nr_ent, 
                                        ffc=ffc, intercept=intercept)
             fi = binom_eval(yt[k], Xt[k].dot(bi), bi, alpha, lambda_)
             betas_cv[i+1, k] = bi
             fvals[i, k] = fi
-            n_its[i, k] = len(ni)
+            n_its[i, k] = ni
             progress_bar.update(1)
         if refit:
             if warm_start:
@@ -520,8 +520,5 @@ def cv_binom_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, btol=1e-4, dtol=
                                      intercept=intercept)
             betas[i+1] = bfi
     progress_bar.close()
-    if refit:
-        return betas_cv[1:], fvals, lambdas, n_its, betas[1:]
-    else:
-        return betas_cv[1:], fvals, lambdas, n_its
+    return betas_cv[1:], fvals, lambdas, betas[1:], n_its
 

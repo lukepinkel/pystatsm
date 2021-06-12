@@ -12,6 +12,7 @@ import scipy as sp # analysis:ignore
 import scipy.stats # analysis:ignore
 import pandas as pd # analysis:ignore
 import matplotlib.pyplot as plt # analysis:ignore
+from .eln_utils import crossval_mats
 
 @numba.jit(nopython=True)
 def sft(x, t):
@@ -93,13 +94,6 @@ def eln_cd(X, y, alpha, lambda_, b, active, n_iters=1000, tol=1e-5, btol=1e-9):
     return beta_hat, fvals, active, i
 
 
-def kfold_indices(n, k):
-    splits = np.array_split(np.arange(n), k)
-    inds = []
-    for i in range(k):
-        fit_ind = np.concatenate([splits[j] for j in range(k) if j!=i])
-        inds.append([fit_ind, splits[i]])
-    return inds
             
 def elnet(X, y, lambda_, alpha=0.99, b=None, active=None, n_iters=1000, tol=1e-9,
           intercept=True):
@@ -119,23 +113,7 @@ def elnet_grad(b, X, y, lambda_, alpha):
     g = -1.0 / n * X.T.dot(r) + lambda_ * (1 - alpha) * b + lambda_*alpha
     return g
   
-def process_cv(fval, lambdas):
-    df = pd.DataFrame(fval)
-    summary = pd.concat([df.mean(axis=1), df.std(axis=1)], axis=1)
-    summary.columns = ['mean', 'std']
-    lambda_min = lambdas[summary.idxmin()['mean']]
-    return summary, lambda_min
-       
-def crossval_mats(X, y, n, cv):
-    kfix = kfold_indices(n, cv)
-    Xf, yf, Xt, yt = [], [], [], []
-    for f_ix, v_ix in kfix:
-        Xf.append(X[f_ix])
-        yf.append(y[f_ix])
-        Xt.append(X[v_ix])
-        yt.append(y[v_ix])
-    return Xf, yf, Xt, yt
-    
+
 def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, tol=1e-4, n_iters=1000, 
               refit=True, lmin_pct=0, lmax_pct=100, lmin=None, lmax=None, 
               seq_rule=True, warm_start=True, intercept=True):
@@ -203,43 +181,7 @@ def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, tol=1e-4, n_iters=1000
     progress_bar.close()
     fvals[:, :, 0] *= 2.0
     return betas_cv[1:], fvals, lambdas, betas[1:], n_its
-                   
-def plot_elnet_cv(f_path, lambdas):
-    mse = pd.DataFrame(f_path[:, :, 0])
-    pen = pd.DataFrame(f_path[:, :, 1])
-    pll = pd.DataFrame(f_path[:, :, 2])
-    mse_sumstats, lambda_min_mse = process_cv(f_path[:, :, 0], lambdas)
-    pen_sumstats, lambda_min_pen = process_cv(f_path[:, :, 1], lambdas)
-    pll_sumstats, lambda_min_pll = process_cv(f_path[:, :, 2], lambdas)
-        
-    fig, ax = plt.subplots(nrows=3)
-    mng = plt.get_current_fig_manager()
-    mng.window.showMaximized()
-    
-    ax[0].scatter(x=np.log(lambdas), y=mse.mean(axis=1), s=10, color='red', zorder=0)
-    ax[0].errorbar(x=np.log(lambdas), y=mse.mean(axis=1), yerr=mse.std(axis=1), 
-                elinewidth=1.0, fmt='none', ecolor='grey', capsize=2.0)
-    ax[0].axvline(np.log(lambda_min_mse))
-    xpos = np.log(lambda_min_mse)
-    _, ypos = ax[0].get_ylim()
-    xlb, xub = ax[0].get_xlim()
-    xpos = xpos + (xub - xpos) * 0.01
-    xy = xpos, ypos*0.95
-    ax[0].annotate(f"{xpos:.2f}", xy=xy, xytext=xy, horizontalalignment='left')
-    
-    
-    ax[1].scatter(x=np.log(lambdas), y=pen.mean(axis=1), s=10, color='red', zorder=0)
-    ax[1].errorbar(x=np.log(lambdas), y=pen.mean(axis=1), yerr=pen.std(axis=1), 
-                elinewidth=1.0, fmt='none', ecolor='grey', capsize=2.0)
-    
-    ax[2].scatter(x=np.log(lambdas), y=pll.mean(axis=1), s=10, color='red', zorder=0)
-    ax[2].errorbar(x=np.log(lambdas), y=pll.mean(axis=1), yerr=pll.std(axis=1), 
-                elinewidth=1.0, fmt='none', ecolor='grey', capsize=2.0)
-    plt.subplots_adjust(left=0.3, right=0.7, top=0.96, bottom=0.05)
-    ax[0].set_ylabel("MSE", rotation=0, labelpad=50)
-    ax[1].set_ylabel("Penalty", rotation=0, labelpad=50)
-    ax[2].set_ylabel("Penalized LL", rotation=0, labelpad=50)
-    return fig, ax
+       
     
 '''
 
