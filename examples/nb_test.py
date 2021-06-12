@@ -6,16 +6,15 @@ Created on Thu Nov 26 13:28:52 2020
 """
 import numpy as np
 import pandas as pd
-from pystats.utilities.random_corr import exact_rmvnorm, vine_corr
+from pystats.utilities.random_corr import exact_rmvnorm
 from pystats.pyglm.nb2 import NegativeBinomial
 from pystats.utilities.numerical_derivs import fo_fc_cd, so_gc_cd
 
 seed = 1234
 rng = np.random.default_rng(seed)
 
-n_obs, n_var, n_nnz, rsq, k = 5000, 20, 10, 0.5**2, 7.0
-S = vine_corr(n_var, seed=seed)
-X = exact_rmvnorm(S, n=n_obs, seed=seed)
+n_obs, n_var, n_nnz, rsq, k = 2000, 20, 4, 0.7**2, 7.0
+X = exact_rmvnorm(np.eye(n_var), n=n_obs, seed=seed)
 beta = np.zeros(n_var)
 
 bv = np.array([-1.0, -0.5, 0.5, 1.0])
@@ -25,7 +24,7 @@ if n_nnz%len(bv)>0:
     
 beta[:n_nnz] = bvals
 eta = X.dot(beta)
-eta = eta / eta.var()
+eta = eta - eta.max() + 5.0
 lpred = rng.normal(eta, scale=np.sqrt(eta.var()*(1.0 - rsq) / rsq))
 mu = np.exp(lpred)
 var = mu + k * mu**2
@@ -58,9 +57,9 @@ H_ana2 = model.hessian(params)
 
 
 np.allclose(g_num1, g_ana1)
-np.allclose(g_num2, g_ana2, atol=1e-6)
+np.allclose(g_num2, g_ana2, atol=1e-4)
 
 np.allclose(H_num1, H_ana1)
 np.allclose(H_num2, H_ana2)
 
-
+comp = np.vstack((beta, model.res['param'].values[1:-1])).T
