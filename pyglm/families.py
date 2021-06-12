@@ -694,7 +694,6 @@ class Binomial(ExponentialFamily):
     
     def _full_loglike(self, y, eta=None, mu=None, T=None, scale=1.0):
         ll = self._loglike(y, eta, mu, T, scale)
-        w = self.weights / scale
         r = self.weights * y
         llf = ll - _logbinom(self.weights, r)
         return llf 

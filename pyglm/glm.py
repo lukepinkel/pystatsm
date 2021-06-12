@@ -248,15 +248,15 @@ class GLM:
         sumstats['pearson_chi2'] = self._est_scale(self.Y, 
                                     self.predict(self.params))*self.dfe
         sumstats['deviance'] = self.f.deviance(y=self.Y, mu=mu, scale=phi).sum()
-        if isinstance(self.f, Binomial):
-            sumstats['PseudoR2_CS'] = 1-np.exp(1.0/N * (self.LLA - self.LL0))
-            rmax = 1-np.exp(1.0/N *(-self.LL0))
-            LLR = 2*(lln - llf)
-            sumstats['PseudoR2_N'] = sumstats['PseudoR2_CS'] / rmax
-            sumstats['PseudoR2_MCF'] = 1 - self.LLA / self.LL0
-            sumstats['PseudoR2_MCFA'] = 1 - (self.LLA - k) / self.LL0
-            sumstats['PseudoR2_MFA'] = 1 - (LLR) / (LLR + N)
-            
+
+        sumstats['PseudoR2_CS'] = 1-np.exp(1.0/N * (self.LLA - self.LL0))
+        rmax = 1-np.exp(1.0/N *(-self.LL0))
+        LLR = 2*(lln - llf)
+        sumstats['PseudoR2_N'] = sumstats['PseudoR2_CS'] / rmax
+        sumstats['PseudoR2_MCF'] = 1 - self.LLA / self.LL0
+        sumstats['PseudoR2_MCFA'] = 1 - (self.LLA - k) / self.LL0
+        sumstats['PseudoR2_MFA'] = 1 - (LLR) / (LLR + N)
+        
         self.sumstats = pd.DataFrame(sumstats, index=['Fit Statistic']).T
 
         self.vcov = np.linalg.pinv(self.hessian(self.params))
