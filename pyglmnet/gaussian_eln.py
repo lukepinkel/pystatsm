@@ -91,7 +91,6 @@ def eln_cd(X, y, alpha, lambda_, b, active, n_iters=1000, tol=1e-5, btol=1e-9):
             f_old = f_new
             beta_hat = b
     return beta_hat, fvals, active, i
-            
 
 def kfold_indices(n, k):
     splits = np.array_split(np.arange(n), k)
