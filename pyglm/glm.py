@@ -24,7 +24,7 @@ class GLM:
     
     def __init__(self, X=None, Y=None, formula=None, data=None, fam=None, 
                  scale_estimator='M'):
-        if isinstance(fam, ExponentialFamily) is False:
+        if isinstance(fam, ExponentialFamily)==False:
             fam = fam()
         
         self.f = fam

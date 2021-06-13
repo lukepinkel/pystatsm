@@ -18,7 +18,7 @@ from ..utilities.linalg_operations import (dummy, vech, invech, _check_np,
                                            _check_shape)
 from ..utilities.special_mats import lmat, nmat
 from ..utilities.numerical_derivs import so_gc_cd, so_fc_cd, fo_fc_cd
-from .families import (Binomial, ExponentialFamily, Poisson, NegativeBinomial, Gaussian, InverseGaussian)
+from ..pyglm.families import (Binomial, ExponentialFamily, Poisson, NegativeBinomial, Gaussian, InverseGaussian)
 from ..utilities.output import get_param_table
 from sksparse.cholmod import cholesky
 
@@ -1890,7 +1890,7 @@ class GLMM(WLMM):
     '''
     def __init__(self, formula, data, weights=None, fam=None):
         super().__init__(formula=formula, data=data, weights=weights)
-        if isinstance(fam, ExponentialFamily) is False:
+        if isinstance(fam, ExponentialFamily) == False:
             fam = fam()
             
         self.f = fam

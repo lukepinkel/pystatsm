@@ -19,7 +19,7 @@ from ..utilities.linalg_operations import (_check_np, _check_shape,
 from .model_matrices import (construct_model_matrices, 
                              create_gmats,make_theta,  update_gmat)
 from ..utilities.output import get_param_table
-from .families import (Binomial, ExponentialFamily, Gamma, Gaussian,  # analysis:ignore
+from ..pyglm.families import (Binomial, ExponentialFamily, Gamma, Gaussian,  # analysis:ignore
                        InverseGaussian, Poisson, NegativeBinomial)
 
 def lndet_gmat(theta, dims, indices):
