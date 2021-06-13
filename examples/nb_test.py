@@ -4,6 +4,7 @@ Created on Thu Nov 26 13:28:52 2020
 
 @author: lukepinkel
 """
+
 import numpy as np
 import pandas as pd
 from pystats.utilities.random_corr import exact_rmvnorm
@@ -13,7 +14,7 @@ from pystats.utilities.numerical_derivs import fo_fc_cd, so_gc_cd
 seed = 1234
 rng = np.random.default_rng(seed)
 
-n_obs, n_var, n_nnz, rsq, k = 2000, 20, 4, 0.7**2, 7.0
+n_obs, n_var, n_nnz, rsq, k = 2000, 20, 4, 0.9**2, 4.0
 X = exact_rmvnorm(np.eye(n_var), n=n_obs, seed=seed)
 beta = np.zeros(n_var)
 
@@ -23,8 +24,7 @@ if n_nnz%len(bv)>0:
     bvals = np.concatenate([bvals, bv[:n_nnz%len(bv)]])
     
 beta[:n_nnz] = bvals
-eta = X.dot(beta)
-eta = eta - eta.max() + 5.0
+eta = X.dot(beta) / np.sqrt(np.sum(beta**2))
 lpred = rng.normal(eta, scale=np.sqrt(eta.var()*(1.0 - rsq) / rsq))
 mu = np.exp(lpred)
 var = mu + k * mu**2
@@ -56,10 +56,7 @@ H_num2 = so_gc_cd(model.gradient, params)
 H_ana2 = model.hessian(params)
 
 
-np.allclose(g_num1, g_ana1)
-np.allclose(g_num2, g_ana2, atol=1e-4)
-
-np.allclose(H_num1, H_ana1)
-np.allclose(H_num2, H_ana2)
-
+print(np.allclose(g_num1, g_ana1), np.allclose(g_num2, g_ana2, atol=1e-4))
+print(np.allclose(H_num1, H_ana1), np.allclose(H_num2, H_ana2))
+print(model.opt_full.success)
 comp = np.vstack((beta, model.res['param'].values[1:-1])).T
