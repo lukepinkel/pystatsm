@@ -166,7 +166,33 @@ class BetaReg:
         self.const = const
         self.opt_null = opt_null
         self.theta_null = opt_null.x
-        self.ll_null = self.loglike(self.theta_null, const, const)
-        self.ll_full = self.loglike(self.theta)
+        self.lln = self.loglike(self.theta_null, const, const)
+        self.llf = self.loglike(self.theta)
+        self.llr = 2.0*(self.lln - self.llf)
+        k = len(self.theta)
+        N = self.n_obs
+        sumstats = {}
+        sumstats['aic'] = -2.0*self.llf + k
+        sumstats['aicc'] = -2*self.llf + (2 * k * N) / (N - k - 1)
+        sumstats['bic'] = -2*self.llf + np.log(N)*k
+        sumstats['caic'] = -2*self.llf + k*(np.log(N) + 1.0)
+        sumstats['LLR'] = self.llr
+
+        sumstats['PseudoR2_CS'] = 1 - np.exp(2.0/N * (self.llf - self.lln))
+        rmax = 1-np.exp(2.0 / N *self.lln)
+        sumstats['PseudoR2_N'] = sumstats['PseudoR2_CS'] / rmax
+        sumstats['PseudoR2_MCF'] = 1 - self.lln / self.llf
+        sumstats['PseudoR2_MCFA'] = 1 - (self.lln - k) / (self.llf)
+        sumstats['PseudoR2_MFA'] = 1 - (self.llr) / (self.llr + N)
+        self.sumstats = sumstats
+    
+    def predict(self, theta=None, X=None, Z=None):
+        theta = self.theta if theta is None else theta
+        X = self.X if X is None else X
+        Z = self.Z if Z is None else Z
+        betam, betas = theta[:X.shape[1]], theta[X.shape[1]:]
+        etam, etas = X.dot(betam), Z.dot(betas)
+        mu, phi = self.m_link.inv_link(etam), self.s_link.inv_link(etas)
+        return mu, phi
         
         
