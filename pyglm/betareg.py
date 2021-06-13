@@ -72,21 +72,25 @@ class BetaReg:
         self.logy = np.log(y)
         self.log1y = np.log(1.0 - y)
         
-    def loglike_elementwise(self, theta):
-        betam, betas = theta[self.m_ix], theta[self.s_ix]
-        etam, etas = self.X.dot(betam), self.Z.dot(betas)
+    def loglike_elementwise(self, theta, X=None, Z=None):
+        X = self.X if X is None else X
+        Z = self.Z if Z is None else Z
+        betam, betas = theta[:X.shape[1]], theta[X.shape[1]:]
+        etam, etas = X.dot(betam), Z.dot(betas)
         mu, phi = self.m_link.inv_link(etam), self.s_link.inv_link(etas)
         mu_phi = mu * phi
         ll_i = gammaln(phi) - gammaln(mu_phi) - gammaln(phi - mu_phi) +\
                (mu_phi - 1.0) * self.logy + (phi - mu_phi - 1.0) * self.log1y
         return -ll_i
     
-    def loglike(self, theta):
-        return np.sum(self.loglike_elementwise(theta))
+    def loglike(self, theta, X=None, Z=None):
+        return np.sum(self.loglike_elementwise(theta, X, Z))
     
-    def gradient(self, theta):
-        betam, betas = theta[self.m_ix], theta[self.s_ix]
-        etam, etas = self.X.dot(betam), self.Z.dot(betas)
+    def gradient(self, theta, X=None, Z=None):
+        X = self.X if X is None else X
+        Z = self.Z if Z is None else Z
+        betam, betas = theta[:X.shape[1]], theta[X.shape[1]:]
+        etam, etas = X.dot(betam), Z.dot(betas)
         mu, phi = self.m_link.inv_link(etam), self.s_link.inv_link(etas)
         mu_phi = mu * phi
         wm = phi / self.m_link.dlink(mu)
@@ -97,14 +101,16 @@ class BetaReg:
         rm = self.ys - u
         rs = mu * rm + digamma(phi) - d + self.log1y
         
-        gm = wdprod(self.X, wm, rm)
-        gs = wdprod(self.Z, ws, rs)
+        gm = wdprod(X, wm, rm)
+        gs = wdprod(Z, ws, rs)
         g = -np.concatenate([gm, gs])
         return g
     
-    def hessian(self, theta):
-        betam, betas = theta[self.m_ix], theta[self.s_ix]
-        etam, etas = self.X.dot(betam), self.Z.dot(betas)
+    def hessian(self, theta, X=None, Z=None):
+        X = self.X if X is None else X
+        Z = self.Z if Z is None else Z
+        betam, betas = theta[:X.shape[1]], theta[X.shape[1]:]
+        etam, etas = X.dot(betam), Z.dot(betas)
         mu, phi = self.m_link.inv_link(etam), self.s_link.inv_link(etas)
         mu_phi = mu * phi
         phi_mu = phi - mu_phi
@@ -133,9 +139,9 @@ class BetaReg:
         #wss = -(a * g1s - b * g1s**2 * gs2)
         wss = -(d2L_dphi2 * g1s + dL_dphi * g2s) * g1s
         
-        Hmm = wdprod(self.X, wmm, self.X)
-        Hms = wdprod(self.X, wms, self.Z)
-        Hss = wdprod(self.Z, wss, self.Z)
+        Hmm = wdprod(X, wmm, X)
+        Hms = wdprod(X, wms, Z)
+        Hss = wdprod(Z, wss, Z)
         H = np.block([[Hmm, Hms], [Hms.T, Hss]])
         return H
 
@@ -153,6 +159,14 @@ class BetaReg:
         self.theta = theta
         self.optimizer = opt
         
-        
+        const = np.ones((self.n_obs, 1))
+        opt_null =sp.optimize.minimize(self.loglike, np.zeros(2), jac=self.gradient,
+                                       hess=self.hessian, method='trust-constr',
+                                       args=(const, const))
+        self.const = const
+        self.opt_null = opt_null
+        self.theta_null = opt_null.x
+        self.ll_null = self.loglike(self.theta_null, const, const)
+        self.ll_full = self.loglike(self.theta)
         
         
