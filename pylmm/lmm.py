@@ -1987,7 +1987,13 @@ class GLMM(WLMM):
                            resids_raw_mean=resids_raw_mean,
                            resids_pearson_linear=resids_pearson_linear,
                            resids_pearson_mean=resids_pearson_mean)
-        
+        param_names = list(self.fe_vars)
+        for level in self.levels:
+            for i, j in list(zip(*np.triu_indices(self.dims[level]['n_vars']))):
+                param_names.append(f"{level}:G[{i}][{j}]")
+        param_names.append("resid_cov")
+        self.param_names = param_names
+        self.res.index = param_names
  
 """       
 from pystats.utilities.random_corr import vine_corr
