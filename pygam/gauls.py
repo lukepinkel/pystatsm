@@ -831,7 +831,8 @@ class GauLS:
         return fig, ax
     
     def plot_smooth_quantiles(self, m_comp=None, s_comp=None, quantiles=None,
-                              mean=True, figax=None, b=0.0, scatter_partial=False):
+                              mean=True, figax=None, b=0.0, scatter_partial=False,
+                              scatter_kws={}):
         """
         Parameters
         ----------
@@ -890,8 +891,12 @@ class GauLS:
         ax.set_xlim(x.min(), x.max())
         
         if scatter_partial:
+            default_kws = {"s":5, "alpha":0.6, "ec":"none"}
+            for key, val in default_kws.items():
+                if key not in scatter_kws.keys():
+                    scatter_kws[key] = val
             ax.scatter(self.m.data[m_comp], self.y-self.m.Xp.dot(self.beta[self.ixl]),
-                       s=5, alpha=0.6, ec="none")
+                       **scatter_kws)
         
         return fig, ax
     
