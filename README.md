@@ -8,10 +8,12 @@ This project is recreational and consists of unfinished and unpolished programs 
 - Linear mixed models 
 	- LMM permits flexible random effect covariance and uses a cholesky parameterization.  Analytic gradient and hessian computation is available, but can become prohibitively slow for large models with cross random effects
 	 - GLMM can fit (so far binomial and poisson) mixed models using PQL.  GLMM inherits LMM methods to repeatedly fit a weighted mixed model.
+	 - GLMM_AGQ can be used to fit models with a single random intercept using numerical integration.
 	 - MixedMCMC can fit normal, binomial, poisson, and ordered probit mixed models using MCMC.  
 	 	- Normal models are fit through Gibbs sampling
 	 	- Binary binomial (Bernoulli) models are fit through slice within gibbs sampling
 	 	- Poisson, binomial, and ordered probit models can be fit using Metropolis Hastings within Gibbs. 
+	 - MLMM can be used to fit multivariate outcomes (i.e. multiple dependent variables) 
 - Latent variable correlations for handling polychorric, polytomous and tetrachoric correlation
 - Sparse Canonical Correlation using the penalized matrix decomposition
 - Robust linear regression with Hubers T, Tukeys Bisquare (Biweight), and Hampels function.
@@ -23,6 +25,7 @@ This project is recreational and consists of unfinished and unpolished programs 
 - Negative Binomial Models
  	- Currently only supports NB2, although plans exist to implement NB1 
 - Zero Inflated Poisson models
+- Beta Regression
 - Generalized Additive Models
 	- Supported distributions include Gaussian, Inverse Gaussian, and Gamma
 	- Supported smooths include cubic regression splines, cyclic cubic splines, and b-splines
@@ -31,7 +34,7 @@ This project is recreational and consists of unfinished and unpolished programs 
 - Random correlation matrix generation via the vine method, onion method, or factor method
 - Nonnegative matrix factorization using the seqNMF algorithm/approach
 - ICA using two different ML algorithms
-- An OLS class conducive to resampling based tests, currently implementing the standard nonparametric bootstrap, and and maxT permutation testing
+- An OLS class conducive to resampling based tests, currently implementing the standard nonparametric bootstrap, Freedman-Lane permutation testing, and maxT permutation testing
 # Requirements
 All models have been written in python 3.7 using
 - numpy 1.17.2
