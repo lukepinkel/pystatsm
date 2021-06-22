@@ -404,7 +404,7 @@ class GauLS:
         Sa = np.einsum('i,ijk->jk', lam, self.S)
         return Sa
     
-    def outer_step(self, S, beta_init=None, n_iters=200, tol=1e-25):
+    def outer_step(self, S, beta_init=None, n_iters=200, tol=1e-9):
         """
         Parameters
         ----------
@@ -437,7 +437,7 @@ class GauLS:
         if beta_init is None:
             beta_init = np.zeros(self.nx)
         beta = beta_init.copy()
-        ll_prev = self.loglike(beta)
+        ll_prev = self.penalized_loglike(beta, S)
         convergence = False
         etol = np.finfo(float).eps**(1/3)
         for i in range(n_iters):
@@ -449,9 +449,10 @@ class GauLS:
             d = np.linalg.solve(H, g)
             ll_curr = self.penalized_loglike(beta - d, S)
             gmax = np.max(np.abs(g))
-            if ((abs(ll_curr - ll_prev) / (abs(ll_prev)+1e-6)) < tol) or (gmax<1e-9):
+            fcond = (abs(ll_curr - ll_prev) <  (abs(ll_prev)+1e-6) * tol)
+            gcond = gmax < 1e-9
+            if fcond or gcond:
                 beta = beta - d
-                convergence = True
                 break
             elif ll_curr > ll_prev:
                 j = 0
@@ -460,10 +461,10 @@ class GauLS:
                     ll_curr = self.penalized_loglike(beta - d, S)
                     j+=1
                 if j==15:
-                    convergence = False
                     break
             beta = beta - d
             ll_prev = self.penalized_loglike(beta, S)
+        convergence = fcond + gcond
         return beta, i, convergence
     
     def beta_rho(self, rho):
