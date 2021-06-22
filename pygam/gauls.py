@@ -118,6 +118,7 @@ class GauLS:
         self.ns_m = len(self.m.theta)
         self.ns_s = len(self.s.theta)
         self.y = self.m.y
+        self.ixl = np.arange(0, self.m.Xp.shape[1])
         self.ixm = np.arange(0, self.m.X.shape[1])
         self.ixs = np.arange(self.m.X.shape[1], 
                              self.m.X.shape[1]+self.s.X.shape[1])
@@ -196,7 +197,7 @@ class GauLS:
         return llp
         
     
-    def ll_eta_derivs(self, beta_m, beta_s):
+    def ll_eta_derivs(self, beta_m, beta_s, deriv_order=4):
         """
         Parameters
         ----------
@@ -253,37 +254,46 @@ class GauLS:
         
         dm = lm * g1m
         ds = ls * g1s
-        
-        dmm = (lmm - lm * g2m * g1m) * g1m**2
-        dms = lms * g1s * g1m
-        dss = (lss - ls * g2s * g1s) * g1s**2
-        
-        dmmm = (lmmm - 3.0 * lmm * g2m * g1m +\
-                lm * (3.0 * g2m**2 * g1m**2 - g3m * g1m)) * g1m**3
-        dmms = (lmms - lms * g2m * g1m) * g1s * g1m**2
-        dmss = (lmss - lms * g2s * g1s) * g1m * g1s**2
-        dsss = (lsss - 3.0 * lss * g2s * g1s +\
-                ls * (3.0 * g2s**2 * g1s**2 - g3s * g1s)) * g1s**3
-        
-        dmmmm = (lmmmm - 6.0 * lmmm * g2m * g1m +\
-                 lmm * (15 * g2m**2 * g1m**2 - 4 * g3m * g1m)-\
-                 lm * (15 * g2m**3 * g1m**3 - 10*g2m*g3m*g1m**2\
-                       +g4m*g1m))*g1m**4
-        dmmms = (lmmms - 3.0 * lmms * g2m * g1m +\
-                 lms * (3 * g2m**2 * g1m**2 - g3m*g1m)) * g1s * g1m**3
-        dmmss = (lmmss - lmss * g2m * g1m - lmms * g2s * g1s +\
-                 lms * g2m * g2s * g1m * g1s) * g1m**2 * g1s**2
-        dmsss = (lmsss - 3.0 * lmss * g2s * g1s +\
-                 lms * (3 * g2s**2 * g1s**2 - g3s*g1s)) * g1m * g1s**3
-        dssss = (lssss - 6.0 * lsss * g2s * g1s +\
-                 lss * (15 *g2s**2 * g1s**2 - 4 * g3s * g1s)-\
-                 ls * (15 * g2s**3 * g1s**3 - 10 * g2s * g3s * g1s**2\
-                       +g4s * g1s)) * g1s**4
-        
         L1 = np.vstack((dm, ds)).T
-        L2 = np.vstack((dmm, dms, dss)).T
-        L3 = np.vstack((dmmm, dmms, dmss, dsss)).T
-        L4 = np.vstack((dmmmm, dmmms, dmmss, dmsss, dssss)).T
+        
+        if deriv_order>1:
+            dmm = (lmm - lm * g2m * g1m) * g1m**2
+            dms = lms * g1s * g1m
+            dss = (lss - ls * g2s * g1s) * g1s**2
+            L2 = np.vstack((dmm, dms, dss)).T
+        else:
+            L2 = None
+            
+        if deriv_order>2:
+            dmmm = (lmmm - 3.0 * lmm * g2m * g1m +\
+                    lm * (3.0 * g2m**2 * g1m**2 - g3m * g1m)) * g1m**3
+            dmms = (lmms - lms * g2m * g1m) * g1s * g1m**2
+            dmss = (lmss - lms * g2s * g1s) * g1m * g1s**2
+            dsss = (lsss - 3.0 * lss * g2s * g1s +\
+                    ls * (3.0 * g2s**2 * g1s**2 - g3s * g1s)) * g1s**3
+            L3 = np.vstack((dmmm, dmms, dmss, dsss)).T
+        else:
+            L3 = None
+            
+        if deriv_order>3:
+            dmmmm = (lmmmm - 6.0 * lmmm * g2m * g1m +\
+                     lmm * (15 * g2m**2 * g1m**2 - 4 * g3m * g1m)-\
+                     lm * (15 * g2m**3 * g1m**3 - 10*g2m*g3m*g1m**2\
+                           +g4m*g1m))*g1m**4
+            dmmms = (lmmms - 3.0 * lmms * g2m * g1m +\
+                     lms * (3 * g2m**2 * g1m**2 - g3m*g1m)) * g1s * g1m**3
+            dmmss = (lmmss - lmss * g2m * g1m - lmms * g2s * g1s +\
+                     lms * g2m * g2s * g1m * g1s) * g1m**2 * g1s**2
+            dmsss = (lmsss - 3.0 * lmss * g2s * g1s +\
+                     lms * (3 * g2s**2 * g1s**2 - g3s*g1s)) * g1m * g1s**3
+            dssss = (lssss - 6.0 * lsss * g2s * g1s +\
+                     lss * (15 *g2s**2 * g1s**2 - 4 * g3s * g1s)-\
+                     ls * (15 * g2s**3 * g1s**3 - 10 * g2s * g3s * g1s**2\
+                           +g4s * g1s)) * g1s**4
+        
+            L4 = np.vstack((dmmmm, dmmms, dmmss, dmsss, dssss)).T
+        else:
+            L4 = None
         return L1, L2, L3, L4
     
     def grad_ll_beta(self, beta):
@@ -303,7 +313,7 @@ class GauLS:
         
         """
         beta_m, beta_s = beta[self.ixm], beta[self.ixs]
-        L1, _, _, _ = self.ll_eta_derivs(beta_m, beta_s)
+        L1, _, _, _ = self.ll_eta_derivs(beta_m, beta_s, deriv_order=1)
         g1 = self.m.X.T.dot(L1[:, 0])
         g2 = self.s.X.T.dot(L1[:, 1])
         g = -np.concatenate([g1, g2])
@@ -346,7 +356,7 @@ class GauLS:
             
         """
         beta_m, beta_s = beta[self.ixm], beta[self.ixs]
-        _, L2, _, _  = self.ll_eta_derivs(beta_m, beta_s)
+        _, L2, _, _  = self.ll_eta_derivs(beta_m, beta_s, deriv_order=2)
         wmm, wms, wss = L2[:, 0], L2[:, 1], L2[:, 2]
         wmm, wms, wss = wmm.reshape(-1, 1), wms.reshape(-1, 1), wss.reshape(-1, 1)
         Xm, Xs = self.m.X, self.s.X
@@ -515,7 +525,7 @@ class GauLS:
             Derivative of hessian with respect to log smoothing parameters
         """
         b1 = self.grad_beta_rho(beta, lam)
-        L1, L2, L3, L4  = self.ll_eta_derivs(beta[self.ixm], beta[self.ixs])
+        L1, L2, L3, L4  = self.ll_eta_derivs(beta[self.ixm], beta[self.ixs], deriv_order=3)
         Xm, Xs, ixm, ixs = self.m.X, self.s.X, self.ixm, self.ixs
         etam1, etas1 = Xm.dot(b1[ixm]), Xs.dot(b1[ixs])
         dH = np.zeros((self.ns, self.nx, self.nx))
@@ -819,7 +829,7 @@ class GauLS:
         return fig, ax
     
     def plot_smooth_quantiles(self, m_comp=None, s_comp=None, quantiles=None,
-                              mean=True, figax=None, b=0.0):
+                              mean=True, figax=None, b=0.0, scatter_partial=False):
         """
         Parameters
         ----------
@@ -876,6 +886,11 @@ class GauLS:
         if mean:
             ax.plot(x, mu, color='#ff7f0e')
         ax.set_xlim(x.min(), x.max())
+        
+        if scatter_partial:
+            ax.scatter(self.m.data[m_comp], self.y-self.m.Xp.dot(self.beta[self.ixl]),
+                       s=5, alpha=0.6, ec="none")
+        
         return fig, ax
     
     def optimize_penalty(self, approx_hess=False, opt_kws={}):
