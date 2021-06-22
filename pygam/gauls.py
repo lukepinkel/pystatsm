@@ -448,7 +448,8 @@ class GauLS:
             H = V.dot(np.diag(u)).dot(V.T)
             d = np.linalg.solve(H, g)
             ll_curr = self.penalized_loglike(beta - d, S)
-            if (abs(ll_curr - ll_prev) / (abs(ll_prev)+1e-6)) < tol:
+            gmax = np.max(np.abs(g))
+            if ((abs(ll_curr - ll_prev) / (abs(ll_prev)+1e-6)) < tol) or (gmax<1e-9):
                 beta = beta - d
                 convergence = True
                 break
