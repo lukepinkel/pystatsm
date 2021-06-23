@@ -232,7 +232,7 @@ class MixedMCMC(LMM):
         M+=Omega
         chol_fac = cholesky(Ginv, ordering_method='natural')
         a_star = chol_fac.solve_Lt(x1, use_LDLt_decomposition=False)
-        y_z = y - (self.Z.dot(a_star) + x2 * s)
+        y_z = y - (self.Zs.dot(a_star) + x2 * s)
         ofs = self.offset.copy()
         ofs[-self.n_re:] = a_star
         m_chol = cholesky(M.tocsc())
