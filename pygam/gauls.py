@@ -404,7 +404,7 @@ class GauLS:
         Sa = np.einsum('i,ijk->jk', lam, self.S)
         return Sa
     
-    def outer_step(self, S, beta_init=None, n_iters=200, tol=1e-9):
+    def outer_step(self, S, beta_init=None, n_iters=200, tol=1e-11):
         """
         Parameters
         ----------
@@ -419,7 +419,7 @@ class GauLS:
             Maximum number of iterations for newton step.  Defaults to 200
             
         tol: float, optional
-            Tolerance for convergence.  Defaults to 1e-25
+            Tolerance for convergence.  Defaults to 1e-11
         
         Returns
         -------
