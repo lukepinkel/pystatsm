@@ -541,6 +541,8 @@ class MixedMCMC(LMM):
         self.summary = az.summary(self.az_data, round_to=6, **summary_kws)
         self.res = self.summary.copy()
         self.res.index = self.param_names
+        self.res.insert(2, "z-value", self.res["mean"]/self.res["sd"])
+        self.res.insert(3, "p-value", sp.stats.norm(0, 1).sf(np.abs(self.res["z-value"])))
 
 
                 
