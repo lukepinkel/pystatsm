@@ -180,14 +180,15 @@ class MixedMCMC(LMM):
         self.freeR = freeR
         self.rng = np.random.default_rng() if rng is None else rng
         
+        
         #Handle variable names for arviz and variable names for results
         if vnames is None:
             vnames = {"$\\beta$":np.arange(self.n_fe), 
                        "$\\theta$":np.arange(self.n_fe, self.n_params)}
             if response_dist == 'ordinal_probit':
                     vnames["$\\tau$"]=np.arange(self.n_params+1, self.n_params+self.n_thresh)
-                    if not self.freeR:
-                        vnames["$\\theta$"] = np.arange(self.n_fe, self.n_params-1)
+            if not self.freeR:
+                vnames["$\\theta$"] = np.arange(self.n_fe, self.n_params-1)
         self.vnames = vnames
 
         param_names = list(self.fe_vars)
@@ -561,6 +562,7 @@ class MixedMCMC(LMM):
         for i in range(n_chains):
             samples[i], samples_a[i] = func(n_samples, chain=i, **sampling_kws)
         
+        self.samples = samples
         self.samples_a = samples_a
         self.az_dict = to_arviz_dict(samples, self.vnames, burnin=burnin)
         self.az_data = az.from_dict(self.az_dict)
@@ -569,7 +571,11 @@ class MixedMCMC(LMM):
         self.res.index = self.param_names
         self.res.insert(2, "z-value", self.res["mean"]/self.res["sd"])
         self.res.insert(3, "p-value", sp.stats.norm(0, 1).sf(np.abs(self.res["z-value"])))
-
+        self.beta = np.mean(samples[:, :, self.vnames["$\\beta$"]], axis=(0, 1))
+        self.theta = np.mean(samples[:, :, self.vnames["$\\theta$"]], axis=(0, 1))
+        if self.response_dist == 'ordinal_probit':
+            self.tau = np.mean(samples[:, :, self.vnames["$\\tau$"]], axis=(0, 1))
+        
 
                 
         
