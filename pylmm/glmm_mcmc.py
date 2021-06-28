@@ -301,7 +301,7 @@ class MixedMCMC(LMM):
                              lb=-200*self.jv0, ub=v[self.ix0])
         return z
     
-    def sample_tau(self, t, pred, v, propC):
+    def sample_tau_cw(self, t, pred, v, propC):
         t_prop = t.copy()
         ll = 0.0
         tau = np.pad(t, ((1, 1)), mode='constant', constant_values=[-1e17, 1e17])
@@ -329,9 +329,30 @@ class MixedMCMC(LMM):
             t = t
         return t, t_accept 
     
+    def sample_tau_ac(self, t, pred, v, propC):
+        alpha_prev = np.pad(np.log(np.diff(t)), (1, 0), mode='constant', constant_values=[np.log(t[0])])
+        alpha_prop = self.rng.normal(alpha_prev, propC)
+        ll = 0.0
+        t_prop = np.cumsum(np.exp(alpha_prop))
+        for i in range(1, self.n_thresh):
+            m = v[self.y_ix[i]]
+            ll += (np.log(norm_cdf(t_prop[i]-m)-norm_cdf(t_prop[i-1]-m))).sum()
+            ll -= (np.log(norm_cdf(t[i]-m)-norm_cdf(t[i-1]-m))).sum()
+        m = v[self.y_ix[i+1]]
+        ll += np.sum(np.log(1.0 - norm_cdf(t_prop[i]-m)))
+        ll -= np.sum(np.log(1.0 - norm_cdf(t[i]-m)))
+        if ll>np.log(np.random.uniform(0, 1)):
+            t_accept = True
+            t = t_prop
+        else:
+            t_accept = False
+            t = t
+        return t, t_accept 
+    
     def sample_ordinal_probit(self, n_samples, chain=0, save_pred=False, 
                         save_u=False, save_lvar=False, propC=0.04, damping=0.99,
-                        adaption_rate=1.01,  target_accept=0.44, n_adapt=None):
+                        adaption_rate=1.01,  target_accept=0.44, n_adapt=None,
+                        method='ac'):
         secondary_samples = {}
         if save_pred:
             secondary_samples['pred'] = np.zeros((n_samples, self.n_ob))
@@ -352,11 +373,16 @@ class MixedMCMC(LMM):
         theta = self.t_init.copy()
         t = sp.stats.norm(0, 1).ppf((self.y_cat.sum(axis=0).cumsum()/np.sum(self.y_cat))[:-1])
         t = t - t[0]
+        if method=='ac':
+            t = t+1.0
         z = np.zeros_like(self.y).astype(float)
         wtrace, waccept = 1.0, 1.0
         pbar = tqdm.tqdm(range(n_samples), smoothing=0.01)
         for i in range(n_samples):
-            t, t_accept = self.sample_tau(t, pred, z, propC)
+            if method=='ac':
+                t, t_accept = self.sample_tau_ac(t, pred, z, propC)
+            elif method=='cw':
+                t, t_accept = self.sample_tau_cw(t, pred, z, propC)
             wtrace = wtrace * damping + 1.0
             waccept *= damping
             if t_accept:
