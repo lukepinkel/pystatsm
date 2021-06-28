@@ -406,7 +406,7 @@ class MixedMCMC(LMM):
             if save_lvar:
                 secondary_samples['lvar'][i] = z
             if i>1:
-                pbar.set_description(f"Chain {chain+1} Tau Acceptance Prob: {t_acceptances[:i].mean():.4f} C: {propC:.3f}")
+                pbar.set_description(f"Chain {chain+1} Tau Acceptance Prob: {t_acceptances[:i].mean():.3f} C: {propC:.5f}")
             pbar.update(1)
         pbar.close() 
         secondary_samples['t_accept'] = t_acceptances
