@@ -269,11 +269,12 @@ class MixedMCMC(LMM):
     def mh_lvar_ordinal_probit(self, theta, t, pred, v):
         tau = np.pad(t, ((1, 1)), mode='constant', constant_values=[-1e17, 1e17])
         mu, sd = np.zeros_like(pred), np.ones_like(pred)
+        s = np.sqrt(theta[-1])
         for i in range(1, self.y_cat.shape[1]+1):
             ix = self.y_ix[i-1]
             j = self.jv[ix]
             mu = pred[ix] - v[ix]
-            sd = j
+            sd = j*s
             lb = j*tau[i-1]
             ub = j*tau[i]
             v[ix] = trnorm(mu, sd, lb, ub)
@@ -390,7 +391,8 @@ class MixedMCMC(LMM):
                 waccept +=1
             if i<n_adapt:
                 propC = propC * np.sqrt(adaption_rate**((waccept/wtrace)-target_accept))
-            z = self.mh_lvar_ordinal_probit(theta, t, pred, z)
+            if t_accept:
+                z = self.mh_lvar_ordinal_probit(theta, t, pred, z)
             location = self.sample_location(theta, rng.normal(0, 1, size=self.n_re), 
                                             rng.normal(0, 1, size=self.n_ob), z)
             pred = self.W.dot(location)
