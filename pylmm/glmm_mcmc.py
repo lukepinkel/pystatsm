@@ -302,38 +302,7 @@ class MixedMCMC(LMM):
                              lb=-200*self.jv0, ub=v[self.ix0])
         return z
     
-    def sample_tau_cw(self, theta, t, pred, v, propC):
-        t_prop = t.copy()
-        s = np.sqrt(theta[-1])
-        ll = 0.0
-        tau = np.pad(t, ((1, 1)), mode='constant', constant_values=[-1e17, 1e17])
-        for i in range(1, self.n_thresh):
-            t_prop[i] = scalar_truncnorm(t[i], propC, t_prop[i-1], tau[i+2])
-        for i in range(1, self.n_thresh-1):
-            a = (t[i+1]-t[i])/propC
-            b = (t_prop[i-1]-t[i])/propC
-            c = (t_prop[i+1]-t_prop[i])/propC
-            d = (t[i-1]-t_prop[i])/propC
-            ll += np.sum(np.log(norm_cdf(a)-norm_cdf(b)))
-            ll -= np.sum(np.log(norm_cdf(c)-norm_cdf(d)))
-        for i in range(1, self.n_thresh):
-            m = pred[self.y_ix[i]]
-            a_prop, b_prop = (t_prop[i] - m) / s, (t_prop[i-1] - m) / s
-            a, b = (t[i] - m) / s, (t[i-1] - m) / s
-            ll += (np.log(norm_cdf(a_prop)-norm_cdf(b_prop))).sum()
-            ll -= (np.log(norm_cdf(a)-norm_cdf(b))).sum()
-        m = pred[self.y_ix[i+1]]
-        ll += np.sum(np.log(1.0 - norm_cdf((t_prop[i]-m) / s)))
-        ll -= np.sum(np.log(1.0 - norm_cdf((t[i]-m) / s)))
-        if ll>np.log(np.random.uniform(0, 1)):
-            t_accept = True
-            t = t_prop
-        else:
-            t_accept = False
-            t = t
-        return t, t_accept 
-    
-    def sample_tau_ac(self, theta, t, pred, v, propC):
+    def sample_tau(self, theta, t, pred, v, propC):
         alpha_prev = np.pad(np.log(np.diff(t)), (1, 0), mode='constant', constant_values=[np.log(t[0])])
         alpha_prop = self.rng.normal(alpha_prev, propC)
         ll = 0.0
@@ -355,9 +324,8 @@ class MixedMCMC(LMM):
         return t, t_accept 
     
     def sample_ordinal_probit(self, n_samples, chain=0, save_pred=False, 
-                        save_u=False, save_lvar=False, propC=0.04, damping=0.99,
-                        adaption_rate=1.01,  target_accept=0.44, n_adapt=None,
-                        method='ac'):
+                              save_u=False, save_lvar=False, propC=0.04, damping=0.99,
+                              adaption_rate=1.02,  target_accept=0.44, n_adapt=None):
         secondary_samples = {}
         if save_pred:
             secondary_samples['pred'] = np.zeros((n_samples, self.n_ob))
@@ -367,7 +335,7 @@ class MixedMCMC(LMM):
             secondary_samples['lvar'] = np.zeros((n_samples, self.n_ob))
             
         if n_adapt is None:
-            n_adapt = np.minimum(int(n_samples/2), 1000)
+            n_adapt = np.minimum(int(n_samples/2), 4000)
         
         freeR = self.freeR
         param_samples = np.zeros((n_samples, self.n_params+self.n_thresh))
@@ -378,16 +346,12 @@ class MixedMCMC(LMM):
         theta = self.t_init.copy()
         t = sp.stats.norm(0, 1).ppf((self.y_cat.sum(axis=0).cumsum()/np.sum(self.y_cat))[:-1])
         t = t - t[0]
-        if method=='ac':
-            t = t+1.0
-            sample_tau = self.sample_tau_ac
-        else:
-            sample_tau = self.sample_tau_cw
+        t = t+1.0
         z = np.zeros_like(self.y).astype(float)
         wtrace, waccept = 1.0, 1.0
         pbar = tqdm.tqdm(range(n_samples), smoothing=0.01)
         for i in range(n_samples):
-            t, t_accept = sample_tau(theta, t, pred, z, propC)
+            t, t_accept = self.sample_tau(theta, t, pred, z, propC)
             wtrace = wtrace * damping + 1.0
             waccept *= damping
             if t_accept:
@@ -396,11 +360,10 @@ class MixedMCMC(LMM):
                 propC = propC * np.sqrt(adaption_rate**((waccept/wtrace)-target_accept))
             if t_accept:
                 z = self.mh_lvar_ordinal_probit(theta, t, pred, z)
-            location = self.sample_location(theta, rng.normal(0, 1, size=self.n_re), 
-                                            rng.normal(0, 1, size=self.n_ob), z)
+            location = self.sample_location(theta, rng.normal(0, 1, size=self.n_re), rng.normal(0, 1, size=self.n_ob), z)
             pred = self.W.dot(location)
             u = location[-self.n_re:]
-            theta  = self.sample_theta(theta, u, z, pred, freeR)
+            theta = self.sample_theta(theta, u, z, pred, freeR)
             param_samples[i, self.n_fe:-self.n_thresh] = theta.copy()
             param_samples[i, :self.n_fe] = location[:self.n_fe]
             param_samples[i, -self.n_thresh:] = t
@@ -420,11 +383,11 @@ class MixedMCMC(LMM):
     
     def sample_binomial(self, n_samples, propC=1.0, chain=0, save_pred=False, 
                         save_u=False, save_lvar=False, damping=0.99, 
-                        adaption_rate=1.01,  target_accept=0.44,
+                        adaption_rate=1.02,  target_accept=0.44,
                         n_adapt=None):
         freeR = self.freeR
         if n_adapt is None:
-            n_adapt = np.minimum(int(n_samples/2), 1000)
+            n_adapt = np.minimum(int(n_samples/2), 4000)
             
         param_samples = np.zeros((n_samples, self.n_params))
         rng = self.rng
