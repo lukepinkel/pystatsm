@@ -76,7 +76,6 @@ def to_arviz_dict(samples, var_dict, burnin=0):
 
             
 
-
 class MixedMCMC(LMM):
     
     def __init__(self, formula, data, response_dist, priors=None, weights=None, 
@@ -273,7 +272,7 @@ class MixedMCMC(LMM):
         for i in range(1, self.y_cat.shape[1]+1):
             ix = self.y_ix[i-1]
             j = self.jv[ix]
-            mu = pred[ix] - v[ix]
+            mu = pred[ix]
             sd = j*s
             lb = j*tau[i-1]
             ub = j*tau[i]
@@ -303,8 +302,9 @@ class MixedMCMC(LMM):
                              lb=-200*self.jv0, ub=v[self.ix0])
         return z
     
-    def sample_tau_cw(self, t, pred, v, propC):
+    def sample_tau_cw(self, theta, t, pred, v, propC):
         t_prop = t.copy()
+        s = np.sqrt(theta[-1])
         ll = 0.0
         tau = np.pad(t, ((1, 1)), mode='constant', constant_values=[-1e17, 1e17])
         for i in range(1, self.n_thresh):
@@ -317,12 +317,14 @@ class MixedMCMC(LMM):
             ll += np.sum(np.log(norm_cdf(a)-norm_cdf(b)))
             ll -= np.sum(np.log(norm_cdf(c)-norm_cdf(d)))
         for i in range(1, self.n_thresh):
-            m = v[self.y_ix[i]]
-            ll += (np.log(norm_cdf(t_prop[i]-m)-norm_cdf(t_prop[i-1]-m))).sum()
-            ll -= (np.log(norm_cdf(t[i]-m)-norm_cdf(t[i-1]-m))).sum()
-        m = v[self.y_ix[i+1]]
-        ll += np.sum(np.log(1.0 - norm_cdf(t_prop[i]-m)))
-        ll -= np.sum(np.log(1.0 - norm_cdf(t[i]-m)))
+            m = pred[self.y_ix[i]]
+            a_prop, b_prop = (t_prop[i] - m) / s, (t_prop[i-1] - m) / s
+            a, b = (t[i] - m) / s, (t[i-1] - m) / s
+            ll += (np.log(norm_cdf(a_prop)-norm_cdf(b_prop))).sum()
+            ll -= (np.log(norm_cdf(a)-norm_cdf(b))).sum()
+        m = pred[self.y_ix[i+1]]
+        ll += np.sum(np.log(1.0 - norm_cdf((t_prop[i]-m) / s)))
+        ll -= np.sum(np.log(1.0 - norm_cdf((t[i]-m) / s)))
         if ll>np.log(np.random.uniform(0, 1)):
             t_accept = True
             t = t_prop
@@ -331,18 +333,19 @@ class MixedMCMC(LMM):
             t = t
         return t, t_accept 
     
-    def sample_tau_ac(self, t, pred, v, propC):
+    def sample_tau_ac(self, theta, t, pred, v, propC):
         alpha_prev = np.pad(np.log(np.diff(t)), (1, 0), mode='constant', constant_values=[np.log(t[0])])
         alpha_prop = self.rng.normal(alpha_prev, propC)
         ll = 0.0
         t_prop = np.cumsum(np.exp(alpha_prop))
+        s = np.sqrt(theta[-1])
         for i in range(1, self.n_thresh):
-            m = v[self.y_ix[i]]
-            ll += (np.log(norm_cdf(t_prop[i]-m)-norm_cdf(t_prop[i-1]-m))).sum()
-            ll -= (np.log(norm_cdf(t[i]-m)-norm_cdf(t[i-1]-m))).sum()
-        m = v[self.y_ix[i+1]]
-        ll += np.sum(np.log(1.0 - norm_cdf(t_prop[i]-m)))
-        ll -= np.sum(np.log(1.0 - norm_cdf(t[i]-m)))
+            m = pred[self.y_ix[i]]
+            ll += (np.log(norm_cdf((t_prop[i]-m) / s)-norm_cdf((t_prop[i-1]-m) / s))).sum()
+            ll -= (np.log(norm_cdf((t[i]-m)/s)-norm_cdf((t[i-1]-m)/s))).sum()
+        m = pred[self.y_ix[i+1]]
+        ll += np.sum(np.log(1.0 - norm_cdf((t_prop[i]-m)/s)))
+        ll -= np.sum(np.log(1.0 - norm_cdf((t[i]-m)/s)))
         if ll>np.log(np.random.uniform(0, 1)):
             t_accept = True
             t = t_prop
@@ -382,9 +385,9 @@ class MixedMCMC(LMM):
         pbar = tqdm.tqdm(range(n_samples), smoothing=0.01)
         for i in range(n_samples):
             if method=='ac':
-                t, t_accept = self.sample_tau_ac(t, pred, z, propC)
+                t, t_accept = self.sample_tau_ac(theta, t, pred, z, propC)
             elif method=='cw':
-                t, t_accept = self.sample_tau_cw(t, pred, z, propC)
+                t, t_accept = self.sample_tau_cw(theta, t, pred, z, propC)
             wtrace = wtrace * damping + 1.0
             waccept *= damping
             if t_accept:
@@ -579,7 +582,6 @@ class MixedMCMC(LMM):
             self.tau = np.mean(samples[:, :, self.vnames["$\\tau$"]], axis=(0, 1))
         
 
-                
         
         
         
