@@ -380,14 +380,14 @@ class MixedMCMC(LMM):
         t = t - t[0]
         if method=='ac':
             t = t+1.0
+            sample_tau = self.sample_tau_ac
+        else:
+            sample_tau = self.sample_tau_cw
         z = np.zeros_like(self.y).astype(float)
         wtrace, waccept = 1.0, 1.0
         pbar = tqdm.tqdm(range(n_samples), smoothing=0.01)
         for i in range(n_samples):
-            if method=='ac':
-                t, t_accept = self.sample_tau_ac(theta, t, pred, z, propC)
-            elif method=='cw':
-                t, t_accept = self.sample_tau_cw(theta, t, pred, z, propC)
+            t, t_accept = sample_tau(theta, t, pred, z, propC)
             wtrace = wtrace * damping + 1.0
             waccept *= damping
             if t_accept:
