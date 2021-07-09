@@ -197,10 +197,11 @@ class MixedMCMC(LMM):
         
         param_names.append("error_cov")
         if response_dist=='ordinal_probit':
-            if not self.freeR:
-                param_names = param_names[:-1]
             param_names = param_names + [f"t{i}" for i in range(1, self.n_thresh)]
+        if not self.freeR:
+            param_names = param_names[:-1]
         self.param_names = param_names
+        
 
     def sample_location(self, theta, x1, x2, y):
         """
@@ -302,6 +303,7 @@ class MixedMCMC(LMM):
                              lb=-200*self.jv0, ub=v[self.ix0])
         return z
     
+    
     def sample_tau(self, theta, t, pred, v, propC):
         alpha_prev = np.pad(np.log(np.diff(t)), (1, 0), mode='constant', constant_values=[np.log(t[0])])
         alpha_prop = self.rng.normal(alpha_prev, propC)
@@ -326,16 +328,9 @@ class MixedMCMC(LMM):
     def sample_ordinal_probit(self, n_samples, chain=0, save_pred=False, 
                               save_u=False, save_lvar=False, propC=0.04, damping=0.99,
                               adaption_rate=1.02,  target_accept=0.44, n_adapt=None):
-        secondary_samples = {}
-        if save_pred:
-            secondary_samples['pred'] = np.zeros((n_samples, self.n_ob))
-        if save_u:
-            secondary_samples['u'] = np.zeros((n_samples, self.n_re))
-        if save_lvar:
-            secondary_samples['lvar'] = np.zeros((n_samples, self.n_ob))
-            
+
         if n_adapt is None:
-            n_adapt = np.minimum(int(n_samples/2), 4000)
+            n_adapt = np.minimum(int(n_samples/2), 1000)
         
         freeR = self.freeR
         param_samples = np.zeros((n_samples, self.n_params+self.n_thresh))
@@ -360,34 +355,29 @@ class MixedMCMC(LMM):
                 propC = propC * np.sqrt(adaption_rate**((waccept/wtrace)-target_accept))
             if t_accept:
                 z = self.mh_lvar_ordinal_probit(theta, t, pred, z)
-            location = self.sample_location(theta, rng.normal(0, 1, size=self.n_re), rng.normal(0, 1, size=self.n_ob), z)
+            location = self.sample_location(theta, rng.normal(0, 1, size=self.n_re), 
+                                            rng.normal(0, 1, size=self.n_ob), z)
             pred = self.W.dot(location)
             u = location[-self.n_re:]
-            theta = self.sample_theta(theta, u, z, pred, freeR)
+            theta  = self.sample_theta(theta, u, z, pred, freeR)
             param_samples[i, self.n_fe:-self.n_thresh] = theta.copy()
             param_samples[i, :self.n_fe] = location[:self.n_fe]
             param_samples[i, -self.n_thresh:] = t
             t_acceptances[i] = t_accept
-            if save_pred:
-                secondary_samples['pred'][i] = pred
-            if save_u:
-                secondary_samples['u'][i] = u
-            if save_lvar:
-                secondary_samples['lvar'][i] = z
+            self._secondary_samples(chain, i, pred, u, z)
             if i>1:
                 pbar.set_description(f"Chain {chain+1} Tau Acceptance Prob: {t_acceptances[:i].mean():.3f} C: {propC:.5f}")
             pbar.update(1)
         pbar.close() 
-        secondary_samples['t_accept'] = t_acceptances
-        return param_samples, secondary_samples
+        return param_samples
     
-    def sample_binomial(self, n_samples, propC=1.0, chain=0, save_pred=False, 
-                        save_u=False, save_lvar=False, damping=0.99, 
-                        adaption_rate=1.02,  target_accept=0.44,
+    def sample_binomial(self, n_samples, chain=0, save_pred=False, save_u=False,
+                        save_lvar=False, propC=1.0, damping=0.99, 
+                        adaption_rate=1.01,  target_accept=0.44,
                         n_adapt=None):
         freeR = self.freeR
         if n_adapt is None:
-            n_adapt = np.minimum(int(n_samples/2), 4000)
+            n_adapt = np.minimum(int(n_samples/2), 1000)
             
         param_samples = np.zeros((n_samples, self.n_params))
         rng = self.rng
@@ -396,13 +386,6 @@ class MixedMCMC(LMM):
         pred =  self.W.dot(location)
         z = sp.stats.norm(self.y, self.y.var()).rvs()
         theta = self.t_init.copy()
-        secondary_samples = {}
-        if save_pred:
-            secondary_samples['pred'] = np.zeros((n_samples, self.n_ob))
-        if save_u:
-            secondary_samples['u'] = np.zeros((n_samples, self.n_re))
-        if save_lvar:
-            secondary_samples['lvar'] = np.zeros((n_samples, self.n_ob))
         progress_bar = tqdm.tqdm(range(n_samples), smoothing=0.01)
         wtrace, waccept = 1.0, 1.0
 
@@ -427,32 +410,21 @@ class MixedMCMC(LMM):
             acceptances[i] = mean_accept
             param_samples[i, self.n_fe:] = theta.copy()
             param_samples[i, :self.n_fe] = location[:self.n_fe]
-            if save_pred:
-                secondary_samples['pred'][i] = pred
-            if save_u:
-                secondary_samples['u'][i] = u
-            if save_lvar:
-                secondary_samples['lvar'][i] = z
+            self._secondary_samples(chain, i, pred, u, z)
             if i>1:
                 progress_bar.set_description(f"Chain {chain+1} Acceptance Prob: {acceptances[:i].mean():.4f} C: {propC:.5f}")
         progress_bar.close()
-        return param_samples, secondary_samples
+        return param_samples
     
-    def sample_bernoulli(self, n_samples, chain=0, save_pred=False, save_u=False, save_lvar=False):
+    def sample_bernoulli(self, n_samples, chain=0, save_pred=False, save_u=False, 
+                         save_lvar=False):
         freeR = self.freeR
         rng = self.rng
-        n_pr, n_ob, n_re = self.n_params, self.n_ob, self.n_re
+        n_pr, n_ob = self.n_params, self.n_ob
         n_smp = n_samples
         samples = np.zeros((n_smp, n_pr))
         location, pred = self.location.copy(), self.W.dot(self.location)
         theta, z = self.t_init.copy(), sp.stats.norm(0, 1).rvs(n_ob)
-        secondary_samples = {}
-        if save_pred:
-            secondary_samples['pred'] = np.zeros((n_smp, n_ob))
-        if save_u:
-            secondary_samples['u'] = np.zeros((n_smp, n_re))
-        if save_lvar:
-            secondary_samples['lvar'] = np.zeros((n_smp, n_ob))
         v = np.zeros_like(z).astype(float)
         progress_bar = tqdm.tqdm(range(n_smp), smoothing=0.01)
         progress_bar.set_description(f"Chain {chain+1}")
@@ -468,30 +440,21 @@ class MixedMCMC(LMM):
             theta  = self.sample_theta(theta, u, z, pred, freeR)
             samples[i, self.n_fe:] = theta.copy()
             samples[i, :self.n_fe] = location[:self.n_fe]
-            if save_pred:
-                secondary_samples['pred'][i] = pred
-            if save_u:
-                secondary_samples['u'][i] = u
-            if save_lvar:
-                secondary_samples['lvar'][i] = z
+            self._secondary_samples(chain, i, pred, u, z)
         progress_bar.close()
-        return samples, secondary_samples
+        return samples
     
-    def sample_normal(self, n_samples, chain=0, save_pred=False, save_u=False, save_lvar=False):
+    def sample_normal(self, n_samples, chain=0, save_pred=False, save_u=False, 
+                      save_lvar=False):
         freeR = self.freeR
         rng = self.rng
-        n_pr, n_ob, n_re = self.n_params, self.n_ob, self.n_re
+        n_pr= self.n_params
         n_smp = n_samples
         samples = np.zeros((n_smp, n_pr))
         
         y = self.y
         location, pred = self.location.copy(), self.W.dot(self.location)
         theta = self.t_init.copy()
-        secondary_samples = {}
-        if save_pred:
-            secondary_samples['pred'] = np.zeros((n_smp, n_ob))
-        if save_u:
-            secondary_samples['u'] = np.zeros((n_smp, n_re))
         progress_bar = tqdm.tqdm(range(n_smp), smoothing=0.01)
         progress_bar.set_description(f"Chain {chain+1}")
         for i in progress_bar:
@@ -503,20 +466,35 @@ class MixedMCMC(LMM):
             theta  = self.sample_theta(theta, u, y, pred, freeR)
             samples[i, self.n_fe:] = theta.copy()
             samples[i, :self.n_fe] = location[:self.n_fe]
-            if save_pred:
-                secondary_samples['pred'][i] = pred
-            if save_u:
-                secondary_samples['u'][i] = u
+            self._secondary_samples(chain, i, pred, u, None)
         progress_bar.close()
-        return samples, secondary_samples
+        return samples
+           
     
-    def sample(self, n_samples=5000, n_chains=8, burnin=1000, sampling_kws={},
+    def _secondary_samples(self, chain, i, pred=None, u=None, z=None):
+        if self.save_pred:
+            self.secondary_samples["pred"][chain, i] = pred
+        if self.save_u:
+            self.secondary_samples["u"][chain, i] = u        
+        if self.save_lvar:
+            self.secondary_samples["lvar"][chain, i] = z
+            
+    def sample(self, n_samples=5000, n_chains=8, burnin=1000, save_pred=False, 
+               save_u=False, save_lvar=False, sampling_kws={},
                summary_kws={}):
         n_params = self.n_params
         if self.response_dist=="ordinal_probit":
             n_params = n_params+np.unique(self.y).shape[0]-1
         samples = np.zeros((n_chains, n_samples, n_params))
-        samples_a = {}
+
+        self.secondary_samples = {}
+        if save_u:
+            self.secondary_samples['u'] = np.zeros((n_chains, n_samples, self.n_re))
+        if save_pred:
+            self.secondary_samples['pred'] = np.zeros((n_chains, n_samples, self.n_ob))        
+        if save_lvar:
+            self.secondary_samples['u'] = np.zeros((n_chains, n_samples, self.n_ob))
+        self.save_pred, self.save_u, self.save_lvar = save_pred, save_u, save_lvar
 
         if self.response_dist=='binomial':
             func = self.sample_binomial
@@ -528,10 +506,10 @@ class MixedMCMC(LMM):
             func = self.sample_normal
             
         for i in range(n_chains):
-            samples[i], samples_a[i] = func(n_samples, chain=i, **sampling_kws)
+            samples[i] = func(n_samples, chain=i, **sampling_kws)
+            
         
         self.samples = samples
-        self.samples_a = samples_a
         self.az_dict = to_arviz_dict(samples, self.vnames, burnin=burnin)
         self.az_data = az.from_dict(self.az_dict)
         self.summary = az.summary(self.az_data, round_to=6, **summary_kws)
