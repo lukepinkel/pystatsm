@@ -402,7 +402,7 @@ class LMM:
             ll = logdetR + logdetV + logdetG + ytPy
         return ll
 
-    def vinvcrossprod(self, X, theta):
+    def vinvcrossprod(self, A, B, theta):
         """
 
         Parameters
@@ -423,10 +423,11 @@ class LMM:
         RZ = Rinv.dot(self.Zs)
         Q = Ginv + self.Zs.T.dot(RZ)
         M = cholesky(Q).inv()
-        XtRX = X.T.dot(Rinv.dot(X)) 
-        XtRZ = X.T.dot(Rinv.dot(self.Z)) 
-        XtVX = XtRX - XtRZ.dot(M.dot(XtRZ.T))
-        return XtVX
+        AtRB = ((Rinv.dot(B)).T.dot(A)).T 
+        AtRZ = (RZ.T.dot(A)).T
+        ZtRB = RZ.T.dot(B)
+        AtVB = AtRB - (M.dot(ZtRB)).T.dot(AtRZ.T).T
+        return AtVB
 
     
     def gradient(self, theta, reml=True, use_sw=False):
@@ -937,7 +938,7 @@ class LMM:
         return yhat
     
     def fit(self, reml=True, use_grad=True, use_hess=False, approx_hess=False,
-            analytic_se=False, opt_kws={}):
+            analytic_se=False, adjusted_pvals=True, opt_kws={}):
         """
         
 
@@ -977,6 +978,14 @@ class LMM:
         res = pd.DataFrame(res, index=param_names, columns=['estimate', 'SE'])
         res['t'] = res['estimate'] / res['SE']
         res['p'] = sp.stats.t(self.X.shape[0]-self.X.shape[1]).sf(np.abs(res['t']))
+        res['degfree'] = self.X.shape[0] - self.X.shape[1]
+        if adjusted_pvals:
+            L = np.eye(self.X.shape[1])
+            L_list = [L[[i]] for i in range(self.X.shape[1])]
+            adj_table = pd.DataFrame(self.approx_degfree(L_list), index=self.fe_vars)
+            res.loc[self.fe_vars, 't'] = adj_table['F']**0.5
+            res.loc[self.fe_vars, 'degfree'] = adj_table['df2']
+            res.loc[self.fe_vars, 'p'] = adj_table['p']
         self.res = res
     
     
@@ -1056,6 +1065,46 @@ class LMM:
                 ax.plot((a, a), (0, b), color='k')
         ax.set_ylim(-5, 5)
         return thetas, zetas, ix, fig, ax
+    
+    def approx_degfree(self, L_list=None, theta=None, beta=None, method='satterthwaite'):
+        L_list = [np.eye(self.X.shape[1])] if L_list is None else L_list
+        theta = self.theta if theta is None else theta
+        beta = self.beta if beta is None else beta
+        C = np.linalg.inv(self.vinvcrossprod(self.X, self.X, theta))
+        Vtheta = np.linalg.inv(so_gc_cd(self.gradient, theta))
+        J = []
+        for key in self.levels:
+            ind = self.jac_inds[key]
+            XtVZ = self.vinvcrossprod(self.X, self.Z[:, ind], theta)
+            CXtVZ = C.dot(XtVZ)
+            for dGdi in self.g_derivs[key]:
+                dC = CXtVZ.dot(dGdi.dot(CXtVZ.T))
+                J.append(dC)
+        XtVi = self.vinvcrossprod(self.X, self.R.copy(), theta)
+        CXtVi = C.dot(XtVi)
+        J.append(CXtVi.dot(CXtVi.T))
+        res = []
+        for L in L_list:
+            u, Q = np.linalg.eigh(L.dot(C).dot(L.T))
+            order = np.argsort(u)[::-1]
+            u, Q = u[order], Q[:, order]
+            q = np.linalg.matrix_rank(L)
+            P = Q.T.dot(L)
+            t2 = (P.dot(beta))**2 / u
+            f = np.sum(t2) / q
+            D = []
+            for i in range(q):
+                x = P[i]
+                D.append([np.dot(x, Ji).dot(x) for Ji in J])
+            D = np.asarray(D)
+            nu_d = np.array([D[i].T.dot(Vtheta).dot(D[i]) for  i in range(q)])
+            nu_m = u**2 / nu_d
+            E = np.sum(nu_m[nu_m>2] / (nu_m[nu_m>2] - 2.0))
+            nu = 2.0 * E / (E - q)
+            res.append(dict(F=f, df1=q, df2=nu, p=sp.stats.f(q, nu).sf(f)))
+        return res
+
+        
 
  
 
