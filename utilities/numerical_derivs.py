@@ -129,120 +129,109 @@ def finite_diff(f, x, epsilon=None, order=1, points=None):
     df = df / (epsilon**order)
     return df
         
+def grad_approx(f, x, eps=1e-4, tol=None, d=1e-4, nr=6, v=2):
+    tol = np.finfo(np.float).eps**(1/3) if tol is None else tol
+    h = np.abs(d * x) + eps * (np.abs(x) < tol)
+    n = len(x)
+    u = np.zeros_like(h)
+    A = np.zeros((nr, n))
+    for i in range(nr):
+        for j in range(n):
+            u[j] = h[j]
+            A[i, j] = (f(x + u) - f(x - u)) / (2.0 * h[j])
+            u[j] = 0.0
+        h /= v
+    for i in range(nr-1):
+        t = 4**(i+1)
+        A = (A[1:(nr-i)]*t - A[:(nr-i-1)]) / (t-1.0)
+    return A
+
+def jac_approx(f, x, eps=1e-4, tol=None, d=1e-4, nr=6, v=2):
+    tol = np.finfo(np.float).eps**(1/3) if tol is None else tol
+    h = np.abs(d * x) + eps * (np.abs(x) < tol)
+    n = len(x)
+    p = len(f(x))
+    u = np.zeros_like(h)
+    A = np.zeros((nr, n, p))
+    for i in range(nr):
+        for j in range(n):
+            u[j] = h[j]
+            A[i, j] = (f(x + u) - f(x - u)) / (2.0 * h[j])
+            u[j] = 0.0
+        h /= v
+    for i in range(nr-1):
+        t = 4**(i+1)
+        A = (A[1:(nr-i)]*t - A[:(nr-i-1)]) / (t-1.0)
+    return A
+
+
+
+def _hess_approx(f, x, a_eps=1e-4, r_eps=1e-4, xtol=None, nr=6, s=2):
+    xtol = np.finfo(np.float).eps**(1/3) if xtol is None else xtol
+    d = np.abs(r_eps * x) + a_eps * (np.abs(x) < xtol)
+    y = f(x)
+    u = np.zeros_like(d)
+    v = np.zeros_like(d)
+    nx, ny = len(x), len(y)
+    D = np.zeros((ny, int(nx * (nx + 3) // 2)))
+    Da = np.zeros((ny, nr))
+    Hd = np.zeros((ny, nx))
+    Ha = np.zeros((ny, nr))
     
+    for i in range(nx):
+        h = d.copy()
+        u[i] = 1.0
+        for j in range(nr):
+            fp, fn = f(x+h*u), f(x-h*u)
+            Da[:, j] = (fp - fn) / (2 * h[i])
+            Ha[:, j] = (fp + fn - 2.0 * y) / (h[i]**2)
+            h /= s
+        for j in range(nr-1):
+            for k in range(nr-j-1):
+                t = 4**(j+1)
+                Da[:, k] = (Da[:, k+1] * t - Da[:, k]) / (t - 1.0)
+                Ha[:, k] = (Ha[:, k+1] * t - Ha[:, k]) / (t - 1.0)
+        D[:, i] = Da[:, 0]
+        Hd[:, i] = Ha[:,0]
+        u[i] = 0.0
     
+    c = nx-1
+    for i in range(nx):
+        for j in range(i+1):
+            c += 1
+            if (i==j):
+                D[:, c] = Hd[:, i]
+            else:
+                h = d.copy()
+                u[i] = 1.0
+                v[j] = 1.0
+                for m in range(nr):
+                    fp = f(x + u*h + v*h)
+                    fn = f(x - u*h - v*h)
+                    fii = Hd[:, i] * h[i]**2
+                    fjj = Hd[:, j] * h[j]**2
+                    Da[:, m] = (fp - 2.0 * y + fn - fii - fjj) / (2.0 * h[i] * h[j])
+                    h /= s
+                for m in range(nr-1):
+                    for k in range(nr-m-1):
+                        t = 4**(m+1)
+                        Da[:, k] = (Da[:, k+1]*t - Da[:, k]) / (t - 1.0)
+                D[:, c] = Da[:, 0]
+                u[i] = v[j] = 0.0
+    return D
     
+def hess_approx(f, x, a_eps=1e-4, r_eps=1e-4, xtol=None, nr=6, s=2):
+    D = _hess_approx(f, x, a_eps, r_eps, xtol, nr, s)
+    y = f(x)
+    nx, ny = len(x), len(y)
+    H = np.zeros((ny, nx, nx))
+    k = nx - 1
+    for i in range(nx):
+        for j in range(i+1):
+            k+=1
+            H[:, i, j] = H[:, j, i] = D[:, k]
+    return H
     
-"""
-import pandas as pd  # analysis:ignore
-import seaborn as sns # analysis:ignore
-import matplotlib.pyplot as plt# analysis:ignore
 
-
-
-import numpy as np  # analysis:ignore
-import scipy as sp  # analysis:ignore
-import scipy.stats  # analysis:ignore
-import pandas as pd  # analysis:ignore
-import seaborn as sns # analysis:ignore
-import scipy.sparse as sps# analysis:ignore
-from pylmm.pylmm.lmm import LME2 # analysis:ignore
-import matplotlib.pyplot as plt# analysis:ignore
-from pylmm.tests.test_data import generate_data # analysis:ignore
-from pylmm.utilities.random_corr import vine_corr, onion_corr # analysis:ignore
-from pylmm.utilities.linalg_operations import invech # analysis:ignore
-
-from pylmm.utilities.linalg_operations import (sparse_cholesky, _check_shape_nb, # analysis:ignore
-                               _check_np, sparse_woodbury_inversion, _check_shape,
-                               scholesky, vech)
-from pylmm.pylmm.model_matrices import (make_theta, construct_model_matrices, create_gmats,# analysis:ignore
-                                  lsq_estimate, get_derivmats, get_jacmats, update_gmat,
-                                  get_jacmats2)
-
-
-
-formula = "y~x1+x2-1+(1+x3|id1)"
-model_dict = {}
-model_dict['gcov'] = {'id1':invech(np.array([1., 0.2, 1.]))}
-model_dict['ginfo'] = {'id1':dict(n_grp=150, n_per=10)}
-model_dict['mu'] = np.zeros(3)
-model_dict['vcov'] = vine_corr(3, 20)
-model_dict['beta'] = np.array([2, -2])
-model_dict['n_obs'] = 1500
-df1, formula1 = generate_data(formula, model_dict, r=0.6**0.5)
-
-
-model1 = LME2(formula1, df1)
-model1._fit()
-x = np.array([1.0, 0.1, 1.0, 5.0])
-epsilon = np.finfo(float).eps
-
-
-g_approximations = []
-epslist = [epsilon**(x) for x in np.linspace(0.6, 0.05, 33)]
-
-for eps in epslist:
-    row = []
-    for g_approx_func in [fo_fc_fd, fo_fc_cd]:
-        row.append(g_approx_func(model1.loglike, x, eps=eps))
-    g_approximations.append(row)
-    print(eps)
-        
-g_true = model1.gradient(x)
-H_approximations = []
-h_approx_funcs = [(so_fc_fd, model1.loglike),
-                  (so_gc_fd, model1.gradient),
-                  (so_fc_cd, model1.loglike),
-                  (so_gc_cd, model1.gradient)]
-
-for eps in epslist:
-    row = []
-    for (h_approx_func, func) in h_approx_funcs:
-        row.append(h_approx_func(func, x, eps=eps))
-    H_approximations.append(row)
-    print(eps)
-
-H_true = model1.hessian(x)
-
-
-grad_res = np.zeros((33, 2))
-grad_rel = np.zeros((33, 2))
-
-for i, row in enumerate(g_approximations):
-    for j, col in enumerate(row):
-        grad_res[i, j] = np.abs(col - g_true).mean()
-        grad_rel[i, j] = np.linalg.norm(col - g_true) / np.linalg.norm(g_true)
-        
-        
-hess_res = np.zeros((33, 4))
-hess_rel = np.zeros((33, 4))
-
-for i, row in enumerate(H_approximations):
-    for j, col in enumerate(row):
-        hess_res[i, j] = np.abs(vech(col - H_true)).mean()
-        hess_rel[i, j] = np.linalg.norm(vech(col - H_true)) / np.linalg.norm(vech(H_true))
-        
-
-grad_res = pd.DataFrame(grad_res, columns=['ffd', 'fcd'], index=epslist)
-grad_rel = pd.DataFrame(grad_rel, columns=['ffd', 'fcd'], index=epslist)
-
-hess_res = pd.DataFrame(hess_res, columns=['Forward Diff Function Evals', 
-                                           'Forward Diff Gradient Evals',
-                                           'Central Diff Function Evals',
-                                           'Central Diff Gradient Evals'],
-                        index=epslist)
-
-hess_rel = pd.DataFrame(hess_rel, columns=hess_res.columns,
-                        index=epslist)
-sns.set_style("darkgrid")
-fig, ax = plt.subplots()
-with sns.color_palette("colorblind"):
-    for col in hess_rel.columns:
-        ax.plot(np.log(epslist), np.log(hess_rel[col]), label=col,
-                lw=2)
-    fig.legend()
-
-
-
-
-"""
+ 
+    
