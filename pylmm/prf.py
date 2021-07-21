@@ -106,7 +106,7 @@ class RestrictedModel:
         return ll, J.dot(g)[free_ix]
     
     
-def profile(n_points, model):
+def profile(n_points, model, tb=3):
     theta = model.theta.copy()
     free_ix = np.ones_like(theta).astype(bool)
     reparam = VarCorrReparam(model.dims, model.indices) 
@@ -126,10 +126,10 @@ def profile(n_points, model):
         t_mle = tau[i]
         tau_r = tau.copy()
         if model.bounds[i][0]==0:
-            lb = np.maximum(0.01, t_mle-3.0*se[i])
+            lb = np.maximum(0.01, t_mle-tb*se[i])
         else:
-            lb = t_mle - 3.0 * se[i]
-        ub = t_mle + 3.0 * se[i]
+            lb = t_mle - tb * se[i]
+        ub = t_mle + tb * se[i]
         tspace = np.linspace(lb, ub, n_points)
         for t0 in tspace:
             x = tau[free_ix]
@@ -141,7 +141,7 @@ def profile(n_points, model):
     
             tau_r[free_ix] = opt.x
             tau_r[~free_ix] = t0
-            LR = 2.0 * (opt.fun - llmax)
+            LR = (opt.fun - llmax)
             zeta = np.sqrt(LR) * np.sign(t0 - tau[~free_ix])
             zetas[k] = zeta
             thetas[k] = reparam.inverse_transform(tau_r)
@@ -178,12 +178,14 @@ def plot_profile(model, thetas, zetas, ix, quantiles=None, figsize=(16, 8)):
         sgs[:, 0, 0] = sgs[:, 1, 0] = xq
         sgs[:, 1, 1] = q
         xqt = theta[i] + q * se_theta[i]
+        ax.axvline(theta[i], color='k')
         norm = mpl.colors.TwoSlopeNorm(vcenter=0, vmin=q.min(), vmax=q.max())
         lc = mpl.collections.LineCollection(sgs, cmap=plt.cm.bwr, norm=norm)
         lc.set_array(q)
         lc.set_linewidth(2)
         ax.add_collection(lc)
-        ax.scatter(xqt, np.zeros_like(xqt), c=q, cmap=plt.cm.bwr, norm=norm)
+        ax.scatter(xqt, np.zeros_like(xqt), c=q, cmap=plt.cm.bwr, norm=norm,
+                   s=20)
     ax.set_ylim(-5, 5)
     return fig, axes
     
