@@ -130,7 +130,7 @@ def finite_diff(f, x, epsilon=None, order=1, points=None):
     return df
         
 def grad_approx(f, x, eps=1e-4, tol=None, d=1e-4, nr=6, v=2):
-    tol = np.finfo(np.float).eps**(1/3) if tol is None else tol
+    tol = np.finfo(float).eps**(1/3) if tol is None else tol
     h = np.abs(d * x) + eps * (np.abs(x) < tol)
     n = len(x)
     u = np.zeros_like(h)
@@ -147,7 +147,7 @@ def grad_approx(f, x, eps=1e-4, tol=None, d=1e-4, nr=6, v=2):
     return A
 
 def jac_approx(f, x, eps=1e-4, tol=None, d=1e-4, nr=6, v=2):
-    tol = np.finfo(np.float).eps**(1/3) if tol is None else tol
+    tol = np.finfo(float).eps**(1/3) if tol is None else tol
     h = np.abs(d * x) + eps * (np.abs(x) < tol)
     n = len(x)
     p = len(f(x))
