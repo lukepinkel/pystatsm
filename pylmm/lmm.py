@@ -8,13 +8,13 @@ Created on Wed Feb 10 00:01:29 2021
 import re
 import tqdm
 import patsy
+import numpy as np 
+import scipy as sp 
 import pandas as pd
-import numpy as np # analysis:ignore
-import scipy as sp # analysis:ignore
+import matplotlib as mpl
+import scipy.sparse as sps
 import matplotlib.pyplot as plt
-import scipy.sparse as sps # analysis:ignore
 from ..utilities.linalg_operations import (dummy, vech, invech, _check_np, 
-                                           sparse_woodbury_inversion,
                                            _check_shape)
 from ..utilities.special_mats import lmat, nmat
 from ..utilities.numerical_derivs import so_gc_cd, so_fc_cd, fo_fc_cd
@@ -1031,7 +1031,7 @@ class LMM:
                                            method='trust-constr')
                 theta_chol_f = opt.x
                 theta_chol_r[free_ix] = theta_chol_f
-                LR = 2.0 * (opt.fun - llmax)
+                LR = (opt.fun - llmax) #already working with -2ll
                 zeta = np.sqrt(LR) * np.sign(t0 - theta_chol[~free_ix])
                 zetas[k] = zeta
                 thetas[k] = theta_chol_r
@@ -1042,14 +1042,18 @@ class LMM:
         ix = np.repeat(np.arange(n_theta), n_points)
         return thetas, zetas, ix
     
-    def plot_profile(self, n_points=40, par_ind=None, reml=True, quantiles=None):
+    def plot_profile(self, n_points=40, par_ind=None, reml=True, quantiles=None,
+                     figsize=(14, 4)):
         if quantiles is None:
             quantiles = [0.001, 0.05, 1, 5, 10, 20, 50, 80, 90, 95, 99, 99.5, 99.999]   
         thetas, zetas, ix = self.profile(n_points, par_ind, reml)
         n_thetas = thetas.shape[1]
-        q = sp.stats.norm(0, 1).ppf(np.array(quantiles)/100)
-        fig, axes = plt.subplots(figsize=(14, 4), ncols=n_thetas, sharey=True)
-        plt.subplots_adjust(wspace=0.05, left=0.05, right=0.95)
+        q = sp.stats.norm(0, 1).ppf(np.asarray(quantiles)/100)
+        fig, axes = plt.subplots(figsize=figsize, ncols=n_thetas, sharey=True)
+        plt.subplots_adjust(wspace=0.04, left=0.05, right=0.95, bottom=0.15)
+        theta_chol = self.theta_chol.copy()
+        Hchol = so_gc_cd(self.gradient_chol, theta_chol, args=(reml,))
+        se_chol = np.diag(np.linalg.inv(Hchol/2.0))**0.5
         for i in range(n_thetas):
             ax = axes[i]
             x = thetas[ix==i, i]
@@ -1059,11 +1063,29 @@ class LMM:
             f_interp = sp.interpolate.interp1d(y, x, fill_value="extrapolate")
             xq = f_interp(q)
             ax.plot(x,y)
-            ax.set_xlim(x.min(), x.max())
+            dc = np.maximum(theta_chol[i] - x.min(), x.max()-theta_chol[i])
+            ax.set_xlim(theta_chol[i]-dc, theta_chol[i]+dc)
             ax.axhline(0, color='k')
-            for a, b in list(zip(xq, q)):
-                ax.plot((a, a), (0, b), color='k')
-        ax.set_ylim(-5, 5)
+            ax.grid()
+            xqt = theta_chol[i]+q*se_chol[i]
+            #ax.plot(xqt, np.linspace(-5, 5, len(xqt)), ls='--', color='k', lw=1)
+            cm_norm = mpl.colors.TwoSlopeNorm(vmin=xqt.min(), vcenter=theta_chol[i], vmax=xqt.max())
+            segments = np.zeros((len(xq), 2, 2))
+            segments[:, 0, 0] = xq
+            segments[:, 1, 0] = xq
+            segments[:, 0, 1] = 0
+            segments[:, 1, 1] = q
+            ax.axvline(theta_chol[i], color='k')
+            lc = mpl.collections.LineCollection(segments, cmap=plt.cm.coolwarm, norm=cm_norm)
+            lc.set_array(xqt)
+            lc.set_linewidth(2)
+            lc.set_ls('--')
+            ax.add_collection(lc)
+            ax.scatter(xqt, np.zeros_like(xqt), s=20, cmap=plt.cm.coolwarm, norm=cm_norm, c=xqt, zorder=10)
+            ax.set_xlabel(f"$\\theta$[{i}]")
+        ax.set_ylim(-4, 4)
+        ax.set_yticks(np.arange(-4, 5))
+        fig.suptitle("Profile Zeta Plots")
         return thetas, zetas, ix, fig, ax
     
     def approx_degfree(self, L_list=None, theta=None, beta=None, method='satterthwaite'):
