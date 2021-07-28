@@ -191,30 +191,6 @@ def get_d2_chol(dim_i):
     H = np.concatenate(H, axis=0)
     return H
         
-      
-def get_jacmats2(Zs, dims, indices, g_indices, theta):
-    start = 0
-    jac_mats = {}
-    for key, value in dims.items():
-        nv, ng =  value['n_vars'], value['n_groups']
-        jac_mats[key] = []
-        Zi = Zs[:, start:start+ng*nv]
-        theta_i = theta[indices[key]]
-        nv2, nvng = nv*nv, nv*ng
-        row = np.repeat(np.arange(nvng), nv)
-        col = np.repeat(np.arange(ng)*nv, nv2)
-        col = col + np.tile(np.arange(nv), nvng)
-        for i in range(len(theta_i)):
-            dtheta_i = np.zeros_like(theta_i)
-            dtheta_i[i] = 1.0
-            dtheta_i = invech(dtheta_i).reshape(-1, order='F')
-            data = np.tile(dtheta_i, ng)
-            dGi = sps.csc_matrix((data, (row, col)))
-            dVi = Zi.dot(dGi).dot(Zi.T)
-            jac_mats[key].append(dVi)
-        start+=ng*nv
-    jac_mats['resid'] = [sps.eye(Zs.shape[0])]
-    return jac_mats
          
 def get_jacmats(Zs, dims, indices, g_indices, theta):
     start = 0
@@ -239,6 +215,99 @@ def get_jacmats(Zs, dims, indices, g_indices, theta):
         start+=ng*nv
     jac_mats['resid'] = [sps.eye(Zs.shape[0])]
     return jac_mats, jac_inds
+
+    
+class VarCorrReparam:
+    
+    def __init__(self, dims, indices):
+        gix, tix, dix, start = {}, {}, {}, 0
+        
+        for key, value in dims.items():
+            n_vars = value['n_vars']
+            n_params = int(n_vars * (n_vars+1) //2)
+            i, j = np.triu_indices(n_vars)
+            ix = np.arange(start, start+n_params)
+            start += n_params
+            gix[key] = {"v":np.diag_indices(n_vars), "r":np.tril_indices(n_vars, k=-1)}
+            tix[key] = {"v":ix[i==j], "r":ix[i!=j]}
+            i, j = np.tril_indices(n_vars)
+            dix[key] = i[i!=j], j[i!=j]
+        self.dims = dims
+        self.ix = indices
+        self.gix, self.tix, self.dix = gix, tix, dix
+        self.n_pars = start+1
+    
+    def transform(self, theta):
+        tau = theta.copy()
+        for key in self.dims.keys():
+            G = invech(theta[self.ix['theta'][key]])
+            V = np.diag(np.sqrt(1.0/np.diag(G)))
+            R = V.dot(G).dot(V)
+            gixr, tixr = self.gix[key]['r'], self.tix[key]['r']
+            gixv, tixv = self.gix[key]['v'], self.tix[key]['v']
+            
+            tau[tixr] = np.arctanh(R[gixr])
+            tau[tixv] = G[gixv]
+        tau[self.ix['theta']['resid']] = theta[self.ix['theta']['resid']]
+        return tau
+    
+    def inverse_transform(self, tau):
+        theta = tau.copy()
+        for key in self.dims.keys():
+            G = invech(tau[self.ix['theta'][key]])
+            V = np.diag(np.sqrt(np.diag(G)))
+            G[self.gix[key]['v']] = 1.0
+            G[self.gix[key]['r']] = np.tanh(G[self.gix[key]['r']])
+            G = V.dot(G).dot(V)
+            theta[self.ix['theta'][key]] = vech(G)
+        theta[self.ix['theta']['resid']] = tau[self.ix['theta']['resid']]
+        return theta
+    
+    def jacobian(self, theta):
+        tau = self.transform(theta)
+        J = np.zeros((self.n_pars, self.n_pars))
+        for key in self.dims.keys():
+            G = invech(theta[self.ix['theta'][key]])
+            tixr = self.tix[key]['r']
+            gixv, tixv = self.gix[key]['v'], self.tix[key]['v']
+            v = G[gixv]
+            i, j = self.dix[key]
+            si, sj = np.sqrt(v[i]), np.sqrt(v[j])
+            J[tixv, tixv] = 1.0
+            u = np.tanh(tau[tixr])
+            J[tixr, tixr] = si * sj * (1-u**2)
+            J[tixv[j], tixr] = u * si / (sj  * 2)
+            J[tixv[i], tixr] = u * sj / (si * 2)
+        J[self.ix['theta']['resid'], self.ix['theta']['resid']] = 1
+        return J
+    
+    
+def vcrepara_grad(tau, gradient, reparam):
+    theta = reparam.inverse_transform(tau)
+    J = reparam.jacobian(theta)
+    g = gradient(theta)
+    return J.dot(g)
+
+class RestrictedModel:
+
+    def __init__(self, model, reparam):
+        self.model = model
+        self.reparam = reparam
+        self.tau = reparam.transform(model.theta.copy())
+    
+    def get_bounds(self, free_ix):
+        bounds = np.asarray(self.model.bounds)[free_ix].tolist()
+        return bounds
+    
+    def llgrad(self, tau_f, free_ix, t):
+        tau = self.tau.copy()
+        tau[free_ix] = tau_f
+        tau[~free_ix] = t
+        theta = self.reparam.inverse_transform(tau)
+        ll = self.model.loglike(theta)
+        g = self.model.gradient(theta)
+        J = self.reparam.jacobian(theta)
+        return ll, J.dot(g)[free_ix]
     
 
 class LMM:
@@ -994,66 +1063,65 @@ class LMM:
         ll = self.loglike_c(theta_chol_r.copy(), reml)
         g = self.gradient_chol(theta_chol_r.copy(), reml)[free_ix]
         return ll, g
+        
     
-    def profile(self, n_points=40, par_ind=None, reml=True):
-        par_ind = np.ones_like(self.theta_chol) if par_ind is None else par_ind
-        theta_chol = self.theta_chol.copy()
-        n_theta = len(theta_chol)
-        
- 
+    def profile(self, n_points=40, tb=3):
+        theta = self.theta.copy()
+        free_ix = np.ones_like(theta).astype(bool)
+        reparam = VarCorrReparam(self.dims, self.indices) 
+        rmodel = RestrictedModel(self, reparam)
+        tau = reparam.transform(theta)
+    
+        n_theta = len(theta)
         llmax = self.loglike(self.theta.copy())
-        free_ix = np.ones_like(theta_chol, dtype=bool)
         
-        Hchol = so_gc_cd(self.gradient_chol, theta_chol, args=(reml,))
-        se_chol = np.diag(np.linalg.inv(Hchol/2.0))**0.5
+        H = so_gc_cd(vcrepara_grad, tau, args=(self.gradient, reparam,))
+        se = np.diag(np.linalg.inv(H/2.0))**0.5
         thetas, zetas = np.zeros((n_theta*n_points, n_theta)), np.zeros(n_theta*n_points)
         k = 0
         pbar = tqdm.tqdm(total=n_theta*n_points, smoothing=0.001)
         for i in range(n_theta):
             free_ix[i] = False
-            t_mle = theta_chol[i]
-            theta_chol_r = theta_chol.copy()
+            t_mle = tau[i]
+            tau_r = tau.copy()
             if self.bounds[i][0]==0:
-                lb = np.maximum(0.01, t_mle-4.5*se_chol[i])
+                lb = np.maximum(0.01, t_mle-tb*se[i])
             else:
-                lb = t_mle - 4.5 * se_chol[i]
-            ub = t_mle + 4.5 * se_chol[i]
+                lb = t_mle - tb * se[i]
+            ub = t_mle + tb * se[i]
             tspace = np.linspace(lb, ub, n_points)
             for t0 in tspace:
-                theta_chol_r = theta_chol.copy()
-                theta_chol_r[~free_ix] = t0
-                theta_chol_f = theta_chol[free_ix]
-                func = lambda x : self._restricted_ll_grad(x, free_ix, theta_chol_r,
-                                                           reml)
-                bounds = np.array(self.bounds)[free_ix].tolist()
-                opt = sp.optimize.minimize(func, theta_chol_f, jac=True,
-                                           bounds=bounds,
-                                           method='trust-constr')
-                theta_chol_f = opt.x
-                theta_chol_r[free_ix] = theta_chol_f
-                LR = (opt.fun - llmax) #already working with -2ll
-                zeta = np.sqrt(LR) * np.sign(t0 - theta_chol[~free_ix])
+                x = tau[free_ix]
+                func = lambda x: rmodel.llgrad(x, free_ix, t0)
+                bounds = rmodel.get_bounds(free_ix)
+                opt = sp.optimize.minimize(func, x, jac=True, bounds=bounds,
+                                           method='trust-constr',
+                                           options=dict(initial_tr_radius=0.5))
+        
+                tau_r[free_ix] = opt.x
+                tau_r[~free_ix] = t0
+                LR = (opt.fun - llmax)
+                zeta = np.sqrt(LR) * np.sign(t0 - tau[~free_ix])
                 zetas[k] = zeta
-                thetas[k] = theta_chol_r
+                thetas[k] = reparam.inverse_transform(tau_r)
                 k+=1
                 pbar.update(1)
             free_ix[i] = True
         pbar.close()
         ix = np.repeat(np.arange(n_theta), n_points)
-        return thetas, zetas, ix
-    
-    def plot_profile(self, n_points=40, par_ind=None, reml=True, quantiles=None,
-                     figsize=(14, 4)):
+        return thetas, zetas, ix 
+        
+        
+    def plot_profile(self, thetas, zetas, ix, quantiles=None, figsize=(16, 8)):
         if quantiles is None:
-            quantiles = [0.001, 0.05, 1, 5, 10, 20, 50, 80, 90, 95, 99, 99.5, 99.999]   
-        thetas, zetas, ix = self.profile(n_points, par_ind, reml)
+            quantiles = np.array([60, 70, 80, 90, 95, 99, 99.9])
+            quantiles = np.concatenate([(100-quantiles[::-1])/2, 100-(100-quantiles)/2])
+        theta = self.theta.copy()
+        se_theta = self.se_theta.copy()
         n_thetas = thetas.shape[1]
-        q = sp.stats.norm(0, 1).ppf(np.asarray(quantiles)/100)
-        fig, axes = plt.subplots(figsize=figsize, ncols=n_thetas, sharey=True)
-        plt.subplots_adjust(wspace=0.04, left=0.05, right=0.95, bottom=0.15)
-        theta_chol = self.theta_chol.copy()
-        Hchol = so_gc_cd(self.gradient_chol, theta_chol, args=(reml,))
-        se_chol = np.diag(np.linalg.inv(Hchol/2.0))**0.5
+        q = sp.stats.norm(0, 1).ppf(np.array(quantiles)/100)
+        fig, axes = plt.subplots(figsize=(14, 4), ncols=n_thetas, sharey=True)
+        plt.subplots_adjust(wspace=0.05, left=0.05, right=0.95)
         for i in range(n_thetas):
             ax = axes[i]
             x = thetas[ix==i, i]
@@ -1063,30 +1131,26 @@ class LMM:
             f_interp = sp.interpolate.interp1d(y, x, fill_value="extrapolate")
             xq = f_interp(q)
             ax.plot(x,y)
-            dc = np.maximum(theta_chol[i] - x.min(), x.max()-theta_chol[i])
-            ax.set_xlim(theta_chol[i]-dc, theta_chol[i]+dc)
+            ax.set_xlim(x.min(), x.max())
             ax.axhline(0, color='k')
-            ax.grid()
-            xqt = theta_chol[i]+q*se_chol[i]
-            #ax.plot(xqt, np.linspace(-5, 5, len(xqt)), ls='--', color='k', lw=1)
-            cm_norm = mpl.colors.TwoSlopeNorm(vmin=xqt.min(), vcenter=theta_chol[i], vmax=xqt.max())
-            segments = np.zeros((len(xq), 2, 2))
-            segments[:, 0, 0] = xq
-            segments[:, 1, 0] = xq
-            segments[:, 0, 1] = 0
-            segments[:, 1, 1] = q
-            ax.axvline(theta_chol[i], color='k')
-            lc = mpl.collections.LineCollection(segments, cmap=plt.cm.coolwarm, norm=cm_norm)
-            lc.set_array(xqt)
+            sgs = np.zeros((len(q), 2, 2))
+            sgs[:, 0, 0] = sgs[:, 1, 0] = xq
+            sgs[:, 1, 1] = q
+            xqt = theta[i] + q * se_theta[i]
+            ax.axvline(theta[i], color='k')
+            norm = mpl.colors.TwoSlopeNorm(vcenter=0, vmin=q.min(), vmax=q.max())
+            lc = mpl.collections.LineCollection(sgs, cmap=plt.cm.bwr, norm=norm)
+            lc.set_array(q)
             lc.set_linewidth(2)
-            lc.set_ls('--')
             ax.add_collection(lc)
-            ax.scatter(xqt, np.zeros_like(xqt), s=20, cmap=plt.cm.coolwarm, norm=cm_norm, c=xqt, zorder=10)
+            ax.scatter(xqt, np.zeros_like(xqt), c=q, cmap=plt.cm.bwr, norm=norm,
+                       s=20)
             ax.set_xlabel(f"$\\theta$[{i}]")
-        ax.set_ylim(-4, 4)
-        ax.set_yticks(np.arange(-4, 5))
+        ax.set_ylim(-5, 5)
         fig.suptitle("Profile Zeta Plots")
-        return thetas, zetas, ix, fig, ax
+        return fig, axes
+        
+    
     
     def approx_degfree(self, L_list=None, theta=None, beta=None, method='satterthwaite'):
         L_list = [np.eye(self.X.shape[1])] if L_list is None else L_list

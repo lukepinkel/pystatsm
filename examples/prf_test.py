@@ -9,7 +9,6 @@ Created on Mon Jul 19 18:24:21 2021
 import numpy as np
 import pandas as pd
 from pystats.pylmm.lmm import LMM
-from pystats.pylmm.prf import plot_profile, profile
 from pystats.pylmm.sim_lmm import MixedModelSim
 from pystats.utilities.linalg_operations import invech
 
@@ -39,10 +38,6 @@ df = msim.df
 df["y"] = msim.simulate_response(resid_scale=s, exact_ranefs=True, exact_resids=True)
 model = LMM(formula, df)
 model.fit(opt_kws=dict())
-
-
-thetas, zetas, ix = profile(50, model, tb=4.5)
-quantiles = np.array([60, 70, 80, 90, 95, 99, 99.9])
-quantiles = np.concatenate([(100-quantiles[::-1])/2, 100-(100-quantiles)/2])
-fig, axes = plot_profile(model, thetas, zetas, ix, quantiles=quantiles)
+thetas, zetas, ix = model.profile(50, tb=4.5)
+fig, axes = model.plot_profile(thetas, zetas, ix)
 
