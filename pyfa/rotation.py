@@ -200,6 +200,7 @@ def rotate(A, method, T=None, tol=1e-9, alpha=1.0,
         rotation_type = 'oblique'
         
     if rotation_type == 'orthogonal':
+        gcff = (1, gamma-1, -gamma,0)
         T = rotate_ortho(A, T=T, alpha=alpha, gamma=gamma, tol=tol, n_iters=n_iters)
         L = np.dot(A, T)
         if method == 'promax':
@@ -210,8 +211,10 @@ def rotate(A, method, T=None, tol=1e-9, alpha=1.0,
             L = np.dot(A, T)
             
     elif rotation_type == 'oblique':
+        gcff = (-gamma / A.shape[0], 1, gamma/A.shape[0], -1)
         T = rotate_obli(A, T=T, alpha=alpha, gamma=gamma, tol=tol, n_iters=n_iters)
         L = np.dot(A, np.linalg.inv(T).T)
     if type(A) is pd.DataFrame:
         L = pd.DataFrame(L, index=ix, columns=cols)
-    return L, T
+    
+    return L, T, gcff

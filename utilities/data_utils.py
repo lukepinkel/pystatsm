@@ -65,7 +65,24 @@ def corr(X):
     n = X.shape[0]
     S = np.dot(X.T, X) / n
     return S
-    
+
+def scale_diag(A, s):
+    if s.ndim==1:
+        s = s.reshape(-1, 1)
+    A = s.T * A * s
+    return A
+
+def norm_diag(A):
+    s = np.sqrt(1.0 / np.diag(A)).reshape(-1, 1)
+    A = s.T * A * s
+    return A
+
+def eighs(A):
+    u, V = np.linalg.eigh(A)
+    u, V = u[::-1], V[:, ::-1]
+    return u, V    
+
+
 def _check_type(arr):
     if type(arr) is pd.DataFrame:
         X = arr.values
@@ -73,12 +90,14 @@ def _check_type(arr):
         is_pd = True
     elif type(arr) is pd.Series:
         X = arr.values
-        columns, index = arr.name, arr.index
+        columns, index = [arr.name], arr.index
         is_pd = True
         X = X.reshape(X.shape[0], 1)
     elif type(arr) is np.ndarray:
         X, columns, index, is_pd = arr, None, None, False 
         if X.ndim == 1:
             X = X.reshape(X.shape[0], 1)
+        columns = [f"X{i}" for i in range(1, X.shape[1]+1)]
+        index = np.arange(X.shape[0])
     return X, columns, index, is_pd 
     
