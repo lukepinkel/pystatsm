@@ -10,11 +10,11 @@ import numpy as np
 import scipy as sp
 import scipy.stats
 import pandas as pd
-from pystats.pyfa.rotation import rotate
-from pystats.utilities.linalg_operations import vec, invec
-from pystats.utilities.special_mats import nmat, dmat, lmat
-from pystats.utilities.numerical_derivs import so_gc_cd
-from pystats.utilities.data_utils import _check_type, cov, eighs
+from .rotation import rotate
+from ..utilities.linalg_operations import vec, invec
+from ..utilities.special_mats import nmat, dmat, lmat
+from ..utilities.numerical_derivs import so_gc_cd
+from ..utilities.data_utils import _check_type, cov, eighs
 
 class FactorAnalysis(object):
    
