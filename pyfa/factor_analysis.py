@@ -14,7 +14,59 @@ from .rotation import rotate
 from ..utilities.linalg_operations import vec, invec
 from ..utilities.special_mats import nmat, dmat, lmat
 from ..utilities.numerical_derivs import so_gc_cd
-from ..utilities.data_utils import _check_type, cov, eighs
+from ..utilities.data_utils import _check_type, cov, eighs, flip_signs
+
+
+def measure_of_sample_adequacy(Sigma):
+    V = np.diag(np.sqrt(1/np.diag(Sigma)))
+    R = V.dot(Sigma).dot(V)
+    Rinv = np.linalg.inv(R)
+    D = np.diag(1.0/np.sqrt(np.diag(Rinv)))
+    Q = D.dot(Rinv).dot(D)
+    ix = np.tril_indices(Sigma.shape[0], -1)
+    r = np.sum(R[ix]**2)
+    q = np.sum(Q[ix]**2)
+    msa = r / (r + q)
+    return msa
+
+def srmr(Sigma, S, df):
+    p = S.shape[0]
+    y = 0.0
+    t = (p + 1.0) * p
+    for i in range(p):
+        for j in range(i):
+            y += (Sigma[i, j]-S[i, j])**2/(S[i, i]*S[j, j])
+    
+    y = np.sqrt((2.0 / (t)) * y)      
+    return y
+
+def lr_test(Sigma, S, df, n):
+    p = Sigma.shape[0]
+    _, lndS = np.linalg.slogdet(S)
+    _, lndSigma = np.linalg.slogdet(Sigma)
+    Sigma_inv = np.linalg.pinv(Sigma)
+    chi2 = (lndSigma + np.trace(Sigma_inv.dot(S)) - lndS - p) * n
+    chi2 = np.maximum(chi2, 1e-12)
+    pval = sp.stats.chi2.sf(chi2, (p + 1)*p/2)
+    return chi2, pval
+
+def gfi(Sigma, S):
+    p = S.shape[0]
+    tmp1 = np.linalg.pinv(Sigma).dot(S)
+    tmp2 = tmp1 - np.eye(p)
+    y = 1.0 - np.trace(np.dot(tmp2, tmp2)) / np.trace(np.dot(tmp1, tmp1))
+    return y
+
+def agfi(Sigma, S, df):
+    p = S.shape[0]
+    t = (p + 1.0) * p
+    tmp1 = np.linalg.pinv(Sigma).dot(S)
+    tmp2 = tmp1 - np.eye(p)
+    y = 1.0 - np.trace(np.dot(tmp2, tmp2)) / np.trace(np.dot(tmp1, tmp1))
+    y = 1.0 - (t / (2.0*df)) * (1.0-y)
+    return y
+
+
 
 class FactorAnalysis(object):
    
@@ -50,7 +102,7 @@ class FactorAnalysis(object):
             n_vars = S.shape[0]
             inds = np.arange(n_obs)
         u, V = eighs(S)
-        
+        V = flip_signs(V)
         self.X, self.cols, self.inds, self._is_pd = X, cols, inds, _is_pd
         self.S, self.V, self.u = S, V, u
         self.cols, self.inds, self._is_pd =cols, inds, _is_pd
@@ -180,7 +232,41 @@ class FactorAnalysis(object):
         else:
             J = self._unrotated_constraint_dervs(L, Psi)
         return J
+    
+    def _reorder_factors(self, L, T, theta):
+        v = np.sum(L**2, axis=0)
+        order = np.argsort(v)[::-1]
+        if type(L) is pd.DataFrame:
+            cols = L.columns
+            L = L.iloc[:, order]
+            L.columns = cols
+            theta[self.lix] = vec(L.values)
+        else:
+            L = L[:, order]
+            theta[self.lix] = vec(L)
+        T = T[:, order]
+        return L, T, theta
         
+    def _fit_indices(self, Sigma):
+        t = (self.n_vars + 1.0) * self.n_vars / 2.0
+        k = len(self.theta)
+        degfree = t  - k
+        GFI = gfi(Sigma, self.S)
+        AGFI = agfi(Sigma, self.S, degfree)
+        chi2, chi2p = lr_test(Sigma, self.S, degfree, self.n_obs-1)
+        stdchi2 = (chi2 - degfree) /  np.sqrt(2 * degfree)
+        RMSEA = np.sqrt(np.maximum(chi2 -degfree, 0)/(degfree*(self.n_obs-1)))
+        SRMR = srmr(Sigma, self.S, degfree)
+        llval = -(self.n_obs-1)*self.loglike(self.theta)/2
+        BIC = k * np.log(self.n_obs) -2 * llval
+        AIC = 2 * k - 2*llval
+        sumstats = dict(GFI=GFI, AGFI=AGFI, chi2=chi2, chi2_pvalue=chi2p,
+                         std_chi2=stdchi2, RMSEA=RMSEA, SRMR=SRMR,
+                         loglikelihood=llval,
+                         AIC=AIC,
+                         BIC=BIC)
+        return sumstats
+    
     def _fit(self, hess=True, **opt_kws):
         hess = self.hessian if hess else None
         
@@ -188,31 +274,56 @@ class FactorAnalysis(object):
                                         hess=hess, method='trust-constr', **opt_kws)
         self.theta = self.opt.x
         self.L, self.Psi = self.model_matrices(self.theta)
+        
         if self._rotation_method is not None:
             self.L, self.T, self.gcff = rotate(self.L, self._rotation_method)
             self.theta[self.lix] = vec(self.L)
         else:
-            self.gcff = None
+            self.T, self.gcff = np.eye(self.n_facs), None
+        
+        self.L, self.T, self.theta = self._reorder_factors(self.L, self.T, self.theta)
+        self.factor_cov = np.dot(self.T.T, self.T)
+        self.Sigma = self.implied_cov(self.theta)
         self.H = self.hessian(self.theta)
         self.J = self.constraint_derivs(self.theta, self.gcff)
         q = self.J.shape[0]
         self.Hc = np.block([[self.H, self.J.T], [self.J, np.zeros((q, q))]])
         self.se_theta = np.sqrt(1.0 / np.diag(np.linalg.pinv(self.Hc))[:-q]/self.n_obs)
-        self.res = pd.DataFrame(np.vstack((self.theta, self.se_theta)).T,
-                                columns=['param', 'SE'])
-        self.res['z'] = self.res["param"] / self.res["SE"]
-        self.res["p"] = sp.stats.norm(0, 1).sf(np.abs(self.res['z']))*2.0
-        self.param_labels = []
-        for j in range(self.L.shape[1]):
-            for i in range(self.L.shape[0]):
-                self.param_labels.append(f"L[{i}][{j}]")
-        for i in range(self.L.shape[0]):
-            self.param_labels.append(f"Psi[{i}]")
-        self.res.index = self.param_labels
-        self.L = pd.DataFrame(self.L, index=self.cols, 
-                              columns=[f"Factor{i}" for i in range(self.n_facs)])
-
-
+        self.L_se = invec(self.se_theta[self.lix], self.n_vars, self.n_facs)
+        
+    def fit(self, compute_factors=True, factor_method='regression', hess=True, **opt_kws):
+        self._fit(hess, **opt_kws)
+        self.sumstats = self._fit_indices(self.Sigma)
+        z = self.theta / self.se_theta
+        p = sp.stats.norm(0, 1).sf(np.abs(z)) * 2.0
+        
+        param_labels = []
+        for j in range(self.n_facs):
+            for i in range(self.n_vars):
+                param_labels.append(f"L[{i}][{j}]")
+        for i in range(self.n_vars):
+            param_labels.append(f"Psi[{i}]")
+        res_cols = ["param", "SE", "z", "p"]
+        fcols = [f"Factor{i}" for i in range(self.n_facs)]
+        self.res = pd.DataFrame(np.vstack((self.theta, self.se_theta, z, p)).T,
+                                columns=res_cols, index=param_labels)
+        self.L = pd.DataFrame(self.L, index=self.cols, columns=fcols)
+        
+        if compute_factors:
+            factor_coefs, factors = self.compute_factors(factor_method)
+        self.factor_coefs = pd.DataFrame(factor_coefs, index=self.cols, columns=fcols)
+        self.factors = pd.DataFrame(factors, index=self.inds, columns=fcols)
+        
+    def compute_factors(self, method="regression"):
+        X = self.X - np.mean(self.X, axis=0)
+        if method=='regression':
+            factor_coefs = np.linalg.inv(self.S).dot(self.L)
+            factors = X.dot(factor_coefs)
+        elif method=='bartlett':
+            A = self.L.T.dot(np.diag(1/np.diag(self.Psi)))
+            factor_coefs = (np.linalg.inv(A.dot(self.L.values)).dot(A)).T
+            factors =  X.dot(factor_coefs)
+        return factor_coefs, factors
 
 
 

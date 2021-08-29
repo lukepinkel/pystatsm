@@ -82,7 +82,12 @@ def eighs(A):
     u, V = u[::-1], V[:, ::-1]
     return u, V    
 
-
+def flip_signs(V):
+    j = np.argmax(np.abs(V), axis=0)
+    s = np.sign(V[j, np.arange(V.shape[1])])
+    V = V * s
+    return V
+    
 def _check_type(arr):
     if type(arr) is pd.DataFrame:
         X = arr.values
