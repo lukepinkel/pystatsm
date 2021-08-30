@@ -10,7 +10,7 @@ import numpy as np
 import scipy as sp
 import scipy.stats
 import pandas as pd
-from .rotation import rotate
+from .rotation import rotate, oblique_constraint_derivs
 from ..utilities.linalg_operations import vec, invec
 from ..utilities.special_mats import nmat, dmat, lmat
 from ..utilities.numerical_derivs import so_gc_cd
@@ -67,6 +67,10 @@ def agfi(Sigma, S, df):
     return y
 
 
+def augment_hessian(H, J):
+    n, _ = H.shape
+    p, q = J.shape
+    
 
 class FactorAnalysis(object):
    
@@ -208,6 +212,8 @@ class FactorAnalysis(object):
         J1 = self.Lk.dot(self.Nk.dot(np.kron(self.Ik, A.T)))
         J2 = self.Lk.dot(((np.kron(A, A))[self.d_inds]).T)
         J = np.concatenate([J1, J2], axis=1)
+        i, j = np.tril_indices(self.n_facs)
+        J = J[i>j]
         return J
     
     def _rotated_constraint_derivs(self, L, a, b, c, d):
@@ -223,14 +229,13 @@ class FactorAnalysis(object):
         p, k = self.n_vars, self.n_facs
         J2 = np.zeros(((k + 1) * k //2, p))
         J = np.concatenate([J1, J2], axis=1)
+        i, j = np.tril_indices(self.n_facs)
+        J = J[i>j]
         return J
         
-    def constraint_derivs(self, theta, gcff):
-        L, Psi = self.model_matrices(theta)
-        if self._rotation_method is not None:
-            J = self._rotated_constraint_derivs(L, *gcff)
-        else:
-            J = self._unrotated_constraint_dervs(L, Psi)
+    def constraint_derivs(self, theta):
+        L, Psi = self.model_matrices(theta)            
+        J = self._unrotated_constraint_dervs(L, Psi)
         return J
     
     def _reorder_factors(self, L, T, theta):
@@ -276,16 +281,18 @@ class FactorAnalysis(object):
         self.L, self.Psi = self.model_matrices(self.theta)
         
         if self._rotation_method is not None:
-            self.L, self.T, self.gcff = rotate(self.L, self._rotation_method)
+            self.L, self.T, _, _, _, vgq, gamma = rotate(self.L, self._rotation_method)
             self.theta[self.lix] = vec(self.L)
         else:
-            self.T, self.gcff = np.eye(self.n_facs), None
-        
+            self.T = np.eye(self.n_facs)
         self.L, self.T, self.theta = self._reorder_factors(self.L, self.T, self.theta)
         self.factor_cov = np.dot(self.T.T, self.T)
         self.Sigma = self.implied_cov(self.theta)
         self.H = self.hessian(self.theta)
-        self.J = self.constraint_derivs(self.theta, self.gcff)
+        if self._rotation_method is not None:
+            self.J = oblique_constraint_derivs(self.L.dot(self.T), self.T, gamma, vgq)
+        else:
+            self.J = self.constraint_derivs(self.theta)
         q = self.J.shape[0]
         self.Hc = np.block([[self.H, self.J.T], [self.J, np.zeros((q, q))]])
         self.se_theta = np.sqrt(1.0 / np.diag(np.linalg.pinv(self.Hc))[:-q]/self.n_obs)
