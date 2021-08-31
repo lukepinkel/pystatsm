@@ -238,7 +238,7 @@ class FactorAnalysis(object):
         L, Phi, Psi = self.model_matrices_augmented(params)
         DLambda = np.dot(self.LpNp, np.kron(L.dot(Phi), self.Ip))
         DPhi = self.Lp.dot(np.kron(L, L))[:, self.l_inds]
-        DPsi = np.dot(self.Lp, np.diag(vec(Psi)))[:, self.d_inds]
+        DPsi = np.dot(self.Lp, np.diag(vec(np.eye(self.n_vars))))[:, self.d_inds]
         G = np.block([DLambda, DPhi, DPsi])
         return G
     
@@ -267,6 +267,41 @@ class FactorAnalysis(object):
         g[self.ixc] = gPhi
         g[self.ixr] = gPsi
         return g
+    
+    def hessian_augmented(self, params):
+        L, Phi, Psi = self.model_matrices_augmented(params)
+        Sigma = L.dot(Phi).dot(L.T) + Psi
+        Sigma_inv = np.linalg.inv(Sigma)
+        Sdiff = self.S - Sigma
+        d = vech(Sdiff)
+        G = self.dsigma_augmented(params)
+        DGp = self.Dp.dot(G)
+        W1 = np.kron(Sigma_inv, Sigma_inv)
+        W2 = np.kron(Sigma_inv, Sigma_inv.dot(Sdiff).dot(Sigma_inv))
+        H1 = 0.5 * DGp.T.dot(W1).dot(DGp)
+        H2 = 1.0 * DGp.T.dot(W2).dot(DGp)
+
+        Hpp = []
+        Dp, Ik, E = self.Dp, self.Ik, self.E
+        Hij = np.zeros((self.nt, self.nt))
+        for i in range(self.n_vars):
+            for j in range(i, self.n_vars):
+                E[i, j] = 1.0
+                T = E + E.T
+                H11 = np.kron(Phi, T)
+                H22 = np.kron(Ik, T.dot(L))[:, self.l_inds]
+                Hij[self.ixl, self.ixl[:, None]] = H11
+                Hij[self.ixl, self.ixc[:, None]] = H22.T
+                Hij[self.ixc, self.ixl[:, None]] = H22
+                E[i, j] = 0.0
+                Hpp.append(Hij[:, :, None])
+                Hij = Hij*0.0
+        W = np.linalg.multi_dot([Dp.T, W1, Dp])
+        dW = np.dot(d, W)
+        Hp = np.concatenate(Hpp, axis=2) 
+        H3 = np.einsum('k,ijk ->ij', dW, Hp)      
+        H = (H1 + H2 - H3 / 2.0)*2.0
+        return H
     
     def _unrotated_constraint_dervs(self, L, Psi):
         Psi_inv = np.diag(1.0 / np.diag(Psi))
@@ -337,36 +372,42 @@ class FactorAnalysis(object):
         else:
             self.T = np.eye(self.n_facs)
         self.L, self.T, self.theta = self._reorder_factors(self.L, self.T, self.theta)
-        self.factor_cov = np.dot(self.T.T, self.T)
+        self.Phi = np.dot(self.T, self.T.T)
+        self._make_augmented_params(self.L, self.Phi, self.Psi)
+        
         self.Sigma = self.implied_cov(self.theta)
-        self.H = self.hessian(self.theta)
+        self.H = so_gc_cd(self.gradient_augmented, self.params)
         if self._rotation_method is not None:
             self.J = oblique_constraint_derivs(self.L.dot(self.T), self.T, gamma, vgq)
             i, j = np.indices((self.n_facs, self.n_facs))
             i, j = i.flatten(), j.flatten()
-            self.J = self.J[i>j]
+            #self.J = self.J[i>j]
+            self.J = self.J[i!=j]
         else:
             self.J = self.constraint_derivs(self.theta)
         q = self.J.shape[0]
         self.Hc = np.block([[self.H, self.J.T], [self.J, np.zeros((q, q))]])
-        self.se_theta = np.sqrt(1.0 / np.diag(np.linalg.inv(self.Hc))[:-q]/self.n_obs)
-        self.L_se = invec(self.se_theta[self.lix], self.n_vars, self.n_facs)
+        self.se_params = np.sqrt(1.0 / np.diag(np.linalg.inv(self.Hc))[:-q]/self.n_obs)
+        self.L_se = invec(self.se_params[self.lix], self.n_vars, self.n_facs)
         
     def fit(self, compute_factors=True, factor_method='regression', hess=True, **opt_kws):
         self._fit(hess, **opt_kws)
         self.sumstats = self._fit_indices(self.Sigma)
-        z = self.theta / self.se_theta
+        z = self.params / self.se_params
         p = sp.stats.norm(0, 1).sf(np.abs(z)) * 2.0
         
         param_labels = []
         for j in range(self.n_facs):
             for i in range(self.n_vars):
                 param_labels.append(f"L[{i}][{j}]")
+        for i in range(self.n_facs):
+            for j in range(i):
+                param_labels.append(f"Phi[{i}][{j}]")
         for i in range(self.n_vars):
             param_labels.append(f"Psi[{i}]")
         res_cols = ["param", "SE", "z", "p"]
         fcols = [f"Factor{i}" for i in range(self.n_facs)]
-        self.res = pd.DataFrame(np.vstack((self.theta, self.se_theta, z, p)).T,
+        self.res = pd.DataFrame(np.vstack((self.params, self.se_params, z, p)).T,
                                 columns=res_cols, index=param_labels)
         self.L = pd.DataFrame(self.L, index=self.cols, columns=fcols)
         

@@ -8,7 +8,7 @@ Created on Mon Jun 15 22:04:25 2020
 
 import numpy as np
 import pandas as pd
-from ..utilities.linalg_operations import vec, invec
+from ..utilities.linalg_operations import vec, invec, vecl
 from ..utilities.special_mats import kmat
 
 
@@ -204,8 +204,10 @@ def oblique_constraint_derivs(A, T, gamma, vgq):
     Kq2 = kmat(q, q)
     D1 = Kq2.dot(np.kron(Iq, Phi_inv.T.dot(G.T)))
     D2 = np.kron(Phi_inv.T, L.T).dot(dG)
-    D = D1 + D2
-    D = np.concatenate([D, np.zeros((D.shape[0], p))], axis=1)
+    DL = D1 + D2
+    l_ind = vecl(np.arange(q*q).reshape(q, q, order='F'))
+    DPhi = -np.kron(Phi_inv, L.T.dot(G).dot(Phi_inv))[:, l_ind]
+    D = np.concatenate([DL, DPhi, np.zeros((DL.shape[0], p))], axis=1)
     return D
 
 def jac_approx(f, x, eps=1e-4, tol=None, d=1e-4, *args):
