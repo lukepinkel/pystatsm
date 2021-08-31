@@ -9,6 +9,7 @@ Created on Mon Jun 15 22:04:25 2020
 import numpy as np
 import pandas as pd
 from ..utilities.linalg_operations import vec, invec
+from ..utilities.special_mats import kmat
 
 
 
@@ -182,6 +183,31 @@ def get_gamma_cf(criterion, p, k):
     return kappa
         
 
+def oblique_constraint_derivs(A, T, gamma, vgq):
+    p, q  = A.shape
+    Tinv = np.linalg.inv(T)
+    L = np.dot(A, Tinv)
+    L2 = L**2
+    C = np.eye(p) -  np.ones((p, p)) * gamma / p
+    N = np.ones((q, q)) - np.eye(q)
+    B = C.dot(L2.dot(N))
+    G = L * B
+    Iq = np.eye(q)
+    Ip = np.eye(p)
+    dG1 = np.diag(vec(C.dot(L2).dot(N)))
+    dG2 = np.diag(vec(L2.dot(N))).dot(np.kron(Iq, C))
+    dG3 = np.diag(vec(C.dot(L2))).dot(np.kron(N, Ip))
+    dG = dG1 + dG2 + dG3
+    
+    Phi = np.dot(T, T.T)
+    Phi_inv = np.linalg.inv(Phi)
+    Kq2 = kmat(q, q)
+    D1 = Kq2.dot(np.kron(Iq, Phi_inv.T.dot(G.T)))
+    D2 = np.kron(Phi_inv.T, L.T).dot(dG)
+    D = D1 + D2
+    D = np.concatenate([D, np.zeros((D.shape[0], p))], axis=1)
+    return D * 2.0
+
 def jac_approx(f, x, eps=1e-4, tol=None, d=1e-4, *args):
     tol = np.finfo(float).eps**(1/3) if tol is None else tol
     h = np.abs(d * x) + eps * (np.abs(x) < tol)
@@ -205,11 +231,12 @@ def oblique_constraints(lvec, tvec, p, q, gamma, vgq):
     N = np.ones((q, q)) - I
     Phi = np.dot(T, T.T)
     J1 = L.T.dot(Gq).dot(np.linalg.inv(Phi)) * N
-    J2 = Phi * I
-    J = J1 + J2 - I
+    #J2 = Phi * I
+    J = J1 #+ J2 - I
     return vec(J)
     
-def oblique_constraint_derivs(A, T, gamma, vgq):
+
+def approx_oblique_constraint_derivs(A, T, gamma, vgq):
     p, q  = A.shape
     Tinv = np.linalg.inv(T)
     L = np.dot(A, Tinv)
@@ -218,10 +245,9 @@ def oblique_constraint_derivs(A, T, gamma, vgq):
     H = jac_approx(f, lvec)
     H = np.concatenate([H.T, np.zeros((H.shape[1], p))], axis=1)
     return H
-
     
 def rotate(A, criterion, method='oblimin', rotation_type='oblique', T=None, 
-           tol=1e-9, alpha=1.0, n_iters=500, custom_gamma=None):
+           tol=1e-7, alpha=1.0, n_iters=500, custom_gamma=None):
     '''
     Rotation of loadings matrix
     

@@ -215,23 +215,6 @@ class FactorAnalysis(object):
         i, j = np.tril_indices(self.n_facs)
         J = J[i>j]
         return J
-    
-    def _rotated_constraint_derivs(self, L, a, b, c, d):
-        X = L * L
-        Y = X * L
-
-        D1 = 4.0 * a * np.sum(X) * L
-        D2 = 4.0 * b * np.diag(np.sum(X, axis=1)).dot(L)
-        D3 = 4.0 * c * L.dot(np.diag(np.sum(X, axis=0)))
-        D4 = 2.0 * d * Y
-        D = D1 + D2 + D3 +  D4
-        J1 = self.Lk.dot(self.Nk.dot(np.kron(self.Ik, D.T)))
-        p, k = self.n_vars, self.n_facs
-        J2 = np.zeros(((k + 1) * k //2, p))
-        J = np.concatenate([J1, J2], axis=1)
-        i, j = np.tril_indices(self.n_facs)
-        J = J[i>j]
-        return J
         
     def constraint_derivs(self, theta):
         L, Psi = self.model_matrices(theta)            
@@ -244,12 +227,18 @@ class FactorAnalysis(object):
         if type(L) is pd.DataFrame:
             cols = L.columns
             L = L.iloc[:, order]
+            j = np.argmax(np.abs(L), axis=0)
+            s = np.sign(L[j, np.arange(L.shape[1])])
+            L = s * L
             L.columns = cols
             theta[self.lix] = vec(L.values)
         else:
             L = L[:, order]
+            j = np.argmax(np.abs(L), axis=0)
+            s = np.sign(L[j, np.arange(L.shape[1])])
+            L = s * L
             theta[self.lix] = vec(L)
-        T = T[:, order]
+        T = T[:, order] * s[:, None]
         return L, T, theta
         
     def _fit_indices(self, Sigma):
@@ -291,6 +280,9 @@ class FactorAnalysis(object):
         self.H = self.hessian(self.theta)
         if self._rotation_method is not None:
             self.J = oblique_constraint_derivs(self.L.dot(self.T), self.T, gamma, vgq)
+            i, j = np.indices((self.n_facs, self.n_facs))
+            i, j = i.flatten(), j.flatten()
+            self.J = self.J[i>j]
         else:
             self.J = self.constraint_derivs(self.theta)
         q = self.J.shape[0]
