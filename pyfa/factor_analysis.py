@@ -210,10 +210,10 @@ class FactorAnalysis(object):
         Psi_inv = np.diag(1.0 / np.diag(Psi))
         A = Psi_inv.dot(L)
         J1 = self.Lk.dot(self.Nk.dot(np.kron(self.Ik, A.T)))
-        J2 = self.Lk.dot(((np.kron(A, A))[self.d_inds]).T)
+        J2 = -self.Lk.dot(((np.kron(A, A))[self.d_inds]).T).dot(Psi)
         J = np.concatenate([J1, J2], axis=1)
         i, j = np.tril_indices(self.n_facs)
-        J = J[i>j]
+        #J = J[i>j]
         return J
         
     def constraint_derivs(self, theta):
@@ -287,7 +287,7 @@ class FactorAnalysis(object):
             self.J = self.constraint_derivs(self.theta)
         q = self.J.shape[0]
         self.Hc = np.block([[self.H, self.J.T], [self.J, np.zeros((q, q))]])
-        self.se_theta = np.sqrt(1.0 / np.diag(np.linalg.pinv(self.Hc))[:-q]/self.n_obs)
+        self.se_theta = np.sqrt(1.0 / np.diag(np.linalg.inv(self.Hc))[:-q]/self.n_obs)
         self.L_se = invec(self.se_theta[self.lix], self.n_vars, self.n_facs)
         
     def fit(self, compute_factors=True, factor_method='regression', hess=True, **opt_kws):

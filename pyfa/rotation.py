@@ -206,7 +206,7 @@ def oblique_constraint_derivs(A, T, gamma, vgq):
     D2 = np.kron(Phi_inv.T, L.T).dot(dG)
     D = D1 + D2
     D = np.concatenate([D, np.zeros((D.shape[0], p))], axis=1)
-    return D * 2.0
+    return D
 
 def jac_approx(f, x, eps=1e-4, tol=None, d=1e-4, *args):
     tol = np.finfo(float).eps**(1/3) if tol is None else tol
