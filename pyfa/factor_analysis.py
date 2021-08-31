@@ -5,13 +5,12 @@ Created on Mon Aug 23 18:11:20 2021
 @author: lukepinkel
 """
 
-
 import numpy as np
 import scipy as sp
 import scipy.stats
 import pandas as pd
 from .rotation import rotate, oblique_constraint_derivs
-from ..utilities.linalg_operations import vec, invec
+from ..utilities.linalg_operations import vec, invec, vech, invech, vecl, invecl
 from ..utilities.special_mats import nmat, dmat, lmat
 from ..utilities.numerical_derivs import so_gc_cd
 from ..utilities.data_utils import _check_type, cov, eighs, flip_signs
@@ -66,11 +65,12 @@ def agfi(Sigma, S, df):
     y = 1.0 - (t / (2.0*df)) * (1.0-y)
     return y
 
+def vecl_inds(n):
+    i, j = np.indices((n, n))
+    i, j = i.flatten(), j.flatten()
+    ix = j>i
+    return ix
 
-def augment_hessian(H, J):
-    n, _ = H.shape
-    p, q = J.shape
-    
 
 class FactorAnalysis(object):
    
@@ -92,6 +92,7 @@ class FactorAnalysis(object):
         self.Np = nmat(self.n_vars).A
         self.LpNp = np.dot(self.Lp, self.Np)
         self.d_inds = vec(self.Ip)==1
+        self.l_inds = vecl_inds(self.n_facs)
 
     def _process_data(self, X, S, n_obs):
         given_x = X is not None
@@ -161,24 +162,23 @@ class FactorAnalysis(object):
         g[self.pix] = g2
         return g
     
-    def hessian(self, theta):
+    def hessian_approx(self, theta):
         H = so_gc_cd(self.gradient, theta)
         return H
         
     def dsigma(self, theta):
         L, Psi = self.model_matrices(theta)
         DLambda = np.dot(self.LpNp, np.kron(L, self.Ip))
-        DPsi = np.linalg.multi_dot([self.Lp, np.diag(vec(Psi)), self.Dp])    
+        DPsi = np.dot(self.Lp, np.diag(vec(Psi)))[:, self.d_inds]
         G = np.block([DLambda, DPsi])
         return G
     
-    
-    def _hessian(self, theta):
+    def hessian(self, theta):
         L, Psi = self.model_matrices(theta)
         Sigma = L.dot(L.T) + Psi
-        Sigma_inv = np.linalg.pinv(Sigma)
+        Sigma_inv = np.linalg.inv(Sigma)
         Sdiff = self.S - Sigma
-        d = np.diag(Sdiff)
+        d = vech(Sdiff)
         G = self.dsigma(theta)
         DGp = self.Dp.dot(G)
         W1 = np.kron(Sigma_inv, Sigma_inv)
@@ -191,11 +191,15 @@ class FactorAnalysis(object):
         Hij = np.zeros((self.n_pars, self.n_pars))
         for i in range(self.n_vars):
             for j in range(i, self.n_vars):
+                eij = np.zeros(self.n_vars)
+                if i==j:
+                    eij[i] = 1.0
                 E[i, j] = 1.0
                 T = E + E.T
                 H11 = np.kron(Ik, T)
+                H22 = np.diag(Psi) * eij
                 Hij[self.lix, self.lix[:, None]] = H11
-
+                Hij[self.pix, self.pix] = H22
                 E[i, j] = 0.0
                 Hpp.append(Hij[:, :, None])
                 Hij = Hij*0.0
@@ -205,6 +209,64 @@ class FactorAnalysis(object):
         H3 = np.einsum('k,ijk ->ij', dW, Hp)      
         H = (H1 + H2 - H3 / 2.0)*2.0
         return H
+    
+    def _make_augmented_params(self, L, Phi, Psi):
+        p, q = self.n_vars, self.n_facs
+        nl = p * q
+        nc = q * (q - 1) // 2
+        nr = p
+        nt = nl + nc + nr
+        params = np.zeros(nt)
+        ixl = np.arange(nl)
+        ixc = np.arange(nl, nl+nc)
+        ixr = np.arange(nl+nc, nl+nc+nr)
+        params[ixl] = vec(L)
+        params[ixc] = vecl(Phi)
+        params[ixr] = np.diag(Psi)
+        
+        self.nl, self.nc, self.nr, self.nt = nl, nc, nr, nt
+        self.ixl, self.ixc, self.ixr = ixl, ixc, ixr
+        self.params = params
+    
+    def model_matrices_augmented(self, params):
+        L = invec(params[self.ixl], self.n_vars, self.n_facs)
+        Phi = invecl(params[self.ixc])
+        Psi = np.diag(params[self.ixr])
+        return L, Phi, Psi
+    
+    def dsigma_augmented(self, params):
+        L, Phi, Psi = self.model_matrices_augmented(params)
+        DLambda = np.dot(self.LpNp, np.kron(L.dot(Phi), self.Ip))
+        DPhi = self.Lp.dot(np.kron(L, L))[:, self.l_inds]
+        DPsi = np.dot(self.Lp, np.diag(vec(Psi)))[:, self.d_inds]
+        G = np.block([DLambda, DPhi, DPsi])
+        return G
+    
+    def implied_cov_augmented(self, params):
+        L, Phi, Psi = self.model_matrices_augmented(params)
+        Sigma = L.dot(Phi).dot(L.T) + Psi
+        return Sigma
+    
+    def loglike_augmented(self, params):
+        Sigma = self.implied_cov_augmented(params)
+        _, lndS = np.linalg.slogdet(Sigma)
+        trSV = np.trace(np.linalg.solve(Sigma, self.S))
+        ll = lndS + trSV
+        return ll
+    
+    def gradient_augmented(self, params):
+        L, Phi, Psi = self.model_matrices_augmented(params)
+        Sigma = L.dot(Phi).dot(L.T) + Psi
+        V = np.linalg.pinv(Sigma)
+        VRV = V.dot(Sigma - self.S).dot(V)
+        gL = 2 * vec(VRV.dot(L.dot(Phi)))
+        gPhi = 2*vecl(L.T.dot(VRV).dot(L))
+        gPsi = np.diag(VRV)
+        g = np.zeros(self.nt)
+        g[self.ixl] = gL
+        g[self.ixc] = gPhi
+        g[self.ixr] = gPsi
+        return g
     
     def _unrotated_constraint_dervs(self, L, Psi):
         Psi_inv = np.diag(1.0 / np.diag(Psi))

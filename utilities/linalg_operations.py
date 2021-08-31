@@ -165,6 +165,30 @@ def invech(v):
     Y = Y - (np.eye(rows) * Y) / 2
     return Y
 
+@numba.jit(nopython=True)
+def vecl(X):
+    p = X.shape[0]
+    tmp =  1 - np.tri(p, p)
+    tmp2 = tmp.flatten()
+    ix = tmp2==1
+    Y = X.T.flatten()[ix]
+    return Y
+
+@numba.jit(nopython=True)
+def invecl(v):
+    rows = int(np.round(.5 * (1 + np.sqrt(1 + 8 * len(v)))))
+    res = np.zeros((rows, rows))
+    tmp =  1 - np.tri(rows, rows)
+    tmp2 = tmp.flatten()
+    ix = tmp2==1
+    Y = res.T.flatten()
+    Y[ix] = v
+    Y = Y.reshape(rows, rows)
+    Y = Y + Y.T
+    Ir = np.eye(rows)
+    Y = Y - (Ir * Y) + Ir
+    return Y
+
 
 
 @numba.jit(nopython=True)
