@@ -381,7 +381,7 @@ class FactorAnalysis(object):
             self.J = oblique_constraint_derivs(self.L.dot(self.T), self.T, gamma, vgq)
             i, j = np.indices((self.n_facs, self.n_facs))
             i, j = i.flatten(), j.flatten()
-            #self.J = self.J[i>j]
+            #self.J = self.J[j>=i]
             self.J = self.J[i!=j]
         else:
             self.J = self.constraint_derivs(self.theta)
