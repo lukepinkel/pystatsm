@@ -250,7 +250,10 @@ def normdiff(a, b):
     diff /= (np.linalg.norm(a) + np.linalg.norm(b))
     return diff
 
-      
+def vdg(X):
+    V = np.diag(vec(X))
+    return V
+
      
 def gb_diag(*arrs):
     shapes = np.array([arr.shape for arr in arrs])

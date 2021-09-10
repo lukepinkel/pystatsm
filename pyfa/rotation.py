@@ -8,7 +8,7 @@ Created on Mon Jun 15 22:04:25 2020
 
 import numpy as np
 import pandas as pd
-from ..utilities.linalg_operations import vec, invec, vecl
+from ..utilities.linalg_operations import vec, invec, vecl, vdg
 from ..utilities.special_mats import kmat
 
 
@@ -183,32 +183,7 @@ def get_gamma_cf(criterion, p, k):
     return kappa
         
 
-def oblique_constraint_derivs(A, T, gamma, vgq):
-    p, q  = A.shape
-    Tinv = np.linalg.inv(T)
-    L = np.dot(A, Tinv)
-    L2 = L**2
-    C = np.eye(p) -  np.ones((p, p)) * gamma / p
-    N = np.ones((q, q)) - np.eye(q)
-    B = C.dot(L2.dot(N))
-    G = L * B
-    Iq = np.eye(q)
-    Ip = np.eye(p)
-    dG1 = np.diag(vec(C.dot(L2).dot(N)))
-    dG2 = np.diag(vec(L2.dot(N))).dot(np.kron(Iq, C))
-    dG3 = np.diag(vec(C.dot(L2))).dot(np.kron(N, Ip))
-    dG = dG1 + dG2 + dG3
-    
-    Phi = np.dot(T, T.T)
-    Phi_inv = np.linalg.inv(Phi)
-    Kq2 = kmat(q, q)
-    D1 = Kq2.dot(np.kron(Iq, Phi_inv.T.dot(G.T)))
-    D2 = np.kron(Phi_inv.T, L.T).dot(dG)
-    DL = D1 + D2
-    l_ind = vecl(np.arange(q*q).reshape(q, q, order='F'))
-    DPhi = -np.kron(Phi_inv, L.T.dot(G).dot(Phi_inv))[:, l_ind]
-    D = np.concatenate([DL, DPhi, np.zeros((DL.shape[0], p))], axis=1)
-    return D
+
 
 def jac_approx(f, x, eps=1e-4, tol=None, d=1e-4, args=()):
     tol = np.finfo(float).eps**(1/3) if tol is None else tol
@@ -248,6 +223,31 @@ def oblique_constraint_func(params, model):
     Phi = np.dot(T, T.T)
     J1 = L.T.dot(Gq).dot(np.linalg.inv(Phi)) * N
     return vec(J1)
+
+
+def oblique_constraint_derivs(params, model):
+    L, Phi, Psi = model.model_matrices_augmented(params)
+    V = np.linalg.inv(Phi)
+    gamma = model._gamma
+    p, q  = L.shape
+    Iq = np.eye(q)
+    Kpq = kmat(p, q).A
+    L2 = L**2
+    A = np.eye(p) -  np.ones((p, p)) * gamma / p
+    B = np.ones((q, q)) - np.eye(q)
+    G = L * A.dot(L2).dot(B)
+    dgL = vdg(L)
+    DL1A = np.kron(V.T.dot(G.T), Iq).dot(Kpq)
+    DL2A = np.kron(V.T, L.T)
+    DL2B = 2.0 * dgL.dot(np.kron(B.T, A)).dot(dgL) + vdg(A.dot(L2).dot(B))
+    
+    DL = DL1A + DL2A.dot(DL2B)
+    DPhi = -np.kron(V.T, L.T.dot(G).dot(V))
+    l_ind = vecl(np.arange(q*q).reshape(q, q, order='F'))
+    
+    D = np.concatenate([DL, DPhi[:, l_ind], np.zeros((DL.shape[0], p))], axis=1)
+    return D
+
 
 def approx_oblique_constraint_derivs(params, model):
     J = jac_approx(oblique_constraint_func, params, args=(model,))
