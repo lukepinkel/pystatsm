@@ -251,4 +251,14 @@ def normdiff(a, b):
     return diff
 
       
-       
+     
+def gb_diag(*arrs):
+    shapes = np.array([arr.shape for arr in arrs])
+    res = np.zeros(np.sum(shapes, axis=0))
+    ix = np.zeros(len(res.shape), dtype=int)
+    for i, k in enumerate(shapes):
+        s = [slice(a, a+b) for a, b in list(zip(ix, k))]
+        res[tuple(s)] = arrs[i]
+        ix += k
+    return res
+  
