@@ -315,7 +315,7 @@ class FactorAnalysis(object):
         Psi_inv = np.diag(1.0 / np.diag(Psi))
         A = L.T.dot(Psi_inv)
         J1 = self.Lk.dot(self.Nk.dot(np.kron(self.Ik, A)))
-        J2 = -self.Lk.dot(np.kron(A, A)[:, self.d_inds])
+        J2 =-self.Lk.dot(np.kron(A, A)[:, self.d_inds])
         J = np.concatenate([J1, J2], axis=1)
         i, j = np.tril_indices(self.n_facs)
         J = J[i!=j]
