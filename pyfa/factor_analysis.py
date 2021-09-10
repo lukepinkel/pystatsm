@@ -213,7 +213,7 @@ class FactorAnalysis(object):
     def _make_augmented_params(self, L, Phi, Psi):
         p, q = self.n_vars, self.n_facs
         nl = p * q
-        nc = q * (q - 1) // 2
+        nc = q * (q - 1) // 2  if self._rotation_method is not None else 0
         nr = p
         nt = nl + nc + nr
         params = np.zeros(nt)
@@ -221,7 +221,8 @@ class FactorAnalysis(object):
         ixc = np.arange(nl, nl+nc)
         ixr = np.arange(nl+nc, nl+nc+nr)
         params[ixl] = vec(L)
-        params[ixc] = vecl(Phi)
+        if self._rotation_method is not None:
+            params[ixc] = vecl(Phi)
         params[ixr] = np.diag(Psi)
         
         self.nl, self.nc, self.nr, self.nt = nl, nc, nr, nt
@@ -230,7 +231,10 @@ class FactorAnalysis(object):
     
     def model_matrices_augmented(self, params):
         L = invec(params[self.ixl], self.n_vars, self.n_facs)
-        Phi = invecl(params[self.ixc])
+        if self._rotation_method is not None:
+            Phi = invecl(params[self.ixc])
+        else:
+            Phi = np.eye(self.n_facs)
         Psi = np.diag(params[self.ixr])
         return L, Phi, Psi
     
@@ -239,7 +243,10 @@ class FactorAnalysis(object):
         DLambda = np.dot(self.LpNp, np.kron(L.dot(Phi), self.Ip))
         DPhi = self.Lp.dot(np.kron(L, L))[:, self.l_inds]
         DPsi = np.dot(self.Lp, np.diag(vec(np.eye(self.n_vars))))[:, self.d_inds]
-        G = np.block([DLambda, DPhi, DPsi])
+        if self._rotation_method is not None:
+            G = np.block([DLambda, DPhi, DPsi])
+        else:
+            G = np.block([DLambda, DPsi])
         return G
     
     def implied_cov_augmented(self, params):
@@ -264,7 +271,8 @@ class FactorAnalysis(object):
         gPsi = np.diag(VRV)
         g = np.zeros(self.nt)
         g[self.ixl] = gL
-        g[self.ixc] = gPhi
+        if self._rotation_method is not None:
+            g[self.ixc] = gPhi
         g[self.ixr] = gPsi
         return g
     
@@ -305,12 +313,12 @@ class FactorAnalysis(object):
     
     def _unrotated_constraint_dervs(self, L, Psi):
         Psi_inv = np.diag(1.0 / np.diag(Psi))
-        A = Psi_inv.dot(L)
-        J1 = self.Lk.dot(self.Nk.dot(np.kron(self.Ik, A.T)))
-        J2 = -self.Lk.dot(((np.kron(A, A))[self.d_inds]).T).dot(Psi)
+        A = L.T.dot(Psi_inv)
+        J1 = self.Lk.dot(self.Nk.dot(np.kron(self.Ik, A)))
+        J2 = -self.Lk.dot(np.kron(A, A)[:, self.d_inds])
         J = np.concatenate([J1, J2], axis=1)
         i, j = np.tril_indices(self.n_facs)
-        #J = J[i>j]
+        J = J[i!=j]
         return J
         
     def constraint_derivs(self, theta):
@@ -400,9 +408,10 @@ class FactorAnalysis(object):
         for j in range(self.n_facs):
             for i in range(self.n_vars):
                 param_labels.append(f"L[{i}][{j}]")
-        for i in range(self.n_facs):
-            for j in range(i):
-                param_labels.append(f"Phi[{i}][{j}]")
+        if self._rotation_method is not None:
+            for i in range(self.n_facs):
+                for j in range(i):
+                    param_labels.append(f"Phi[{i}][{j}]")
         for i in range(self.n_vars):
             param_labels.append(f"Psi[{i}]")
         res_cols = ["param", "SE", "z", "p"]

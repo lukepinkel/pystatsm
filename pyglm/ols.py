@@ -45,6 +45,8 @@ class OLS:
         self.Linv = np.linalg.inv(self.L)
         self.n, self.p = X.shape[0], X.shape[1]
         self.ymean = self.y.mean()
+        self.formula = formula
+        self.data = data
         
     
     def _fit_mats(self, X, y):
@@ -110,6 +112,9 @@ class OLS:
         self.res = res
         self.beta, self.beta_se = beta, beta_se
         self.tvalues = self.beta / self.beta_se
+        self.Ginv = np.dot(self.Linv.T, self.Linv)
+        self.Vbeta = self.Ginv * msr
+        self.s2 = msr
     
     def _permutation_test_store(self,n_perms, L, Linv, X, y, verbose):
         pbar = tqdm.tqdm(total=n_perms) if verbose else None
