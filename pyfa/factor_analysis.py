@@ -9,7 +9,7 @@ import numpy as np
 import scipy as sp
 import scipy.stats
 import pandas as pd
-from .rotation import rotate, oblique_constraint_derivs
+from .rotation import rotate, oblique_constraint_derivs, approx_oblique_constraint_derivs
 from ..utilities.linalg_operations import vec, invec, vech, invech, vecl, invecl
 from ..utilities.special_mats import nmat, dmat, lmat
 from ..utilities.numerical_derivs import so_gc_cd
@@ -379,14 +379,16 @@ class FactorAnalysis(object):
             self.theta[self.lix] = vec(self.L)
         else:
             self.T = np.eye(self.n_facs)
+            vgq, gamma = None, None
+            
         self.L, self.T, self.theta = self._reorder_factors(self.L, self.T, self.theta)
         self.Phi = np.dot(self.T, self.T.T)
         self._make_augmented_params(self.L, self.Phi, self.Psi)
-        
+        self._vgq, self._gamma = vgq, gamma
         self.Sigma = self.implied_cov(self.theta)
         self.H = so_gc_cd(self.gradient_augmented, self.params)
         if self._rotation_method is not None:
-            self.J = oblique_constraint_derivs(self.L.dot(self.T), self.T, gamma, vgq)
+            self.J = approx_oblique_constraint_derivs(self.params, self).T
             i, j = np.indices((self.n_facs, self.n_facs))
             i, j = i.flatten(), j.flatten()
             #self.J = self.J[j>=i]

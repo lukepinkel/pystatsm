@@ -210,7 +210,7 @@ def oblique_constraint_derivs(A, T, gamma, vgq):
     D = np.concatenate([DL, DPhi, np.zeros((DL.shape[0], p))], axis=1)
     return D
 
-def jac_approx(f, x, eps=1e-4, tol=None, d=1e-4, *args):
+def jac_approx(f, x, eps=1e-4, tol=None, d=1e-4, args=()):
     tol = np.finfo(float).eps**(1/3) if tol is None else tol
     h = np.abs(d * x) + eps * (np.abs(x) < tol)
     n = len(x)
@@ -236,17 +236,23 @@ def oblique_constraints(lvec, tvec, p, q, gamma, vgq):
     #J2 = Phi * I
     J = J1 #+ J2 - I
     return vec(J)
-    
 
-def approx_oblique_constraint_derivs(A, T, gamma, vgq):
-    p, q  = A.shape
-    Tinv = np.linalg.inv(T)
-    L = np.dot(A, Tinv)
-    lvec, tvec = vec(L), vec(T)
-    f = lambda lvec: oblique_constraints(lvec, tvec, p, q, gamma, vgq)
-    H = jac_approx(f, lvec)
-    H = np.concatenate([H.T, np.zeros((H.shape[1], p))], axis=1)
-    return H
+
+def oblique_constraint_func(params, model):
+    L, Phi, Psi = model.model_matrices_augmented(params)
+    T = model.T
+    _, Gq = model._vgq(L, model._gamma)
+    p, q  = L.shape
+    I = np.eye(q)
+    N = np.ones((q, q)) - I
+    Phi = np.dot(T, T.T)
+    J1 = L.T.dot(Gq).dot(np.linalg.inv(Phi)) * N
+    return vec(J1)
+
+def approx_oblique_constraint_derivs(params, model):
+    J = jac_approx(oblique_constraint_func, params, args=(model,))
+    return J
+
     
 def rotate(A, criterion, method='oblimin', rotation_type='oblique', T=None, 
            tol=1e-7, alpha=1.0, n_iters=500, custom_gamma=None):
