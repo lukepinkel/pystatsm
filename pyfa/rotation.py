@@ -255,7 +255,7 @@ def approx_oblique_constraint_derivs(params, model):
 
     
 def rotate(A, criterion, method='oblimin', rotation_type='oblique', T=None, 
-           tol=1e-7, alpha=1.0, n_iters=500, custom_gamma=None):
+           tol=1e-8, alpha=1.0, n_iters=500, custom_gamma=None):
     '''
     Rotation of loadings matrix
     
