@@ -86,21 +86,36 @@ def sparse_woodbury_inversion(Umat, Vmat=None, C=None, Cinv=None, A=None, Ainv=N
     return W
 
 
-def add_chol_row(xnew, xold, L=None):
-    xtx = xnew
-    norm_xnew = np.sqrt(xtx)
-    if L is None:
-        L = np.atleast_2d(norm_xnew)
-        return L
+def add_chol_row(A, L, i):
+    x, r = A[i, :i], A[i, i]
+    if i>0:
+        b = sp.linalg.solve_triangular(L[:i, :i], x, lower=True, check_finite=False)
+        L[i, :i] = b
     else:
-        Xtx = xold
-        r = sp.linalg.solve(L, Xtx)
-        rpp = np.sqrt(xtx - np.sum(r**2))
-        A = np.block([[L, np.zeros((L.shape[0], 1))],
-                       [r, np.atleast_1d(rpp)]])
-        return A
+        b = L[i, :i]
+    s = np.dot(b.T, b)
+    L[i, i] = np.sqrt(r-s)
+    return L
+    
 
-        
+@numba.jit(nopython=True)
+def chol_downdate(L, k):
+    n = L.shape[0]
+    L1 = L.copy()[np.arange(n)!=k]
+    for t in range(k, n-1):
+        a, b = L1[t, t], L1[t, t+1]
+        v = np.sqrt(a**2+b**2)
+        c, s = a / v, b / v
+        for i in range(t, n-1):
+            Lit = L1[i, t]
+            Lit1 = L1[i, t+1]
+            L1[i, t] = c * Lit + s * Lit1
+            L1[i, t+1] = c * Lit1 - s * Lit
+        L1[t, t] = v
+        L1[t, t+1] = 0.0
+    L1 = L1[:, :-1]
+    return L1
+
 
 @numba.jit(nopython=True)
 def toeplitz_cholesky_lower_nb(n, A):
