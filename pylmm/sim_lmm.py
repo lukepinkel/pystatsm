@@ -8,8 +8,9 @@ import re
 import numpy as np
 import scipy as sp
 import pandas as pd
+import scipy.sparse as sps
 from ..pylmm.model_matrices import construct_model_matrices
-from ..utilities.random_corr import exact_rmvnorm
+from ..utilities.random_corr import exact_rmvnorm, multivariate_t, _exact_cov
 from ..utilities.linalg_operations import invech, vech
 from ..utilities.numerical_derivs import so_gc_cd
 
@@ -71,11 +72,60 @@ def parse_vars(formula, model_dict):
     df[yvars] = 0
     return df, re_groupings, cont_vars
 
+
+def _make_sim_theta(model_dict):
+    theta_init, theta_true, indices, index_start =[],  [], {}, 0
+    gcov = model_dict["gcov"].copy()
+    gcov['resid'] = np.eye(1)
+    for key, Gi in gcov.items():
+        n_vars = Gi.shape[0]
+        n_params = int(n_vars * (n_vars+1) //2)
+        indices[key] = np.arange(index_start, index_start+n_params)
+        theta_true.append(vech(Gi))
+        theta_init.append(vech(np.eye(n_vars)))
+        index_start += n_params
+    theta_true = np.concatenate(theta_true)
+    theta_init = np.concatenate(theta_init)
+    return theta_true, theta_init, indices
+
+def make_gcov(theta, indices, dims, inverse=False):
+    Gmats, g_indices, start = {}, {}, 0
+    for key, value in dims.items():
+        dims_i = dims[key]
+        ng, nv = dims_i['n_groups'],  dims_i['n_vars']
+        nv2, nvng = nv*nv, nv*ng
+        theta_i = theta[indices['theta'][key]]
+        if inverse:
+            theta_i = np.linalg.inv(invech(theta_i)).reshape(-1, order='F')
+        else:
+            theta_i = invech(theta_i).reshape(-1, order='F')
+        row = np.repeat(np.arange(nvng), nv)
+        col = np.repeat(np.arange(ng)*nv, nv2)
+        col = col + np.tile(np.arange(nv), nvng)
+        data = np.tile(theta_i, ng)
+        Gmats[key] = sps.csc_matrix((data, (row, col)))
+        g_indices[key] = np.arange(start, start+len(data))
+        start += len(data)
+    G = sps.block_diag(list(Gmats.values())).tocsc()
+    return G, g_indices
+
+
+def get_var_comps(Xb, Z, G):
+    re_var = np.mean(np.einsum("ij,jj,ij->i", Z, G.A, Z))
+    fe_var = np.dot(Xb.T, Xb) / Xb.shape[0]
+    return fe_var, re_var
+
+
 class MixedModelSim:
     
-    def __init__(self, formula, model_dict, rng=None, group_dict={}):
-        df, re_groupings, cont_vars = parse_vars(formula, model_dict)
+    def __init__(self, formula, model_dict, rng=None, group_dict={}, var_ratios=None,
+                 ranef_dist=None, resid_dist=None):
         rng = np.random.default_rng() if rng is None else rng
+        ranef_dist =  rng.multivariate_normal if ranef_dist is None else ranef_dist
+        resid_dist =  rng.normal if resid_dist is None else resid_dist
+        
+        df, re_groupings, cont_vars = parse_vars(formula, model_dict)
+        
         ginfo = model_dict['ginfo']
         for x in re_groupings:
             if x not in group_dict.keys():
@@ -88,46 +138,76 @@ class MixedModelSim:
         xvals = exact_rmvnorm(x_cov, n_obs, mu=x_mean)
         df[list(cont_vars)] = xvals
         X, Z, y, dims = construct_model_matrices(formula, data=df)
-        
-        self.rng = rng
+        self.rng, self.ranef_dist, self.resid_dist = rng, ranef_dist, resid_dist
         self.formula, self.model_dict, self.ginfo = formula, model_dict, ginfo
         self.df, self.re_groupings, self.cont_vars = df, re_groupings, cont_vars
         self.X, self.Z, self.dims = X, Z, dims
         self.eta_fe, self.n_obs = X.dot(model_dict['beta']),  n_obs
+        self.indices = {}
+        self.theta_true, self.theta_init, self.indices["theta"] = _make_sim_theta(model_dict)
+        self.G, self.indices["g"] = make_gcov(self.theta_true, self.indices, self.dims)
+        self.beta = model_dict['beta']
+        if var_ratios is not None:
+            r_fe, r_re = var_ratios[0], var_ratios[1]
+            v_fe, v_re = get_var_comps(self.eta_fe, self.Z, self.G)
+            c = (v_fe / v_re) * (r_re / r_fe)
+            for key in self.dims.keys():
+                ng = self.dims[key]['n_groups']
+                t = self.theta_true[self.indices['theta'][key]] * c
+                Gi = invech(t)
+                self.model_dict["gcov"][key] = Gi
+                theta_i = Gi.reshape(-1, order='F')
+                self.G.data[self.indices['g'][key]] = np.tile(theta_i, ng)
+                self.theta_true[self.indices['theta'][key]] = t
+            self.v_fe, self.v_re = get_var_comps(self.eta_fe, self.Z, self.G)
+            self.c = c
+            rt = r_re + r_fe
+            self.v_rs = (1.0 - rt) / rt * (self.v_re+self.v_fe)
+            self.theta_true[-1] = self.v_rs
+        else:
+            self.v_re, self.v_fe, self.v_rs, self.c = None, None, None, None
+        self.var_ratios = var_ratios
     
-    def simulate_ranefs(self, exact_ranefs=True):
+    def simulate_ranefs(self, exact_ranefs=True, ranef_dist=None, ranef_kws={}):
         U = []
+        dist = self.ranef_dist if ranef_dist is None else ranef_dist
         for x in self.re_groupings:
             Gi, n_grp = self.model_dict['gcov'][x], self.model_dict['ginfo'][x]['n_grp']
             u_mean = np.zeros(len(Gi))
+            Ui = dist(mean=u_mean, cov=Gi, size=n_grp, **ranef_kws)
             if exact_ranefs:
-                Ui = exact_rmvnorm(np.atleast_2d(Gi), n_grp, mu=u_mean).flatten()
-            else:
-                Ui = self.rng.multivariate_normal(mean=u_mean, cov=Gi, size=n_grp).flatten()
-            U.append(Ui)
+                Ui = _exact_cov(Ui, mean=u_mean, cov=Gi)
+            u_i = Ui.flatten()
+            U.append(u_i)
         u = np.concatenate(U)
         return u
     
-    def simulate_linpred(self, exact_ranefs=True):
-        u = self.simulate_ranefs(exact_ranefs=exact_ranefs)
+    def simulate_linpred(self, exact_ranefs=True, ranef_dist=None, ranef_kws={}):
+        u = self.simulate_ranefs(exact_ranefs=exact_ranefs, ranef_dist=ranef_dist,
+                                 ranef_kws=ranef_kws)
         eta = self.eta_fe + self.Z.dot(u)
         return eta
     
     def simulate_response(self, rsq=None, resid_scale=None, exact_ranefs=True, 
-                          exact_resids=True):
-        eta = self.simulate_linpred(exact_ranefs=exact_ranefs)
-        
-        if resid_scale is None:
+                          exact_resids=True, ranef_dist=None, resid_dist=None, 
+                          ranef_kws={}, resid_kws={}):
+        eta = self.simulate_linpred(exact_ranefs=exact_ranefs, ranef_dist=ranef_dist,
+                                    ranef_kws=ranef_kws)
+        dist = self.resid_dist if resid_dist is None else resid_dist
+        if resid_scale is None and self.v_rs is None:
             rsq = 0.64 if rsq is None else rsq
             s = np.sqrt((1-rsq)/rsq*eta.var())
+        elif resid_scale is None and self.v_rs is not None:
+            s = np.sqrt(self.v_rs)
         else:
             s = resid_scale
+            
         if exact_resids:
-            resids = self.rng.normal(0, 1, size=self.n_obs)
+            resids = dist(loc=0, scale=1, size=self.n_obs, **resid_kws)
             resids = (resids - resids.mean()) / resids.std() * s
             y = eta + resids
         else:
-            y = self.rng.normal(eta, scale=s)
+            y = dist(loc=eta, scale=s, size=self.n_obs, **resid_kws)
         return y
     
     def update_model(self, model, y):

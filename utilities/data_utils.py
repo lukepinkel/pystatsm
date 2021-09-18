@@ -40,12 +40,12 @@ def _col_std(X):
 
 @numba.jit(nopython=True)
 def center(X):
-    X -= _col_mean(X)
+    X = X - _col_mean(X)
     return X
 
 @numba.jit(nopython=True)
 def standardize(X):
-    X /= _col_std(X)
+    X = X / _col_std(X)
     return X
 
 @numba.jit(nopython=True)

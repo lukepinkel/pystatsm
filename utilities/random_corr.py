@@ -8,41 +8,8 @@ Created on Sat May 16 21:48:19 2020
 
 import numba # analysis:ignore
 import numpy as np # analysis:ignore
-from .linalg_operations import whiten
-from .data_utils import corr, csd
+from .data_utils import corr as _corr, cov as _cov, csd as _csd
 
-@numba.jit(nopython=True)
-def exact_rmvnorm(S, n=1000, mu=None, seed=None):
-    if seed is not None:
-        np.random.seed(seed)
-    p = S.shape[0]
-    U, d, _ = np.linalg.svd(S)
-    d = d.reshape(1, -1)
-    L = U * d**0.5
-    X = csd(np.random.normal(0.0, 1.0, size=(n, p)))
-    R = corr(X)
-    L = L.dot(np.linalg.inv(np.linalg.cholesky(R)))
-    X = X.dot(L.T)
-    if mu is not None:
-        X = X + mu
-    return X
-
-
-def multi_rand(R, size=1000, rng=None):    
-    if rng is None:
-        rng = np.random.default_rng()
-    n = R.shape[0]
-    X = rng.normal(size=(size, n))
-    X -= X.mean(axis=0)
-    X /= X.std(axis=0)
-    
-    X = whiten(X)
-    X -= X.mean(axis=0)
-    X /= X.std(axis=0)
-    
-    W = np.linalg.cholesky(R)
-    Y = X.dot(W.T)
-    return Y
 
 def project_psd(A, tol_e=1e-9, use_transpose=True):
     u, V = np.linalg.eigh(A)
@@ -147,4 +114,60 @@ def onion_corr(d, eta=1, beta=None):
         S = np.concatenate((np.concatenate((S, q), axis=1),
                             np.concatenate((q.T, I), axis=1)), axis=0)
     return S
+
+
+@numba.jit(nopython=True)
+def exact_rmvnorm(S, n=1000, mu=None, seed=None):
+    if seed is not None:
+        np.random.seed(seed)
+    p = S.shape[0]
+    U, d, _ = np.linalg.svd(S)
+    d = d.reshape(1, -1)
+    L = U * d**0.5
+    X = _csd(np.random.normal(0.0, 1.0, size=(n, p)))
+    R = _corr(X)
+    L = L.dot(np.linalg.inv(np.linalg.cholesky(R)))
+    X = X.dot(L.T)
+    if mu is not None:
+        X = X + mu
+    return X
+
+def _whiten(X, keep_mean=False):
+    mean = np.mean(X, axis=0) if keep_mean else np.zeros(X.shape[1])
+    S = _cov(X)
+    L = np.linalg.inv(np.linalg.cholesky(S))
+    Y = mean + X.dot(L.T)
+    return Y
+
+def _svd_cov_transform(S):
+    U, d, _ = np.linalg.svd(S, full_matrices=False)
+    L = U * np.sqrt(d[:, np.newaxis])
+    return L
+
+def _exact_cov(X, mean=None, cov=None, keep_mean=False):
+    p = X.shape[1]
+    mean = np.zeros(p) if mean is None else mean
+    cov = np.eye(p) if cov is None else cov
+    Y = _whiten(X, keep_mean=keep_mean)
+    L = _svd_cov_transform(cov)
+    Z = mean + Y.dot(L.T)
+    return Z
+    
+
+def students_t(loc, scale, nu=1, size=None, rng=None):
+     rng = np.random.default_rng() if rng is None else rng
+     x = loc + rng.standard_t(df=nu, size=size) * scale
+     return x
+    
+def multivariate_t(mean, cov, nu=1, size=None, rng=None):
+    rng = np.random.default_rng() if rng is None else rng
+    u = np.sqrt(nu / rng.chisquare(df=nu, size=size))[:, np.newaxis]
+    Y = rng.multivariate_normal(mean=mean, cov=cov, size=size)
+    X = mean + u * Y
+    return X
+    
+    
+    
+    
+    
         
