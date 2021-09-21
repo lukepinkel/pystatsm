@@ -46,46 +46,6 @@ def _check_np(x):
         x = x.values
     return x
 
-
-@numba.jit(nopython=True)
-def khatri_rao(X, Y):
-    n, p = X.shape
-    m, q = Y.shape
-    nm = n * m
-    assert p == q
-    Z = np.zeros((nm, p), dtype=np.double)
-
-    for i in range(p):
-        Z[:, i] = np.kron(np.asfortranarray(X[:, i]), np.asfortranarray(Y[:, i]))
-    return Z
-  
-    
-
-def woodbury_inversion(Umat, Vmat=None, C=None, Cinv=None, A=None, Ainv=None):
-    if Ainv is None:
-        Ainv = np.linalg.inv(A)
-    if Cinv is None:
-        Cinv = np.linalg.inv(C)
-    if Vmat is None:
-        Vmat = Umat.T
-    T = Ainv.dot(Umat)
-    H = np.linalg.inv(Cinv + Vmat.dot(T))
-    W = Ainv - T.dot(H).dot(Vmat).dot(Ainv)
-    return W
-    
-def sparse_woodbury_inversion(Umat, Vmat=None, C=None, Cinv=None, A=None, Ainv=None):
-    if Ainv is None:
-        Ainv = sps.linalg.inv(A)
-    if Cinv is None:
-        Cinv = sps.linalg.inv(C)
-    if Vmat is None:
-        Vmat = Umat.T
-    T = Ainv.dot(Umat)
-    H = sps.linalg.inv(Cinv + Vmat.dot(T))
-    W = Ainv - T.dot(H).dot(Vmat).dot(Ainv)
-    return W
-
-
 def add_chol_row(A, L, i):
     x, r = A[i, :i], A[i, i]
     if i>0:
@@ -205,6 +165,12 @@ def invecl(v):
     return Y
 
 
+def invech_chol(lvec):
+    p = int(0.5 * ((8*len(lvec) + 1)**0.5 - 1))
+    L = np.zeros((p, p))
+    a, b = np.triu_indices(p)
+    L[(b, a)] = lvec
+    return L
 
 @numba.jit(nopython=True)
 def _dummy(x, fullrank=True, categories=None):
@@ -223,47 +189,6 @@ def dummy(x, fullrank=True, categories=None):
     x = _check_shape(_check_np(x))
     return _dummy(x, fullrank, categories)
 
-def inv_sqrt(X):
-    u, V = np.linalg.eig(X)
-    U = np.diag(1.0 / np.sqrt(np.maximum(u, 1e-12)))
-    Xisq = np.linalg.multi_dot([V, U, V.T])
-    return Xisq
-    
-def zca(X, S=None): 
-    if S is None:
-        S = np.cov(X, rowvar=False, bias=True)
-    W = inv_sqrt(S)
-    return W
-
-def wpca(X, S=None):
-    if S is None:
-        S = np.cov(X, rowvar=False, bias=True)
-    u, V = np.linalg.eig(np.atleast_2d(S))
-    U = np.diag(1 / np.sqrt(u))
-    W = np.dot(U, V.T)
-    return W
-
-def cholesky_whitening(X, S=None):
-    if S is None:
-        S = np.cov(X, rowvar=False, bias=True)
-    W = np.linalg.cholesky(np.linalg.pinv(S)).T
-    return W
-
-def whiten(X, method='PCA'):
-    if method=='PCA':
-        W = wpca(X)
-    if method=='ZCA':
-        W = zca(X)
-    if method=='chol':
-        W = cholesky_whitening(X)
-    Z = np.dot(W, X.T).T
-    return Z
-    
-
-def normdiff(a, b):
-    diff = np.linalg.norm(a - b)
-    diff /= (np.linalg.norm(a) + np.linalg.norm(b))
-    return diff
 
 def vdg(X):
     V = np.diag(vec(X))

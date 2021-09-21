@@ -358,7 +358,7 @@ def binom_glmnet(X, y, lambda_, alpha, b=None, active=None, n_iters=2000,
 
 def cv_binom_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, btol=1e-4, dtol=1e-4, 
               n_iters=1000, warm_start=True, refit=True, lmin_pct=0,
-              pmin=1e-9, nr_ent=True, seq_rule=True, intercept=True,
+              lmin=None, pmin=1e-9, nr_ent=True, seq_rule=True, intercept=True,
               rng=None):
     '''
     Cross validated grid search for optimal elastic net penalty for a binomial
@@ -440,10 +440,10 @@ def cv_binom_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, btol=1e-4, dtol=
             nl = 150
         else:
             nl = int(lambdas)
-        b0 = X.T.dot(y - y.mean()) / X.shape[0]
+        b0 = X.T.dot(y - np.log(y.mean() / (1.0 - y.mean()))) / X.shape[0]
         if lmin_pct is None:
             lmin_pct = X.shape[1] / X.shape[0] * 100.0
-        lambda_min = sp.stats.scoreatpercentile(np.abs(b0), lmin_pct)
+        lambda_min = sp.stats.scoreatpercentile(np.abs(b0), lmin_pct) if lmin is None else lmin
         lambda_max = np.abs(b0).max() / alpha
         lambdas = np.exp(np.linspace(np.log(lambda_max), np.log(lambda_min), nl))
     if rng is None:
@@ -454,7 +454,7 @@ def cv_binom_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, btol=1e-4, dtol=
     betas = np.zeros((len(lambdas)+1, p))
     fvals = np.zeros((len(lambdas), cv, 3))
     
-    Xf, yf, Xt, yt = crossval_mats(X, y, X.shape[0], cv)
+    Xf, yf, Xt, yt = crossval_mats(X, y, X.shape[0], cv, categorical=True)
     progress_bar = tqdm.tqdm(total=len(lambdas)*cv)
     beta_start = rng.normal(size=X.shape[1]) / X.shape[0]
     for i in range(cv):

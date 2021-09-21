@@ -9,8 +9,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-def crossval_mats(X, y, n, cv):
-    kfix = kfold_indices(n, cv)
+def crossval_mats(X, y, n, cv, categorical=False):
+    kfix = kfold_indices(n, cv, y, categorical)
     Xf, yf, Xt, yt = [], [], [], []
     for f_ix, v_ix in kfix:
         Xf.append(X[f_ix])
@@ -19,7 +19,12 @@ def crossval_mats(X, y, n, cv):
         yt.append(y[v_ix])
     return Xf, yf, Xt, yt
     
-def kfold_indices(n, k):
+def kfold_indices(n, k, y, categorical=False):
+    if categorical:
+        _,  idx =np.unique(y, return_inverse=True)
+        t = np.arange(y.shape[0])
+        splits = list(zip(*[np.array_split(t[idx==i], k) for i in np.unique(idx)]))
+        splits = [np.concatenate(x) for x in splits]
     splits = np.array_split(np.arange(n), k)
     inds = []
     for i in range(k):

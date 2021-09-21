@@ -9,9 +9,6 @@ Created on Thu Mar 12 19:54:36 2020
 import numpy as np # analysis:ignore
 import scipy as sp # analysis:ignore
 import scipy.stats # analysis:ignore
-import pandas as pd # analysis:ignore
-import matplotlib as mpl # analysis:ignore
-import matplotlib.pyplot as plt# analysis:ignore
 
 
 def xcorr_brute(x, y):

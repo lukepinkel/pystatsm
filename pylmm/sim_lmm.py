@@ -8,38 +8,14 @@ import re
 import numpy as np
 import scipy as sp
 import pandas as pd
-import scipy.sparse as sps
-from ..pylmm.model_matrices import construct_model_matrices
-from ..utilities.random_corr import exact_rmvnorm, multivariate_t, _exact_cov
+from ..pylmm.model_matrices import (construct_model_matrices, inverse_transform_theta,
+                                    replace_duplicate_operators, make_gcov)
+from ..utilities.random import exact_rmvnorm, multivariate_t
+from ..utilities.cov_utils import _exact_cov
 from ..utilities.linalg_operations import invech, vech
 from ..utilities.numerical_derivs import so_gc_cd
 
-def invech_chol(lvec):
-    p = int(0.5 * ((8*len(lvec) + 1)**0.5 - 1))
-    L = np.zeros((p, p))
-    a, b = np.triu_indices(p)
-    L[(b, a)] = lvec
-    return L
 
-def transform_theta(theta, dims, indices):
-    for key in dims.keys():
-        G = invech(theta[indices['theta'][key]])
-        L = np.linalg.cholesky(G)
-        theta[indices['theta'][key]] = vech(L)
-    theta[-1] = np.log(theta[-1])
-    return theta
-        
-    
-def inverse_transform_theta(theta, dims, indices):
-    for key in dims.keys():
-        L = invech_chol(theta[indices['theta'][key]])
-        G = L.dot(L.T)
-        theta[indices['theta'][key]] = vech(G)
-    theta[-1] = np.exp(theta[-1])
-    return theta
-        
-def replace_duplicate_operators(match):
-    return match.group()[-1:]
 
 
 def parse_vars(formula, model_dict):
@@ -88,27 +64,6 @@ def _make_sim_theta(model_dict):
     theta_init = np.concatenate(theta_init)
     return theta_true, theta_init, indices
 
-def make_gcov(theta, indices, dims, inverse=False):
-    Gmats, g_indices, start = {}, {}, 0
-    for key, value in dims.items():
-        dims_i = dims[key]
-        ng, nv = dims_i['n_groups'],  dims_i['n_vars']
-        nv2, nvng = nv*nv, nv*ng
-        theta_i = theta[indices['theta'][key]]
-        if inverse:
-            theta_i = np.linalg.inv(invech(theta_i)).reshape(-1, order='F')
-        else:
-            theta_i = invech(theta_i).reshape(-1, order='F')
-        row = np.repeat(np.arange(nvng), nv)
-        col = np.repeat(np.arange(ng)*nv, nv2)
-        col = col + np.tile(np.arange(nv), nvng)
-        data = np.tile(theta_i, ng)
-        Gmats[key] = sps.csc_matrix((data, (row, col)))
-        g_indices[key] = np.arange(start, start+len(data))
-        start += len(data)
-    G = sps.block_diag(list(Gmats.values())).tocsc()
-    return G, g_indices
-
 
 def get_var_comps(Xb, Z, G):
     re_var = np.mean(np.einsum("ij,jj,ij->i", Z, G.A, Z))
@@ -137,7 +92,7 @@ class MixedModelSim:
         x_mean, x_cov = model_dict['mu'], np.atleast_2d(model_dict['vcov'])
         xvals = exact_rmvnorm(x_cov, n_obs, mu=x_mean)
         df[list(cont_vars)] = xvals
-        X, Z, y, dims = construct_model_matrices(formula, data=df)
+        X, Z, y, dims, _ = construct_model_matrices(formula, data=df)
         self.rng, self.ranef_dist, self.resid_dist = rng, ranef_dist, resid_dist
         self.formula, self.model_dict, self.ginfo = formula, model_dict, ginfo
         self.df, self.re_groupings, self.cont_vars = df, re_groupings, cont_vars
@@ -168,7 +123,7 @@ class MixedModelSim:
             self.v_re, self.v_fe, self.v_rs, self.c = None, None, None, None
         self.var_ratios = var_ratios
     
-    def simulate_ranefs(self, exact_ranefs=True, ranef_dist=None, ranef_kws={}):
+    def simulate_ranefs(self, exact_ranefs=False, ranef_dist=None, ranef_kws={}):
         U = []
         dist = self.ranef_dist if ranef_dist is None else ranef_dist
         for x in self.re_groupings:
@@ -182,14 +137,14 @@ class MixedModelSim:
         u = np.concatenate(U)
         return u
     
-    def simulate_linpred(self, exact_ranefs=True, ranef_dist=None, ranef_kws={}):
+    def simulate_linpred(self, exact_ranefs=False, ranef_dist=None, ranef_kws={}):
         u = self.simulate_ranefs(exact_ranefs=exact_ranefs, ranef_dist=ranef_dist,
                                  ranef_kws=ranef_kws)
         eta = self.eta_fe + self.Z.dot(u)
         return eta
     
-    def simulate_response(self, rsq=None, resid_scale=None, exact_ranefs=True, 
-                          exact_resids=True, ranef_dist=None, resid_dist=None, 
+    def simulate_response(self, rsq=None, resid_scale=None, exact_ranefs=False, 
+                          exact_resids=False, ranef_dist=None, resid_dist=None, 
                           ranef_kws={}, resid_kws={}):
         eta = self.simulate_linpred(exact_ranefs=exact_ranefs, ranef_dist=ranef_dist,
                                     ranef_kws=ranef_kws)

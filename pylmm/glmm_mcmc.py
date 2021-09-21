@@ -10,24 +10,13 @@ import arviz as az
 import numpy as np
 import scipy as sp
 import scipy.stats
-import pandas as pd # analysis:ignore
 from .lmm import LMM, make_theta
 from ..utilities.linalg_operations import vech, _check_shape
 from sksparse.cholmod import cholesky
-from ..utilities.trnorm import trnorm, scalar_truncnorm
-from ..utilities.wishart import r_invwishart, r_invgamma
-from ..utilities.poisson import poisson_logp
-
-SQRT2 = np.sqrt(2)
-
-def log1p(x):
-    return np.log(1+x)
+from ..utilities.random import trnorm, r_invwishart, r_invgamma
+from ..utilities.func_utils import poisson_logp, log1p, norm_cdf
 
 
-def norm_cdf(x, mean=0.0, sd=1.0):
-    z = (x - mean) / sd
-    p = (sp.special.erf(z/SQRT2) + 1.0) / 2.0
-    return p
 
 def get_u_indices(dims): 
     u_indices = {}

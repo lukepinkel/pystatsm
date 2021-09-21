@@ -11,7 +11,7 @@ import scipy as sp
 import scipy.stats
 import pandas as pd
 from ..utilities.data_utils import _check_type
-from ..utilities.linalg_operations import _check_shape, normdiff
+from ..utilities.linalg_operations import _check_shape
 from .m_estimators import (Huber, Bisquare, Hampel, Laplace) # analysis:ignore
 
 class RLS:
@@ -53,7 +53,7 @@ class RLS:
             u = resids / s
             w = self.f.weights(u)
             
-            db = normdiff(beta, b0)
+            db = np.sum(np.abs(beta-b0))
             dhist.append(db)
             if db < tol:
                 break
