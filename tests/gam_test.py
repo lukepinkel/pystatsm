@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from pystats.pygam.gam import GAM, Gamma
 from pystats.pyglm.links import LogLink
-from pystats.utilities.linalg_operations import dummy
+from pystats.utilities.data_utils import dummy
 from pystats.utilities.numerical_derivs import fo_fc_cd, so_gc_cd
 rng = np.random.default_rng(123)
 
@@ -42,6 +42,7 @@ def test_gam():
     theta = np.array([49.617907465401451, 407.234892157726449])
     assert(np.allclose(np.exp(model.theta)[:-1], theta))
     
+    theta = model.theta.copy()
     eps = np.finfo(float).eps**(1/4)
     grad_close = np.allclose(model.gradient(theta), fo_fc_cd(model.reml, theta), atol=eps, rtol=eps)
     hess_close = np.allclose(model.hessian(theta), so_gc_cd(model.gradient, theta), atol=eps, rtol=eps)

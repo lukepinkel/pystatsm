@@ -4,6 +4,7 @@ Created on Sun May 23 16:39:50 2021
 
 @author: lukepinkel
 """
+
 import numpy as np
 import pandas as pd
 from pystats.pyglm.clm import CLM

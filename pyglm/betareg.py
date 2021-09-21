@@ -11,7 +11,7 @@ import scipy.stats
 import pandas as pd
 from scipy.special import gammaln, digamma, polygamma
 from .links import LogitLink, LogLink, Link
-from ..utilities.linalg_operations import wcrossp
+from ..utilities.linalg_operations import wdcrossp
 
 class BetaReg:
     
@@ -96,8 +96,8 @@ class BetaReg:
         rm = self.ys - u
         rs = mu * rm + digamma(phi) - d + self.log1y
         
-        gm = wcrossp(X, wm, rm)
-        gs = wcrossp(Z, ws, rs)
+        gm = wdcrossp(X, wm, rm)
+        gs = wdcrossp(Z, ws, rs)
         g = -np.concatenate([gm, gs])
         return g
     
@@ -134,9 +134,9 @@ class BetaReg:
         #wss = -(a * g1s - b * g1s**2 * gs2)
         wss = -(d2L_dphi2 * g1s + dL_dphi * g2s) * g1s
         
-        Hmm = wcrossp(X, wmm, X)
-        Hms = wcrossp(X, wms, Z)
-        Hss = wcrossp(Z, wss, Z)
+        Hmm = wdcrossp(X, wmm, X)
+        Hms = wdcrossp(X, wms, Z)
+        Hss = wdcrossp(Z, wss, Z)
         H = np.block([[Hmm, Hms], [Hms.T, Hss]])
         return H
 

@@ -15,6 +15,11 @@ def wcrossp(X, w):
     Y =  (X * w[:, np.newaxis]).T.dot(X)
     return Y
 
+def wdcrossp(X, w, Y):
+    Y =  (X * w[:, np.newaxis]).T.dot(Y)
+    return Y
+
+
 def add_chol_row(A, L, i):
     x, r = A[i, :i], A[i, i]
     if i>0:

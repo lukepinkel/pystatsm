@@ -9,7 +9,7 @@ Created on Mon Sep 20 21:25:56 2021
 import numpy as np
 import pandas as pd
 from pystats.pygam.gauls import GauLS
-from pystats.utilities.linalg_operations import dummy
+from pystats.utilities.data_utils import dummy
 from pystats.utilities.numerical_derivs import fo_fc_cd, so_gc_cd
 
 
@@ -34,7 +34,7 @@ def test_gauls():
     
     
     model = GauLS("y~C(x0)+s(x1, kind='cr')+s(x2, kind='cr')", "y~1+s(x2, kind='cr')", df)
-    model.fit(opt_kws=dict(options=dict(verbose=3)))
+    model.fit()
     
     assert(model.opt.success==True)
     assert((np.abs(model.opt.grad)<1e-6).all())

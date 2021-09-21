@@ -36,11 +36,11 @@ def test_lmm():
     df = msim.df.copy()
     df["y"] = msim.simulate_response()
     model = LMM(formula, data=df)
-    model.fit()
+    model.fit(opt_kws=dict(xtol=1e-16, gtol=1e-12))
     assert(model.optimizer.success==True)
-    assert((np.abs(model.optimizer.grad)<1e-6).all())
+    assert((np.abs(model.optimizer.grad)<1e-5).all())
     
-    theta = np.array([ 0.95068117, -0.36534715,  0.79845969,  1.12384674])
+    theta = np.array([ 0.95418349, -0.36657794,  0.84136618,  1.12001821])
     assert(np.allclose(model.theta, theta))
     
     eps = np.finfo(float).eps**(1/4)

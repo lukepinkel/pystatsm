@@ -9,7 +9,7 @@ import numpy as np
 import scipy as sp
 import scipy.stats
 import pandas as pd
-from .linalg_operations import _check_shape
+from .data_utils import _check_shape
 
 def get_param_table(params, se_params, degfree=None, index=None,
                     parameter_label=None, pdist=None, p_const=2.0):

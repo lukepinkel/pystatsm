@@ -90,7 +90,7 @@ class MixedModelSim:
                 df[x] = group_dict[x]
         n_obs = model_dict['n_obs']
         x_mean, x_cov = model_dict['mu'], np.atleast_2d(model_dict['vcov'])
-        xvals = exact_rmvnorm(x_cov, n_obs, mu=x_mean)
+        xvals = exact_rmvnorm(x_cov, n_obs, mu=x_mean, seed=123)
         df[list(cont_vars)] = xvals
         X, Z, y, dims, _ = construct_model_matrices(formula, data=df)
         self.rng, self.ranef_dist, self.resid_dist = rng, ranef_dist, resid_dist
