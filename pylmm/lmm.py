@@ -16,7 +16,8 @@ from .model_matrices import (construct_model_matrices, make_theta, make_gcov,
                              get_jacmats, transform_theta, get_d2_chol, lndet_gmat,
                              inverse_transform_theta, vcrepara_grad,
                              VarCorrReparam, RestrictedModel)
-from ..utilities.linalg_operations import invech_chol, invech, _check_shape
+from ..utilities.data_utils import _check_shape
+from ..utilities.linalg_operations import invech_chol, invech
 from ..utilities.special_mats import lmat, nmat
 from ..utilities.numerical_derivs import so_gc_cd, so_fc_cd, fo_fc_cd
 from ..pyglm.families import (Binomial, ExponentialFamily, Poisson, NegativeBinomial)

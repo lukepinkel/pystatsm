@@ -16,12 +16,7 @@ from ..pyglm.links import IdentityLink, Link
 from .smooth_setup import parse_smooths, get_parametric_formula,  get_smooth_terms, get_smooth_matrices
 from ..utilities.splines import crspline_basis, bspline_basis, ccspline_basis, absorb_constraints
 from ..utilities.numerical_derivs import so_gc_cd
-
-
-
-def wcrossp(X, w):
-    Y =  (X * w.reshape(-1, 1)).T.dot(X)
-    return Y
+from ..utilities.linalg_operations import wcrossp
 
 
 class LogbLink(Link):

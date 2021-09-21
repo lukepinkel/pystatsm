@@ -16,8 +16,7 @@ import scipy.special
 import scipy.stats
 import scipy.optimize
 from scipy.special import loggamma, digamma
-from ..utilities.linalg_operations import _check_shape
-from ..utilities.data_utils import _check_type
+from ..utilities.data_utils import _check_shape, _check_type
 
 def trigamma(x):
     return sp.special.polygamma(1, x)      

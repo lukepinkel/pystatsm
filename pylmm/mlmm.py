@@ -11,11 +11,10 @@ import numpy as np
 import scipy as sp 
 import scipy.sparse as sps
 import pandas as pd
-from pystats.utilities.linalg_operations import (dummy, vech, invech, _check_np, 
-                                                 _check_shape, vec)
-from pystats.utilities.special_mats import lmat, nmat
-from pystats.utilities.numerical_derivs import so_gc_cd, so_fc_cd, fo_fc_cd
-
+from ..utilities.data_utils import dummy, _check_np, _check_shape
+from ..utilities.linalg_operations import vech, invech, vec
+from ..utilities.special_mats import lmat, nmat
+from ..utilities.numerical_derivs import so_gc_cd, so_fc_cd, fo_fc_cd
 from sksparse.cholmod import cholesky
 
 

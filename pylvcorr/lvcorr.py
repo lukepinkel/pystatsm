@@ -11,21 +11,11 @@ import pandas as pd
 import scipy as sp
 import scipy.optimize
 
-from ..utilities.linalg_operations import _check_np
+from ..utilities.data_utils import _check_np, corr
 from .statfuncs import (norm_qtf, polychor_thresh,  binorm_pdf, 
                         binorm_cdf, polyex, norm_cdf, norm_pdf)
 
  
-def corr(x, y=None):
-    if y is None:
-        y = x
-    x -= x.mean(axis=0)
-    y -= y.mean(axis=0)
-    x /= x.std(axis=0)
-    y /= y.std(axis=0)
-    return x.T.dot(y) / len(x)
-
-
 
 class Polychoric:
     """

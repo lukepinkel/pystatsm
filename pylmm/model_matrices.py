@@ -11,8 +11,8 @@ import numpy as np
 import scipy as sp # analysis:ignore
 import scipy.stats # analysis:ignore
 import scipy.sparse as sps
-from ..utilities.linalg_operations import (_check_np, invech, vech, dummy,
-                                           invech_chol)
+from ..utilities.data_utils import _check_np, dummy
+from ..utilities.linalg_operations import invech, vech, invech_chol
 from ..utilities.special_mats import lmat
 
 

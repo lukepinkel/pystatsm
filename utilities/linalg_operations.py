@@ -6,45 +6,14 @@ Created on Sat May 16 21:47:11 2020
 @author: lukepinkel
 """
 
-import numba # analysis:ignore
-import numpy as np # analysis:ignore
-import scipy as sp # analysis:ignore
-import scipy.sparse as sps # analysis:ignore
+import numba 
+import numpy as np 
+import scipy as sp 
 from sksparse.cholmod import cholesky
 
-
-
-def _check_shape(x, ndims=1):
-    order = None
-    
-    if x.flags['C_CONTIGUOUS']:
-        order = 'C'
-    
-    elif x.flags['F_CONTIGUOUS']:
-        order = 'F'
-    
-    if x.ndim>ndims:
-        x = x.reshape(x.shape[:-1], order=order)
-    elif x.ndim<ndims:
-        x = np.expand_dims(x, axis=-1)
-    
-    return x
-
-@numba.jit(nopython=False)
-def _check_shape_nb(x, ndims=1):
-    if x.ndim>ndims:
-        y = x.reshape(x.shape[:-1])
-    elif x.ndim<ndims:
-        y = np.expand_dims(x, axis=-1)
-    elif x.ndim==ndims:
-        y = x
-    return y
-
-
-def _check_np(x):
-    if type(x) is not np.ndarray:
-        x = x.values
-    return x
+def wcrossp(X, w):
+    Y =  (X * w[:, np.newaxis]).T.dot(X)
+    return Y
 
 def add_chol_row(A, L, i):
     x, r = A[i, :i], A[i, i]
@@ -171,23 +140,6 @@ def invech_chol(lvec):
     a, b = np.triu_indices(p)
     L[(b, a)] = lvec
     return L
-
-@numba.jit(nopython=True)
-def _dummy(x, fullrank=True, categories=None):
-    if categories is None:
-        categories = np.unique(x)
-    p = len(categories)
-    if fullrank is False:
-        p = p - 1
-    n = x.shape[0]
-    Y = np.zeros((n, p))
-    for i in range(p):
-        Y[x==categories[i], i] = 1.0
-    return Y
-
-def dummy(x, fullrank=True, categories=None):
-    x = _check_shape(_check_np(x))
-    return _dummy(x, fullrank, categories)
 
 
 def vdg(X):

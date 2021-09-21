@@ -7,9 +7,8 @@ Created on Tue May 19 21:21:57 2020
 """
 import numpy as np
 import scipy as sp
-from ..utilities.linalg_operations import (_check_np, _check_shape)
-from .links import (Link, IdentityLink, ReciprocalLink, LogLink, LogitLink,
-                   PowerLink)
+from ..utilities.data_utils import (_check_np, _check_shape)
+from .links import (Link, IdentityLink, ReciprocalLink, LogLink, LogitLink, PowerLink)
 
 LN2PI = np.log(2.0 * np.pi)
 FOUR_SQRT2 = 4.0 * np.sqrt(2.0)

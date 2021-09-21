@@ -11,7 +11,8 @@ import numpy as np
 import scipy as sp
 import scipy.stats
 from .lmm import LMM, make_theta
-from ..utilities.linalg_operations import vech, _check_shape
+from ..utilities.data_utils import _check_shape
+from ..utilities.linalg_operations import vech
 from sksparse.cholmod import cholesky
 from ..utilities.random import trnorm, r_invwishart, r_invgamma
 from ..utilities.func_utils import poisson_logp, log1p, norm_cdf

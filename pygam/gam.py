@@ -17,12 +17,9 @@ from .smooth_setup import (parse_smooths, get_parametric_formula,
 from ..pyglm.families import Gaussian, InverseGaussian, Gamma
 from ..utilities.splines import (crspline_basis, bspline_basis, ccspline_basis,
                                  absorb_constraints)
-
 from ..utilities.numerical_derivs import so_gc_cd
+from ..utilities.linalg_operations import wcrossp
 
-def wcrossp(X, w):
-    Y =  (X * w.reshape(-1, 1)).T.dot(X)
-    return Y
 
 
 class GAM:

@@ -10,8 +10,7 @@ import numpy as np
 import scipy as sp
 import scipy.stats
 import pandas as pd
-from ..utilities.data_utils import _check_type
-from ..utilities.linalg_operations import _check_shape
+from ..utilities.data_utils import _check_type, _check_shape
 from .m_estimators import (Huber, Bisquare, Hampel, Laplace) # analysis:ignore
 
 class RLS:

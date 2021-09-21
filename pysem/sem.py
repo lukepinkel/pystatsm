@@ -11,7 +11,8 @@ import numpy as np
 import scipy as sp
 import scipy.stats 
 import pandas as pd
-from ..utilities.linalg_operations import (_check_shape, vec, invec, vech, invech)
+from ..utilities.data_utils import _check_shape
+from ..utilities.linalg_operations import vec, invec, vech, invech
 from ..utilities.special_mats import dmat, lmat, nmat, kmat
 
 

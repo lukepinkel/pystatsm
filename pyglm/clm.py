@@ -11,8 +11,7 @@ import numpy as np
 import scipy as sp
 import scipy.stats
 import pandas as pd
-from ..utilities.linalg_operations import _check_shape
-from ..utilities.data_utils import _check_type
+from ..utilities.data_utils import _check_type, _check_shape
 from ..utilities.optimizer_utils import process_optimizer_kwargs
 from .links import LogitLink, ProbitLink, Link # analysis:ignore
 

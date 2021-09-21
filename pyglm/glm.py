@@ -12,8 +12,7 @@ import numpy as np # analysis:ignore
 import scipy as sp # analysis:ignore
 import scipy.stats # analysis:ignore
 import pandas as pd # analysis:ignore
-from ..utilities.linalg_operations import _check_shape
-from ..utilities.data_utils import _check_type
+from ..utilities.data_utils import _check_type, _check_shape
 from .links import LogitLink, ProbitLink, Link, LogLink, ReciprocalLink, PowerLink # analysis:ignore
 from .families import (Binomial, ExponentialFamily, Gamma, Gaussian,  # analysis:ignore
                       IdentityLink, InverseGaussian, NegativeBinomial,  # analysis:ignore

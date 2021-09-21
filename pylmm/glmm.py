@@ -12,10 +12,8 @@ import scipy as sp
 import scipy.stats
 import scipy.sparse as sps
 from sksparse.cholmod import cholesky# analysis:ignore
-
-from ..utilities.linalg_operations import (_check_np, _check_shape,
-                                           _check_shape_nb, dummy,
-                                           invech)
+from ..utilities.data_utils import _check_np, _check_shape, dummy, _check_shape_nb
+from ..utilities.linalg_operations import invech
 from .model_matrices import (construct_model_matrices, 
                              create_gmats,make_theta,  update_gmat)
 from ..utilities.output import get_param_table

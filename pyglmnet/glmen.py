@@ -12,7 +12,7 @@ from .binomial_eln import cv_binom_glmnet
 from .gaussian_eln import elnet as gaussian_glmnet
 from .gaussian_eln import cv_glmnet as cv_gaussian_glmnet
 from .eln_utils import plot_elnet_cv, process_cv
-from ..utilities.linalg_operations import _check_np, _check_shape
+from ..utilities.data_utils import _check_np, _check_shape
 
 class GLMEN:
     
