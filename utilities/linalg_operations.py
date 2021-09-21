@@ -142,6 +142,7 @@ def invech_chol(lvec):
     return L
 
 
+
 def vdg(X):
     V = np.diag(vec(X))
     return V
