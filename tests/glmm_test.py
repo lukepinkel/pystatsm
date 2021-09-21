@@ -47,31 +47,30 @@ def test_glmm_mcmc():
     df['y_binom1'] = rng.binomial(n=1, p=mu)
     df['y_binom10'] = rng.binomial(n=10, p=mu) / 10
     df['y_ordinal'] = pd.cut(y, thresholds).codes.astype(float)
-    plot_kws = dict(var_names=['$\\theta$'], coords={"$\\theta$_dim_0":[0, 1, 2]})
     
     
     model = MixedMCMC("y_binom1~1+x1+x2+(1+x3|id1)", df, response_dist='bernoulli')
     model.sample(n_samples=32_000, burnin=2_000, n_chains=8)
     print(model.summary)
-    assert(np.allclose(model.summary["r_hat"], 1, atol=1e-3))
+    assert(np.allclose(model.summary["r_hat"], 1, atol=1e-2))
     
     
     
     model2 = MixedMCMC("y_binom10~1+x1+x2+(1+x3|id1)", df, response_dist="binomial", weights=np.ones_like(df['y_binom10'])*10.0)
     model2.sample(n_samples=12_000, burnin=2_000, n_chains=8, sampling_kws=dict(n_adapt=6000, adaption_rate=1.02))
     print(model2.summary)
-    assert(np.allclose(model.summary["r_hat"], 1, atol=1e-3))
+    assert(np.allclose(model2.summary["r_hat"], 1, atol=1e-2))
     
     model3 = MixedMCMC("y_ordinal~1+x1+x2+(1+x3|id1)", df, response_dist='ordinal_probit')
     model3.sample(n_samples=22_000, burnin=5_000, n_chains=8, sampling_kws=dict(n_adapt=5_000, adaption_rate=1.015))
     print(model3.summary)
-    assert(np.allclose(model.summary["r_hat"], 1, atol=1e-3))
+    assert(np.allclose(model3.summary["r_hat"], 1, atol=1e-2))
     
     
     model4 = MixedMCMC("y_normal~1+x1+x2+(1+x3|id1)", df, response_dist='normal')
     model4.sample(n_samples=12_000, burnin=2000, n_chains=8)
     print(model4.summary)
-    assert(np.allclose(model.summary["r_hat"], 1, atol=1e-3))
+    assert(np.allclose(model4.summary["r_hat"], 1, atol=1e-2))
 
 
 
