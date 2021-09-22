@@ -13,10 +13,11 @@ from pystats.pyglm.clm import CLM
 
 from pystats.utilities.numerical_derivs import fo_fc_cd, so_gc_cd
 
-SEED = 1234
-rng = np.random.default_rng(SEED)
+
 
 def test_betareg():
+    SEED = 1234
+    rng = np.random.default_rng(SEED)
     n_obs = 10_000
     X = exact_rmvnorm(np.eye(4)/100, n=n_obs, seed=SEED)
     Z = exact_rmvnorm(np.eye(2)/100, n=n_obs, seed=SEED)
@@ -54,6 +55,8 @@ def test_betareg():
     assert((np.abs(model.optimizer.grad)<1e-5).all())
     
 def test_clm():    
+    SEED = 1234
+    rng = np.random.default_rng(SEED)
     n_obs, n_var, rsquared = 10_000, 8, 0.25
     S = np.eye(n_var)
     X = exact_rmvnorm(S, n=n_obs, seed=1234)
@@ -75,8 +78,8 @@ def test_clm():
     model = CLM(frm=formula, data=df)
     model.fit()
     theta = np.array([-2.08417224, -1.08288221, -0.34199706,  0.34199368,  1.08217316,
-                      2.08327387,  0.37275823,  0.37544884,  0.3572407 ,  0.71165265,
-                      0.0086888 , -0.00846944,  0.00975741,  0.01257564])
+                       2.08327387,  0.37275823,  0.37544884,  0.3572407 ,  0.71165265,
+                       0.0086888 , -0.00846944,  0.00975741,  0.01257564])
     assert(np.allclose(theta, model.params))
     params_init, params = model.params_init.copy(),  model.params.copy()
     
