@@ -23,8 +23,8 @@ def test_glmm_mcmc():
     rng = np.random.default_rng(1234)
     formula1 = "y~x1+x2+(1+x3|id1)"
     model_dict1 = {}
-    n_grp1 = 500
-    n_per1 = 40
+    n_grp1 = 200
+    n_per1 = 20
     model_dict1['gcov'] = {'id1':invech(np.array([1.0, -0.5, 1.0]))}
     model_dict1['ginfo'] = {'id1':dict(n_grp=n_grp1, n_per=n_per1)} 
     model_dict1['mu'] = np.zeros(3)
@@ -50,7 +50,7 @@ def test_glmm_mcmc():
     
     
     model = MixedMCMC("y_binom1~1+x1+x2+(1+x3|id1)", df, response_dist='bernoulli')
-    model.sample(n_samples=32_000, burnin=2_000, n_chains=8)
+    model.sample(n_samples=12_000, burnin=2_000, n_chains=8)
     print(model.summary)
     assert(np.allclose(model.summary["r_hat"], 1, atol=1e-2))
     
