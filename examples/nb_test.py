@@ -7,7 +7,7 @@ Created on Thu Nov 26 13:28:52 2020
 
 import numpy as np
 import pandas as pd
-from pystats.utilities.random_corr import exact_rmvnorm
+from pystats.utilities.random import exact_rmvnorm
 from pystats.pyglm.nb2 import NegativeBinomial
 from pystats.utilities.numerical_derivs import fo_fc_cd, so_gc_cd
 
@@ -43,6 +43,12 @@ params_init = model.params.copy() + 0.01
 model.fit()
 params = model.params.copy()
 
+theta = np.array([ 0.13049303, -0.64878454, -0.30956394,  0.2903795 ,  0.58677555,
+                  -0.03022705,  0.03989469,  0.01182953, -0.00498391,  0.00788808,
+                  -0.04198716, -0.00162041,  0.01523861, -0.00401566, -0.02547227,
+                  -0.07309814, -0.05574522,  0.00938691, -0.0034148 , -0.01254539,
+                  -0.05221309,  1.41286364])
+
 g_num1 = fo_fc_cd(model.loglike, params_init)
 g_ana1 = model.gradient(params_init)
 
@@ -55,8 +61,10 @@ H_ana1 = model.hessian(params_init)
 H_num2 = so_gc_cd(model.gradient, params)
 H_ana2 = model.hessian(params)
 
+assert(np.allclose(model.params, theta))
+assert(np.allclose(g_num1, g_ana1))
+assert(np.allclose(g_num2, g_ana2, atol=1e-4))
+assert(np.allclose(H_num1, H_ana1))
+assert(np.allclose(H_num2, H_ana2))
+assert(model.opt_full.success)
 
-print(np.allclose(g_num1, g_ana1), np.allclose(g_num2, g_ana2, atol=1e-4))
-print(np.allclose(H_num1, H_ana1), np.allclose(H_num2, H_ana2))
-print(model.opt_full.success)
-comp = np.vstack((beta, model.res['param'].values[1:-1])).T

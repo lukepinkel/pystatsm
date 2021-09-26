@@ -63,20 +63,19 @@ def handle_lars_setup(X, y, intercept, normalize, standardize):
     G, C = XtX.copy(), Xty.copy()
     return X, y, XtX, Xty, G, C
 
-def check_lambda(i, lambdas, betas, lambda_):
-    if i>0:
-        hs = (lambdas[i-1] - lambda_) / (lambdas[i-1] - lambdas[i])
-        betas[i] = betas[i-1] + hs * (betas[i] - betas[i-1])
-    lambdas[i] = lambda_
-    return lambdas, betas
+
+def _tmin(a, t=0):
+    b = a[a>t]
+    if len(b)==0:
+        return np.finfo(float).max
+    else:
+        return np.min(b)
 
 def get_lars_gamma(C, cj, A, aj):
-    gamma1 = np.min(np.maximum((cj - C) / (A - aj), 0), initial=1e16)
-    gamma2 = np.min(np.maximum((cj + C) / (A + aj), 0), initial=1e16)
-    gamma3 = np.min(np.maximum(cj / A, 0), initial=1e16)
-    gamma = np.array([gamma1, gamma2, gamma3])
-    gamma[np.abs(gamma)<np.finfo(float).eps] = np.finfo(float).max
-    gamma = gamma.min()
+    gamma1 = _tmin((cj - C) / (A - aj))
+    gamma2 = _tmin((cj + C) / (A + aj))
+    gamma3 = ((cj / A))
+    gamma = np.min([gamma1, gamma2, gamma3])
     return gamma
 
 def _lasso_modification(beta, active, w, gamma):
@@ -92,16 +91,13 @@ def _lasso_modification(beta, active, w, gamma):
         drops = False
     return drops, gamma
     
-def _lars(X, y, method="lasso", lambda_=1.0, intercept=True, normalize=False,
+def _lars(X, y, method="lasso", intercept=True, normalize=False,
           standardize=False, n_iters=None):
     n_obs, n_var = X.shape
-    if n_iters is None:
-        n_iters = n_var * 10
+    n_iters = n_var * 10 if n_iters is None else n_iters
     X, y, XtX, Xty, G, C = handle_lars_setup(X, y, intercept, normalize, standardize)
     betas, lambdas = np.zeros((n_var + 1, n_var)), np.zeros(n_var + 1)
-    i = 0
-    active, ind, s = list(), np.arange(n_var), np.array([])
-    L = None
+    L, i, active, ind, s = None, 0, list(), np.arange(n_var), np.array([])
     drops = False
     for t in range(n_iters):
         Cvec = C[ind]
@@ -116,10 +112,9 @@ def _lars(X, y, method="lasso", lambda_=1.0, intercept=True, normalize=False,
         gam = get_lars_gamma(Cvec, cj, A, aj)
         if method == "lasso":
             drops, gam = _lasso_modification(betas[i], active, w, gam)
-        
         i += 1
         betas[i, active] = betas[i-1, active] + gam * w
-        C[ind] = Cvec - gam * aj
+        C[ind] = C[ind] - gam * aj
         if method == "lasso" and np.any(drops):
             drop_ix = np.asarray(active)[np.where(drops)]
             C[drop_ix] = Xty[drop_ix] - XtX[drop_ix].dot(betas[i])

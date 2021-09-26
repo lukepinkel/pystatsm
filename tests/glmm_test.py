@@ -17,10 +17,10 @@ from pystats.pylmm.glmm_mcmc import MixedMCMC
 from pystats.pylmm.sim_lmm import MixedModelSim
 from pystats.utilities.linalg_operations import invech
 
-rng = np.random.default_rng(1234)
 
 
 def test_glmm_mcmc():
+    rng = np.random.default_rng(1234)
     formula1 = "y~x1+x2+(1+x3|id1)"
     model_dict1 = {}
     n_grp1 = 500
