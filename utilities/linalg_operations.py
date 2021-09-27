@@ -35,7 +35,8 @@ def add_chol_row(A, L, i):
 @numba.jit(nopython=True)
 def chol_downdate(L, k):
     n = L.shape[0]
-    L1 = L.copy()[np.arange(n)!=k]
+    ix = np.arange(n)!=k
+    L1 = L.copy()[ix]
     for t in range(k, n-1):
         a, b = L1[t, t], L1[t, t+1]
         v = np.sqrt(a**2+b**2)
@@ -47,8 +48,10 @@ def chol_downdate(L, k):
             L1[i, t+1] = c * Lit1 - s * Lit
         L1[t, t] = v
         L1[t, t+1] = 0.0
-    L1 = L1[:, :-1]
-    return L1
+    #L1 = L1[:, :-1]
+    #return L1
+    L[:-1, :-1] = L1[:, :-1]
+    return L
 
 
 @numba.jit(nopython=True)

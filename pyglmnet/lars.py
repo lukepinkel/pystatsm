@@ -9,6 +9,9 @@ import scipy as sp
 import pandas as pd
 from ..utilities.linalg_operations import chol_downdate
 
+dtrtrs, dpotrs = sp.linalg.get_lapack_funcs(("trtrs", "potrs"), dtype="d")
+
+
 def get_cmax(C):
     if len(C)>0:
         j = np.argmax(np.abs(C))
@@ -20,21 +23,23 @@ def get_cmax(C):
         cj = 0.
     return j, cj, cj_
 
-def _update_chol(xtx, xold, L=None):
+def chol_update(L, xtx, x, i):
     norm_xtx = np.sqrt(xtx)
-    if L is None:
-        L = np.atleast_2d(norm_xtx)
-    else:
-        r = sp.linalg.solve_triangular(L, xold, lower=True, check_finite=False)
+    if i>0:
+        r = sp.linalg.solve_triangular(L[:i, :i], x, lower=True, check_finite=False)
         rpp = np.sqrt(xtx - np.sum(r**2))
-        L = np.block([[L, np.zeros((L.shape[0], 1))],
-                      [r, np.atleast_1d(rpp)]])
+        L[i, :i] = r
+        L[i, i] = rpp
+    else:
+        L[i, i] = norm_xtx
     return L
+
 
 def lars_add_var(cj_, j, G, L, C, active, s, ind):
     Cvec = C[np.arange(C.shape[0])!=j]
-    L = _update_chol(G[ind[j], ind[j]], G[ind[j], active], L)
-    active.append(ind[j])
+    #L = _update_chol(G[ind[j], ind[j]], G[ind[j], active], L)
+    L = chol_update(L, G[ind[j], ind[j]], G[ind[j], active], len(active))
+    active = np.append(active, ind[j])
     s = np.append(s, np.sign(cj_))
     ind = np.delete(ind, j)
     return L, Cvec, s, active, ind
@@ -43,9 +48,9 @@ def lars_drop_var(L, betas, active, s, ind, drops, i):
     drop_ix, = np.where(drops)
     for k in drop_ix:
         L = chol_downdate(L, k)
-    active_ix = np.asarray(active)[drop_ix]
+    active_ix = active[drop_ix]
     betas[i, active_ix] = 0.0
-    active = np.asarray(active)[~drops].tolist()
+    active = active[~drops]
     s = s[~drops]
     ind = np.append(ind, active_ix)
     return L, betas, active, s, ind
@@ -90,14 +95,12 @@ def _lasso_modification(beta, active, w, gamma):
     else:
         drops = False
     return drops, gamma
-    
-def _lars(X, y, method="lasso", intercept=True, normalize=False,
-          standardize=False, n_iters=None):
-    n_obs, n_var = X.shape
-    n_iters = n_var * 10 if n_iters is None else n_iters
-    X, y, XtX, Xty, G, C = handle_lars_setup(X, y, intercept, normalize, standardize)
+
+
+def _lars(X, y, XtX, Xty, G, C, method, n_iters, n_obs, n_var):
     betas, lambdas = np.zeros((n_var + 1, n_var)), np.zeros(n_var + 1)
-    L, i, active, ind, s = None, 0, list(), np.arange(n_var), np.array([])
+    L, i, s = np.zeros((n_var, n_var)), 0, np.array([], dtype=np.float64)
+    active, ind = np.array([], dtype=np.int32), np.arange(n_var)
     drops = False
     for t in range(n_iters):
         Cvec = C[ind]
@@ -105,7 +108,8 @@ def _lars(X, y, method="lasso", intercept=True, normalize=False,
         lambdas[i] = cj / n_obs
         if not np.any(drops):
             L, Cvec, s, active, ind = lars_add_var(cj_, j, G, L, Cvec, active, s, ind)
-        Gi1 = sp.linalg.cho_solve((L, True), s, check_finite=False)
+        
+        Gi1 = sp.linalg.cho_solve((L[:len(active), :len(active)], True), s, check_finite=False)
         A = 1. / np.sqrt(np.sum(Gi1 * s))
         w = Gi1 * A
         aj = np.dot(G[active][:, ind].T, w)
@@ -127,6 +131,15 @@ def _lars(X, y, method="lasso", intercept=True, normalize=False,
     lambdas = lambdas[:i+1]
     betas = betas[:i+1]
     return lambdas, active, betas
+
+def lars(X, y, method="lasso", intercept=True, normalize=False,
+          standardize=False, n_iters=None):
+    n_obs, n_var = X.shape
+    n_iters = n_var * 10 if n_iters is None else n_iters
+    X, y, XtX, Xty, G, C = handle_lars_setup(X, y, intercept, normalize, standardize)
+    lambdas, active, betas = _lars(X, y, XtX, Xty, G, C, method, n_iters, n_obs, n_var)
+    return lambdas, active, betas
+
 
 
 def _lars_sumstats(X, y, lambdas, active, betas, s2=None, s2_method="yvar"):
