@@ -45,7 +45,8 @@ All models have been written in python 3.7 using
 - matplotlib 3.3.
 - patsy 0.5.1
 - jax 0.1.72
+- pandas 1.2.1
 
-Some of the tests use seaborn 0.11.0
+scikit-sparse is not supported on windows, but the workaround provided by https://github.com/EmJay276/scikit-sparse should allow for installation.
 
 
