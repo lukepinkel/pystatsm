@@ -184,7 +184,7 @@ def get_gamma_cf(criterion, p, k):
         
 
 
-
+#TODO remove figure out which of these are redudant/used for development
 def jac_approx(f, x, eps=1e-4, tol=None, d=1e-4, args=()):
     tol = np.finfo(float).eps**(1/3) if tol is None else tol
     h = np.abs(d * x) + eps * (np.abs(x) < tol)
@@ -226,6 +226,32 @@ def oblique_constraint_func(params, model):
 
 
 def oblique_constraint_derivs(params, model):
+    """
+    Derivatives of the Oblique Constraints 
+    
+    Parameters
+    ----------
+    params: ndarray
+            vector containing model parameters
+        
+    model: FactorAnalysis object
+        The factor model on which rotation is being performed
+    
+    Returns
+    -------
+    
+    D: ndarray 
+        Derivative of the oblique constraint matrix organized in block
+    
+    
+    Oblique constraints can be expressed
+    
+        \Lambda^{T} \frac{dQ}{d\Lambda}\Phi^{-1}
+    
+    Where Lambda is the loadings matrix, Q is the rotation criterion,
+    \frac{dQ}{d\Lambda} is the gradient of the rotation criterion wrt \Lambda,
+    and \Phi^{-1} is the inverse of the implied factor covariance.
+    """
     L, Phi, Psi = model.model_matrices_augmented(params)
     V = np.linalg.inv(Phi)
     gamma = model._gamma
