@@ -12,11 +12,11 @@ import numpy as np
 import scipy as sp
 import scipy.stats
 import pandas as pd
-from pystats.pysem.sem import SEM
-from pystats.utilities.random import exact_rmvnorm
-from pystats.utilities.linalg_operations import invech
-from pystats.utilities.linalg_operations import invech
-from pystats.utilities.numerical_derivs import fo_fc_cd, so_gc_cd
+from pystatsm.pysem.sem import SEM
+from pystatsm.utilities.random import exact_rmvnorm
+from pystatsm.utilities.linalg_operations import invech
+from pystatsm.utilities.linalg_operations import invech
+from pystatsm.utilities.numerical_derivs import fo_fc_cd, so_gc_cd
 
 rng = np.random.default_rng(123)
 

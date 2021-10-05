@@ -13,9 +13,9 @@ import scipy.stats
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-from pystats.pylmm.glmm_mcmc import MixedMCMC
-from pystats.pylmm.sim_lmm import MixedModelSim
-from pystats.utilities.linalg_operations import invech
+from pystatsm.pylmm.glmm_mcmc import MixedMCMC
+from pystatsm.pylmm.sim_lmm import MixedModelSim
+from pystatsm.utilities.linalg_operations import invech
 
 
 

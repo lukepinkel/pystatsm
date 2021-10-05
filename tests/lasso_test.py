@@ -7,7 +7,7 @@ Created on Tue Oct  5 08:24:10 2021
 
 import numpy as np
 import pandas as pd
-from pystats.pyglmnet.lars import lars
+from pystatsm.pyglmnet.lars import lars
 
 
 def test_lasso_diabetes():

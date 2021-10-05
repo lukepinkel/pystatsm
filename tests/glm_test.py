@@ -7,14 +7,14 @@ Created on Tue Sep 21 13:28:38 2021
 
 import numpy as np
 import pandas as pd
-from pystats.utilities.random import exact_rmvnorm, vine_corr
-from pystats.pyglm.betareg import BetaReg, LogitLink, LogLink
-from pystats.pyglm.clm import CLM
-from pystats.pyglm.glm import (GLM, Binomial, Poisson, Gamma, InverseGaussian, PowerLink,
+from pystatsm.utilities.random import exact_rmvnorm, vine_corr
+from pystatsm.pyglm.betareg import BetaReg, LogitLink, LogLink
+from pystatsm.pyglm.clm import CLM
+from pystatsm.pyglm.glm import (GLM, Binomial, Poisson, Gamma, InverseGaussian, PowerLink,
                                Gaussian, IdentityLink)
-from pystats.pyglm.nb2 import NegativeBinomial
-from pystats.pyglm.zimodels import ZIP
-from pystats.utilities.numerical_derivs import fo_fc_cd, so_gc_cd
+from pystatsm.pyglm.nb2 import NegativeBinomial
+from pystatsm.pyglm.zimodels import ZIP
+from pystatsm.utilities.numerical_derivs import fo_fc_cd, so_gc_cd
 
 
 

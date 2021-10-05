@@ -7,10 +7,10 @@ Created on Mon Sep 20 21:19:41 2021
 
 import numpy as np
 import pandas as pd
-from pystats.pygam.gam import GAM, Gamma
-from pystats.pyglm.links import LogLink
-from pystats.utilities.data_utils import dummy
-from pystats.utilities.numerical_derivs import fo_fc_cd, so_gc_cd
+from pystatsm.pygam.gam import GAM, Gamma
+from pystatsm.pyglm.links import LogLink
+from pystatsm.utilities.data_utils import dummy
+from pystatsm.utilities.numerical_derivs import fo_fc_cd, so_gc_cd
 rng = np.random.default_rng(123)
 
 

@@ -6,10 +6,10 @@ Created on Mon Sep 20 20:59:40 2021
 """
 
 import numpy as np
-from pystats.pylmm.lmm import LMM
-from pystats.pylmm.sim_lmm import MixedModelSim
-from pystats.utilities.linalg_operations import invech
-from pystats.utilities.numerical_derivs import fo_fc_cd, so_gc_cd
+from pystatsm.pylmm.lmm import LMM
+from pystatsm.pylmm.sim_lmm import MixedModelSim
+from pystatsm.utilities.linalg_operations import invech
+from pystatsm.utilities.numerical_derivs import fo_fc_cd, so_gc_cd
 
 rng = np.random.default_rng(123)
 

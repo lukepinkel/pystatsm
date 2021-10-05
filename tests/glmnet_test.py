@@ -8,8 +8,8 @@ Created on Sat Sep 25 16:39:48 2021
 import numpy as np 
 import scipy as sp
 import scipy.stats
-from pystats.pyglmnet.glmen import GLMEN
-from pystats.utilities.random import exact_rmvnorm
+from pystatsm.pyglmnet.glmen import GLMEN
+from pystatsm.utilities.random import exact_rmvnorm
 
 
 def test_gaussian_elnet():

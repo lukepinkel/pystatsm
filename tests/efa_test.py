@@ -6,9 +6,9 @@ Created on Tue Oct  5 09:41:35 2021
 """
 
 import numpy as np
-from pystats.pyfa.factor_analysis import FactorAnalysis
-from pystats.utilities.data_utils import center, scale_diag
-from pystats.utilities.numerical_derivs import fo_fc_cd
+from pystatsm.pyfa.factor_analysis import FactorAnalysis
+from pystatsm.utilities.data_utils import center, scale_diag
+from pystatsm.utilities.numerical_derivs import fo_fc_cd
 
 
 def triang_inds(n, k=1):
