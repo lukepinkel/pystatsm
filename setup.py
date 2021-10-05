@@ -25,6 +25,7 @@ setuptools.setup(
         'tqdm>=4.36.1',
         'scikit-sparse>=0.4.4',
         'matplotlib>=3.3',
-        'patsy>=0.5.1'
+        'patsy>=0.5.1',
+        'pandas>=1.2.1'
 ]
 )
