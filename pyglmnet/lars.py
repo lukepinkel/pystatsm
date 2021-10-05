@@ -6,10 +6,10 @@ Created on Tue Sep 14 11:17:57 2021
 """
 import numpy as np
 import scipy as sp
+import scipy.linalg
 import pandas as pd
 from ..utilities.linalg_operations import chol_downdate
 
-dtrtrs, dpotrs = sp.linalg.get_lapack_funcs(("trtrs", "potrs"), dtype="d")
 
 
 def get_cmax(C):
