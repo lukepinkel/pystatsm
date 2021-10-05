@@ -23,7 +23,7 @@ setuptools.setup(
         'numba>=0.45.1',
         'scipy>=1.5.3',
         'tqdm>=4.36.1',
-        'scikit-sparse=0.4.4',
+        'scikit-sparse==0.4.4',
         'matplotlib>=3.3',
         'patsy>=0.5.1'
 ]
