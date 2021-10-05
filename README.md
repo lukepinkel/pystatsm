@@ -15,6 +15,7 @@ This project is recreational and consists of unfinished and unpolished programs 
 	- An OLS class conducive to resampling based tests, currently implementing the standard nonparametric bootstrap, Freedman-Lane permutation testing, and maxT permutation testing
 - Elastic net penalized generalized linear models
 	- Currently only binomial and gaussian models are supported.  So far, provides similar results to glmnet, and at a similar speed, although much functionality needs to be implemented (e.g. intercepts, variable penalties, convergence conditions etc, etc)
+- Lasso via LAR or proximal gradient descent.
 - ICA using ML
 - Latent variable correlations for handling polychorric, polytomous and tetrachoric correlation
 - Linear mixed models 
