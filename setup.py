@@ -18,4 +18,13 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     python_requires='>=3.7',
+    install_requires=[
+        'numpy>=1.17.2',
+        'numba>=0.45.1',
+        'scipy>=1.5.3',
+        'tqdm>=4.36.1',
+        'sksparse>=0.4.4',
+        'matplotlib>=3.3',
+        'patsy>=0.5.1'
+]
 )
