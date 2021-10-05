@@ -22,7 +22,52 @@ class FactorAnalysis(object):
     
     def __init__(self, X=None, S=None, n_obs=None, n_factors=None, 
                  rotation_method=None, **n_factor_kws):
+        """
+        Exploratory Factor Analysis
         
+        Parameters
+        ----------
+        X : dataframe, optional
+            A dataframe of size (n x p) containing the n observations and p
+            variables to be analyzed
+        
+        S : arraylike
+            Dataframe or ndarray containing (p x p) variables to be analyzed 
+            
+        
+        n_obs : int or float, optional
+            If X is not provided, and the covariance matrix S is, then 
+            n_obs  is required to compute test statistics
+        
+        n_factors : int float or str, optional
+            The number of factors to model.  If a string, must be one of
+            'proportion' or 'eigmin'.
+        
+        rotation_method : str, optional
+            One of the rotation methods, e.g. quartimax, varimax, equamax
+        
+        Keyword Arguments:
+            
+            proportion : float
+                Float in [0, 1] specifying the cutoff variance explained when
+                calculating the number of factors to model
+            
+            eigmin : float
+                The eigenvalue cutoff when determining the number of factors
+        
+        
+        Notes
+        -----
+        In the docs, p will be used to denote the the number of variables, 
+        and q the number of factors, t the number of parameters, k the 
+        number of covariance parameters to model, and m the number of
+        parameters in the explicit 'augmented' model
+        
+        t = p * (q + 1)
+        k = p * (p + 1) // 2
+        m = p * (q + 1) + q * (q - 1) // 2 = t + q * (q - 1) // 2
+        
+        """
         self._process_data(X, S, n_obs)
         self._get_n_factors(n_factors, **n_factor_kws)
         self._rotation_method = rotation_method
@@ -55,7 +100,7 @@ class FactorAnalysis(object):
         V = flip_signs(V)
         self.X, self.cols, self.inds, self._is_pd = X, cols, inds, _is_pd
         self.S, self.V, self.u = S, V, u
-        self.cols, self.inds, self._is_pd =cols, inds, _is_pd
+        self.cols, self.inds, self._is_pd = cols, inds, _is_pd
         self.n_obs, self.n_vars = n_obs, n_vars
         
     def _get_n_factors(self, n_factors, proportion=0.6, eigmin=1.0):
@@ -79,16 +124,58 @@ class FactorAnalysis(object):
         self.theta[self.pix] = np.log(psi)
     
     def model_matrices(self, theta):
+        """
+
+        Parameters
+        ----------
+        theta : ndarray
+            ndarray of length t containing model parameters.
+
+        Returns
+        -------
+        L : ndarray
+            (p x q) matrix of loadings.
+        Psi : ndarray
+            (p x p) diagonal matrix of residual covariances.
+
+        """
         L = invec(theta[self.lix], self.n_vars, self.n_facs)
         Psi = np.diag(np.exp(theta[self.pix]))
         return L, Psi
     
     def implied_cov(self, theta):
+        """
+        
+        Parameters
+        ----------
+        theta : ndarray
+             ndarray of length t containing model parameters.
+
+        Returns
+        -------
+        Sigma : ndarray
+            (p x p) implied covariance matrix.
+
+        """
         L, Psi = self.model_matrices(theta)
         Sigma = L.dot(L.T) + Psi
         return Sigma
     
     def loglike(self, theta):
+        """
+        
+
+        Parameters
+        ----------
+        theta : ndarray
+             ndarray of length t containing model parameters.
+
+        Returns
+        -------
+        ll : float
+            Loglikelihood of the model.
+
+        """
         Sigma = self.implied_cov(theta)
         _, lndS = np.linalg.slogdet(Sigma)
         trSV = np.trace(np.linalg.solve(Sigma, self.S))
@@ -96,6 +183,20 @@ class FactorAnalysis(object):
         return ll
     
     def gradient(self, theta):
+        """
+        
+        Parameters
+        ----------
+        theta : ndarray
+             ndarray of length t containing model parameters.
+
+        Returns
+        -------
+        g : ndarray
+             ndarray of length t containing the derivatives of the 
+             loglikelihood with respect to theta.
+
+        """
         L, Psi = self.model_matrices(theta)
         Sigma = L.dot(L.T) + Psi
         V = np.linalg.pinv(Sigma)
@@ -112,6 +213,20 @@ class FactorAnalysis(object):
         return H
         
     def dsigma(self, theta):
+        """
+        
+        Parameters
+        ----------
+        theta : ndarray
+             ndarray of length t containing model parameters.
+
+        Returns
+        -------
+        G : ndarray
+            (k x t) matrix of derivatives of the implied covariance with 
+            respect to parameters
+
+        """
         L, Psi = self.model_matrices(theta)
         DLambda = np.dot(self.LpNp, np.kron(L, self.Ip))
         DPsi = np.dot(self.Lp, np.diag(vec(Psi)))[:, self.d_inds]
@@ -119,6 +234,21 @@ class FactorAnalysis(object):
         return G
     
     def hessian(self, theta):
+        """
+        
+
+        Parameters
+        ----------
+        theta : ndarray
+             ndarray of length t containing model parameters.
+
+        Returns
+        -------
+        H : ndarray
+             (t x t) matrix of second derivative of the log likelihood with 
+             respect to the parameters
+
+        """
         L, Psi = self.model_matrices(theta)
         Sigma = L.dot(L.T) + Psi
         Sigma_inv = np.linalg.inv(Sigma)
@@ -156,6 +286,32 @@ class FactorAnalysis(object):
         return H
     
     def _make_augmented_params(self, L, Phi, Psi):
+        """
+        
+
+        Parameters
+        ----------
+        L : ndarray
+            (p x q) array of loadings.
+        Phi : ndarray
+            (q x q) factor covariance matrix.
+        Psi : ndarray
+            (p x p) diagonal matrix of residual covariances.
+
+        Returns
+        -------
+        None.
+        
+        
+        Notes
+        -----
+        
+        If rotation_method is not None, then a params vector is added to
+        account for the restricted parameters when computing the hessian.  
+        Makes implicit assumptions about factor covariance explicit by 
+        augmenting theta with (q - 1) * q // 2 factor covariance parameters.
+
+        """
         p, q = self.n_vars, self.n_facs
         nl = p * q
         nc = q * (q - 1) // 2  if self._rotation_method is not None else 0
@@ -175,6 +331,24 @@ class FactorAnalysis(object):
         self.params = params
     
     def model_matrices_augmented(self, params):
+        """
+        
+
+        Parameters
+        ----------
+        params : ndarray
+            ndarray of length m containing model parameters..
+
+        Returns
+        -------
+        L : ndarray
+            (p x q) array of loadings.
+        Phi : ndarray
+            (q x q) factor covariance matrix..
+        Psi : ndarray
+            (p x p) diagonal matrix of residual covariances.
+
+        """
         L = invec(params[self.ixl], self.n_vars, self.n_facs)
         if self._rotation_method is not None:
             Phi = invecl(params[self.ixc])
@@ -184,6 +358,21 @@ class FactorAnalysis(object):
         return L, Phi, Psi
     
     def dsigma_augmented(self, params):
+        """
+        
+
+        Parameters
+        ----------
+        params : ndarray
+            ndarray of length m containing model parameters.
+
+        Returns
+        -------
+        G : ndarray
+            (k x m) matrix of derivatives of the implied covariance with 
+            respect to parameters
+
+        """
         L, Phi, Psi = self.model_matrices_augmented(params)
         DLambda = np.dot(self.LpNp, np.kron(L.dot(Phi), self.Ip))
         DPhi = self.Lp.dot(np.kron(L, L))[:, self.l_inds]
@@ -195,11 +384,40 @@ class FactorAnalysis(object):
         return G
     
     def implied_cov_augmented(self, params):
+        """
+        
+
+        Parameters
+        ----------
+        params : ndarray
+            ndarray of length m containing model parameters.
+
+
+        Returns
+        -------
+        Sigma : ndarray
+            (p x p) implied covariance matrix.
+
+        """
         L, Phi, Psi = self.model_matrices_augmented(params)
         Sigma = L.dot(Phi).dot(L.T) + Psi
         return Sigma
     
     def loglike_augmented(self, params):
+        """
+        
+
+        Parameters
+        ----------
+        params : ndarray
+            ndarray of length m containing model parameters.
+
+        Returns
+        -------
+        ll : float
+            Loglikelihood of the model.
+
+        """
         Sigma = self.implied_cov_augmented(params)
         _, lndS = np.linalg.slogdet(Sigma)
         trSV = np.trace(np.linalg.solve(Sigma, self.S))
@@ -207,6 +425,20 @@ class FactorAnalysis(object):
         return ll
     
     def gradient_augmented(self, params):
+        """
+        
+        Parameters
+        ----------
+        params : ndarray
+             ndarray of length m containing model parameters.
+
+        Returns
+        -------
+        g : ndarray
+             ndarray of length m containing the derivatives of the 
+             loglikelihood with respect to params.
+
+        """
         L, Phi, Psi = self.model_matrices_augmented(params)
         Sigma = L.dot(Phi).dot(L.T) + Psi
         V = np.linalg.pinv(Sigma)
@@ -222,6 +454,21 @@ class FactorAnalysis(object):
         return g
     
     def hessian_augmented(self, params):
+        """
+        
+
+        Parameters
+        ----------
+        params : ndarray
+             ndarray of length m containing model parameters.
+
+        Returns
+        -------
+        H : ndarray
+             (m x m) matrix of second derivative of the log likelihood with 
+             respect to params
+
+        """
         L, Phi, Psi = self.model_matrices_augmented(params)
         Sigma = L.dot(Phi).dot(L.T) + Psi
         Sigma_inv = np.linalg.inv(Sigma)
@@ -257,6 +504,23 @@ class FactorAnalysis(object):
         return H
     
     def _unrotated_constraint_dervs(self, L, Psi):
+        """
+        
+
+        Parameters
+        ----------
+        L : ndarray
+            (p x q) matrix of loadings.
+        Psi : ndarray
+            (p x p) diagonal matrix of residual covariances.
+
+        Returns
+        -------
+        J : ndarray
+            (q * (q - 1) // 2 x t) matrix of derivatives of the constraints for
+            the orthogonal model.
+
+        """
         Psi_inv = np.diag(1.0 / np.diag(Psi))
         A = L.T.dot(Psi_inv)
         J1 = self.Lk.dot(self.Nk.dot(np.kron(self.Ik, A)))
@@ -267,11 +531,51 @@ class FactorAnalysis(object):
         return J
         
     def constraint_derivs(self, theta):
+        """
+        
+
+        Parameters
+        ----------
+        theta : ndarray
+             ndarray of length t containing model parameters.
+
+        Returns
+        -------
+        J : ndarray
+            (q * (q - 1) // 2 x t) matrix of derivatives of the constraints for
+            the orthogonal model.
+
+        """
         L, Psi = self.model_matrices(theta)            
         J = self._unrotated_constraint_dervs(L, Psi)
         return J
     
     def _reorder_factors(self, L, T, theta):
+        """
+        
+
+        Parameters
+        ----------
+        L : ndarray
+            (p x q) matrix of loadings.
+        T : ndarray
+            (q x q)  rotation matrix
+
+        theta :  ndarray
+             ndarray of length t containing model parameters.
+
+        Returns
+        -------
+        L : ndarray
+            (p x q) matrix of loadings.
+        T : ndarray
+            (q x q)  rotation matrix
+
+        theta :  ndarray
+             ndarray of length t containing model parameters.
+
+
+        """
         v = np.sum(L**2, axis=0)
         order = np.argsort(v)[::-1]
         if type(L) is pd.DataFrame:
@@ -292,6 +596,19 @@ class FactorAnalysis(object):
         return L, T, theta
         
     def _fit_indices(self, Sigma):
+        """
+        
+
+        Parameters
+        ----------
+        Sigma : ndarray
+            (p x p) implied covariance matrix.
+
+        Returns
+        -------
+        sumstats : dict
+
+        """
         t = (self.n_vars + 1.0) * self.n_vars / 2.0
         k = len(self.theta)
         degfree = t  - k
@@ -312,6 +629,19 @@ class FactorAnalysis(object):
         return sumstats
     
     def _fit(self, hess=True, **opt_kws):
+        """
+        
+
+        Parameters
+        ----------
+        hess : bool, optional
+            Whether or not to use the analytic hessian. The default is True.
+
+        Returns
+        -------
+        None.
+
+        """
         hess = self.hessian if hess else None
         
         self.opt = sp.optimize.minimize(self.loglike, self.theta, jac=self.gradient,
@@ -345,7 +675,27 @@ class FactorAnalysis(object):
         self.se_params = np.sqrt(1.0 / np.diag(np.linalg.inv(self.Hc))[:-q]/self.n_obs)
         self.L_se = invec(self.se_params[self.lix], self.n_vars, self.n_facs)
         
-    def fit(self, compute_factors=True, factor_method='regression', hess=True, **opt_kws):
+    def fit(self, compute_factors=True, factor_method='regression', hess=True,
+            **opt_kws):
+        """
+        
+
+        Parameters
+        ----------
+        compute_factors : bool, optional
+            Whether or not to compute factors. The default is True.
+        factor_method : str, optional
+            Method to compute factors. The default is 'regression'.
+        hess : bool, optional
+             Whether or not to use the analytic hessian. The default is True.
+        **opt_kws : TYPE
+            DESCRIPTION.
+
+        Returns
+        -------
+        None.
+
+        """
         self._fit(hess, **opt_kws)
         self.sumstats = self._fit_indices(self.Sigma)
         z = self.params / self.se_params
@@ -373,6 +723,22 @@ class FactorAnalysis(object):
         self.factors = pd.DataFrame(factors, index=self.inds, columns=fcols)
         
     def compute_factors(self, method="regression"):
+        """
+        
+
+        Parameters
+        ----------
+        method : str, optional
+            Method to compute factors. The default is "regression".
+
+        Returns
+        -------
+        factor_coefs : ndarray
+            Array to compute factors.
+        factors : ndarray
+            Array of factors.
+
+        """
         X = self.X - np.mean(self.X, axis=0)
         if method=='regression':
             factor_coefs = np.linalg.inv(self.S).dot(self.L)
