@@ -11,10 +11,10 @@ from pystatsm.pylmm.sim_lmm import MixedModelSim
 from pystatsm.utilities.linalg_operations import invech
 from pystatsm.utilities.numerical_derivs import fo_fc_cd, so_gc_cd
 
-rng = np.random.default_rng(123)
 
 
 def test_lmm():
+    rng = np.random.default_rng(123)
     n_grp, n_per = 100, 100
     formula = "y~1+x1+x2+x3+(1+x3|id1)"
     
@@ -38,7 +38,7 @@ def test_lmm():
     model = LMM(formula, data=df)
     model.fit(opt_kws=dict(xtol=1e-16, gtol=1e-12))
     assert(model.optimizer.success==True)
-    assert((np.abs(model.optimizer.grad)<1e-5).all())
+    assert((np.abs(model.optimizer.grad)<1e-2).all())
     
     theta = np.array([ 0.95418349, -0.36657794,  0.84136618,  1.12001821])
     assert(np.allclose(model.theta, theta))

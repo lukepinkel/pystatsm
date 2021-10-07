@@ -5,7 +5,7 @@ Created on Mon Sep 20 22:53:50 2021
 @author: lukepinkel
 """
 
-
+import pytest
 import arviz as az
 import numpy as np
 import scipy as sp
@@ -18,12 +18,12 @@ from pystatsm.pylmm.sim_lmm import MixedModelSim
 from pystatsm.utilities.linalg_operations import invech
 
 
-
+@pytest.mark.slow
 def test_glmm_mcmc():
     rng = np.random.default_rng(1234)
     formula1 = "y~x1+x2+(1+x3|id1)"
     model_dict1 = {}
-    n_grp1 = 200
+    n_grp1 = 300
     n_per1 = 20
     model_dict1['gcov'] = {'id1':invech(np.array([1.0, -0.5, 1.0]))}
     model_dict1['ginfo'] = {'id1':dict(n_grp=n_grp1, n_per=n_per1)} 
@@ -50,27 +50,27 @@ def test_glmm_mcmc():
     
     
     model = MixedMCMC("y_binom1~1+x1+x2+(1+x3|id1)", df, response_dist='bernoulli')
-    model.sample(n_samples=12_000, burnin=2_000, n_chains=8)
+    model.sample(n_samples=16_000, burnin=4_000, n_chains=8)
     print(model.summary)
-    assert(np.allclose(model.summary["r_hat"], 1, atol=1e-2))
+    assert(np.allclose(model.summary["r_hat"], 1, atol=2e-2))
     
     
     
     model2 = MixedMCMC("y_binom10~1+x1+x2+(1+x3|id1)", df, response_dist="binomial", weights=np.ones_like(df['y_binom10'])*10.0)
     model2.sample(n_samples=12_000, burnin=2_000, n_chains=8, sampling_kws=dict(n_adapt=6000, adaption_rate=1.02))
     print(model2.summary)
-    assert(np.allclose(model2.summary["r_hat"], 1, atol=1e-2))
+    assert(np.allclose(model2.summary["r_hat"], 1, atol=2e-2))
     
     model3 = MixedMCMC("y_ordinal~1+x1+x2+(1+x3|id1)", df, response_dist='ordinal_probit')
     model3.sample(n_samples=22_000, burnin=5_000, n_chains=8, sampling_kws=dict(n_adapt=5_000, adaption_rate=1.015))
     print(model3.summary)
-    assert(np.allclose(model3.summary["r_hat"], 1, atol=1e-2))
+    assert(np.allclose(model3.summary["r_hat"], 1, atol=2e-2))
     
     
     model4 = MixedMCMC("y_normal~1+x1+x2+(1+x3|id1)", df, response_dist='normal')
     model4.sample(n_samples=12_000, burnin=2000, n_chains=8)
     print(model4.summary)
-    assert(np.allclose(model4.summary["r_hat"], 1, atol=1e-2))
+    assert(np.allclose(model4.summary["r_hat"], 1, atol=2e-2))
 
 
 
