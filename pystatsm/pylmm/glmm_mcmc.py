@@ -10,6 +10,7 @@ import arviz as az
 import numpy as np
 import scipy as sp
 import scipy.stats
+import matplotlib.pyplot as plt
 from .lmm import LMM, make_theta
 from ..utilities.data_utils import _check_shape
 from ..utilities.linalg_operations import vech
@@ -64,7 +65,88 @@ def to_arviz_dict(samples, var_dict, burnin=0):
         az_dict[key] = samples[:, burnin:, val]
     return az_dict    
 
-            
+
+def _plot_trace(idata, plot_kws=None):
+    default_plot_kws = dict(combined=False, compact=False, figsize=(12, 8))
+    plot_kws = {} if plot_kws is None else plot_kws
+    plot_kws = {**default_plot_kws, **plot_kws} 
+    axes = az.plot_trace(idata, **plot_kws)
+    n = axes.shape[0]
+    for i in range(n):
+        label = axes[i, 0].get_title().replace("\n", "[")+"]"
+        axes[i, 0].set_title("")
+        axes[i, 1].set_title("")
+        axes[i, 0].set_ylabel(label, rotation=0, labelpad=15)
+    plt.subplots_adjust(left=0.04, right=0.97, top=0.97, bottom=0.04, wspace=0.1)
+    return axes
+        
+    
+    
+    
+def _plot_ess(idata, plot_kws=None):
+    default_plot_kws = dict(figsize=(16, 8))
+    plot_kws = {} if plot_kws is None else plot_kws
+    plot_kws = {**default_plot_kws, **plot_kws} 
+    
+    axes = az.plot_ess(idata, **plot_kws)
+    if axes.ndim==1:
+        axes = axes.reshape(1, -1)
+    n, m = axes.shape
+    for i in range(n):
+        for j in range(m):
+            label = axes[i, j].get_title().replace("\n", "[")+"]"
+            axes[i, j].set_title(label)
+            axes[i, j].xaxis.set_tick_params(labelsize=8)
+            axes[i, j].yaxis.set_tick_params(labelsize=8)
+            if j>0:
+                axes[i, j].set_ylabel("")
+            else:
+                label = axes[i, j].get_ylabel()
+                axes[i, j].set_ylabel(label, size=12)
+                
+            if (i+1)<n:
+                axes[i, j].set_xlabel("")
+            else:
+                label = axes[i, j].get_xlabel()
+                axes[i, j].set_xlabel(label, size=12)
+        
+    plt.subplots_adjust(left=0.08, right=0.97, top=0.97, bottom=0.1, wspace=0.15, 
+                        hspace=0.15)
+    return axes
+ 
+    
+def _plot_rank(idata, plot_kws=None):
+    default_plot_kws = dict(figsize=(12, 10))
+    plot_kws = {} if plot_kws is None else plot_kws
+    plot_kws = {**default_plot_kws, **plot_kws} 
+    
+    axes = az.plot_rank(idata, **plot_kws)
+    if axes.ndim==1:
+        axes = axes.reshape(1, -1)
+    n, m = axes.shape
+    for i in range(n):
+        for j in range(m):
+            label = axes[i, j].get_title().replace("\n", "[")+"]"
+            axes[i, j].set_title(label)
+            axes[i, j].xaxis.set_tick_params(labelsize=8)
+            axes[i, j].yaxis.set_tick_params(labelsize=8)
+            if j>0:
+                axes[i, j].set_ylabel("")
+            else:
+                label = axes[i, j].get_ylabel()
+                axes[i, j].set_ylabel(label, size=12)
+                
+            if (i+1)<n:
+                axes[i, j].set_xlabel("")
+            else:
+                label = axes[i, j].get_xlabel()
+                axes[i, j].set_xlabel(label, size=12)
+        
+    plt.subplots_adjust(left=0.08, right=0.97, top=0.97, bottom=0.08, wspace=0.15, 
+                        hspace=0.15)
+    return axes
+        
+         
 
 class MixedMCMC(LMM):
     
@@ -511,10 +593,24 @@ class MixedMCMC(LMM):
         self.theta = np.mean(samples[:, :, self.vnames["$\\theta$"]], axis=(0, 1))
         if self.response_dist == 'ordinal_probit':
             self.tau = np.mean(samples[:, :, self.vnames["$\\tau$"]], axis=(0, 1))
-        
+            
 
-        
-        
+    def plot_trace(self, plot_kws=None):
+        axes = _plot_trace(self.az_data, plot_kws)
+        return axes
+    
+    def plot_ess(self, plot_kws=None):
+        axes = _plot_ess(self.az_data, plot_kws)
+        return axes
+    
+    def plot_rank(self, plot_kws=None):
+        axes = _plot_rank(self.az_data, plot_kws)
+        return axes
+    
+
+    
+
+
         
         
                 
