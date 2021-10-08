@@ -12,12 +12,12 @@ import scipy as sp
 import scipy.stats
 import matplotlib.pyplot as plt
 from .lmm import LMM, make_theta
-from ..utilities.data_utils import _check_shape
+from ..utilities.data_utils import _check_shape, sign_change
 from ..utilities.linalg_operations import vech
 from sksparse.cholmod import cholesky
 from ..utilities.random import trnorm, r_invwishart, r_invgamma
 from ..utilities.func_utils import poisson_logp, log1p, norm_cdf
-
+ 
 
 
 def get_u_indices(dims): 
@@ -580,7 +580,14 @@ class MixedMCMC(LMM):
         for i in range(n_chains):
             samples[i] = func(n_samples, chain=i, **sampling_kws)
             
-        
+        if burnin=="heuristic":
+            tmp = []
+            for i in np.concatenate(list(self.vnames.values())):
+                xv = samples[:, :, i].T
+                xm = np.mean(xv, axis=0)
+                tmp.append(sign_change(xv, nth_change=50, offset=xm))
+            burnin = np.max(tmp)
+        self.burnin=burnin
         self.samples = samples
         self.az_dict = to_arviz_dict(samples, self.vnames, burnin=burnin)
         self.az_data = az.from_dict(self.az_dict)

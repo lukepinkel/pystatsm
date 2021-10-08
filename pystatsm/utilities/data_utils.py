@@ -157,4 +157,72 @@ def dummy(x, fullrank=True, categories=None):
     return _dummy(x, fullrank, categories)
 
 
-    
+
+@numba.jit(nopython=True)
+def _sign_change_1d(arr, b):
+    n = len(arr)
+    s = np.sign(arr[0]-b)
+    for i in range(1, n):
+        if np.sign(arr[i]-b)!=s:
+            break
+    return i-1
+
+@numba.jit(nopython=True)
+def _sign_change_2d(arr, b):
+    m = arr.shape[1]
+    ix = np.zeros(m, dtype=numba.int64)
+    for i in range(m):
+        ix[i] = _sign_change_1d(arr[:, i], b[i])
+    return ix
+
+
+@numba.jit(nopython=True)
+def _kth_sign_change_1d(arr, b, k=1):
+    n = len(arr)
+    s = np.sign(arr[0]-b)
+    j = 0
+    for i in range(1, n):
+        if np.sign(arr[i]-b)!=s:
+            j += 1
+        if j==k:
+            break
+    return i-1
+
+@numba.jit(nopython=True)
+def _kth_sign_change_2d(arr, b, k=1):
+    m = arr.shape[1]
+    ix = np.zeros(m, dtype=numba.int64)
+    for i in range(m):
+        ix[i] = _kth_sign_change_1d(arr[:, i], b[i], k)
+    return ix
+
+
+def sign_change(arr, nth_change=1, offset=None):
+    ndims = arr.ndim
+    if ndims==1:
+        offset = 0.0 if offset is None else offset
+    elif ndims==2:
+        offset = np.zeros(arr.shape[1]) if offset is None else offset
+        
+    if nth_change==1:
+        if ndims==1:
+            ix = _sign_change_1d(arr, offset)
+        elif ndims==2:
+            ix = _sign_change_2d(arr, offset)
+    else: 
+        if ndims==1:
+            ix = _kth_sign_change_1d(arr, offset, nth_change)
+        elif ndims==2:
+            ix = _kth_sign_change_2d(arr, offset, nth_change)
+    return ix
+
+
+
+
+
+
+
+
+
+
+
