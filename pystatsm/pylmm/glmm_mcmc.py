@@ -579,7 +579,8 @@ class MixedMCMC(LMM):
             
         for i in range(n_chains):
             samples[i] = func(n_samples, chain=i, **sampling_kws)
-            
+        
+        #Heuristic for a heuristic...
         if burnin=="heuristic":
             tmp = []
             for i in np.concatenate(list(self.vnames.values())):
@@ -587,6 +588,7 @@ class MixedMCMC(LMM):
                 xm = np.mean(xv, axis=0)
                 tmp.append(sign_change(xv, nth_change=50, offset=xm))
             burnin = np.max(tmp)
+            
         self.burnin=burnin
         self.samples = samples
         self.az_dict = to_arviz_dict(samples, self.vnames, burnin=burnin)

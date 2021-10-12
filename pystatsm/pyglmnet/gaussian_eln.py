@@ -59,11 +59,11 @@ def numba_sum(array, axis):
     return np_apply_along_axis(np.sum, axis, array)
 
 @numba.jit(nopython=True)
-def eln_cd(X, y, alpha, lambda_, b, active, n_iters=1000, dtol=1e-5, btol=1e-9):
+def eln_cd(X, y, Xsq, alpha, lambda_, b, active, n_iters=1000, dtol=1e-5, btol=1e-9):
     r = y - X.dot(b)
     n = y.shape[0]
     n2 = n * 2.0
-    la, dn = lambda_ * alpha, (1.0 - alpha) * lambda_ + 1.0
+    la, dla = lambda_ * alpha * n, (1.0 - alpha) * lambda_ * n
     index = np.arange(len(b))
     msr =  np.sum(r**2) / n2
     pen = elnet_penalty(b, alpha, lambda_)
@@ -74,13 +74,13 @@ def eln_cd(X, y, alpha, lambda_, b, active, n_iters=1000, dtol=1e-5, btol=1e-9):
         active_vars = index[active]
         fvals[i] = msr, pen, f_old
         for j in active_vars:
-            xb =  X[:, j] * b[j]
-            yp = r + xb
-            b[j] = sft(np.sum(X[:, j] * yp)/n, la) / (dn)
-            if abs(b[j])>btol:
-                r = yp - X[:, j] * b[j]
+            bj, xj = b[j], X[:, j]
+            r += xj * bj
+            uj = (xj * r).sum()
+            b[j] = sft(uj, la) / (Xsq[j]+dla)
+            if b[j]!=0:
+                r-= xj * b[j]
             else:
-                r = yp
                 active[j] = False
         msr = np.sum(r**2)/ n2
         pen = elnet_penalty(b, alpha, lambda_)
@@ -103,7 +103,8 @@ def elnet(X, y, lambda_, alpha=0.99, b=None, active=None, n_iters=1000, dtol=1e-
         active = np.ones(X.shape[1], dtype=bool)
     if intercept:
         y = y - y.mean()
-    beta, fvals, active, nits = eln_cd(X, y, alpha, lambda_, b, active, n_iters, dtol, btol)
+    Xsq = (X**2).sum(axis=0)
+    beta, fvals, active, nits = eln_cd(X, y, Xsq, alpha, lambda_, b, active, n_iters, dtol, btol)
     fvals = fvals[:(nits+2)]
     return beta, fvals, active, nits
 
@@ -114,9 +115,9 @@ def elnet_grad(b, X, y, lambda_, alpha):
     return g
   
 
-def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, dtol=1e-4, btol=1e-9, n_iters=1000, 
-              refit=True, lmin_pct=0, lmax_pct=100, lmin=None, lmax=None, 
-              seq_rule=True, warm_start=True, intercept=True):
+def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, dtol=1e-4, btol=1e-9,
+              n_iters=1000, refit=True, path_len=0.001, lmin=None, lmax=None, seq_rule=True, 
+              warm_start=True, intercept=True, verbose=False):
     if b is None:
         b = X.T.dot(y) / X.shape[0]
     if (lambdas is None) or (type(lambdas) in [int, float]):
@@ -124,9 +125,9 @@ def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, dtol=1e-4, btol=1e-9, 
             nl = 150
         else:
             nl = int(lambdas)
-        b0 = X.T.dot(y - y.mean()) / X.shape[0]
-        lambda_min = sp.stats.scoreatpercentile(np.abs(b0), lmin_pct) if lmin is None else lmin
-        lambda_max = sp.stats.scoreatpercentile(np.abs(b0), lmax_pct) / alpha if lmax is None else lmax
+        xty = X.T.dot(y - y.mean()) / (X.shape[0] * alpha)
+        lambda_max = lmax if lmax is not None else np.abs(xty).max()
+        lambda_min = lmin if lmin is not None else path_len*lambda_max
         lambdas = np.exp(np.linspace(np.log(lambda_max), np.log(lambda_min), nl))
     p = X.shape[1]
     betas = np.zeros((len(lambdas)+1, p))
@@ -134,7 +135,7 @@ def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, dtol=1e-4, btol=1e-9, 
     fvals = np.zeros((len(lambdas), cv, 3))
     n_its = np.zeros((len(lambdas), cv))
     Xf, yf, Xt, yt = crossval_mats(X, y, X.shape[0], cv)
-    progress_bar = tqdm.tqdm(total=len(lambdas)*cv)
+    progress_bar = tqdm.tqdm(total=len(lambdas)*cv) if verbose else None
     for i, lambda_ in enumerate(lambdas):
         for k in range(cv):
             if warm_start:
@@ -160,7 +161,8 @@ def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, dtol=1e-4, btol=1e-9, 
             fvals[i, k] = fi
             n_its[i, k] = n_i
             b = bi.copy()
-            progress_bar.update(1)
+            if verbose:
+                progress_bar.update(1)
         if refit:
             if warm_start:
                 beta_start = betas[i].copy()
@@ -178,7 +180,8 @@ def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, dtol=1e-4, btol=1e-9, 
                                      dtol=dtol, btol=btol, active=active, n_iters=n_iters,
                                      intercept=intercept)
             
-    progress_bar.close()
+    if verbose:
+        progress_bar.close()
     fvals[:, :, 0] *= 2.0
     return betas_cv[1:], fvals, lambdas, betas[1:], n_its
        
