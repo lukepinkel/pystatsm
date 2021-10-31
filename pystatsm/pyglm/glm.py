@@ -87,16 +87,12 @@ class GLM:
         s/= self.dfe
         return s
     
-    def predict(self, params, X=None, Y=None):
-        if X is None:
-            X = self.X
-        if self.scale_handling == 'NR':
-            beta, _ = params[:-1], params[-1]
-            eta = X.dot(beta)
-            mu = self.f.inv_link(eta)
-        else:
-            eta = X.dot(params)
-            mu = self.f.inv_link(eta)
+    def predict(self, params=None, X=None, Y=None):
+        X = self.X if X is None else X
+        params = self.params if params is None else params
+        beta = params[:-1] if self.scale_handling == "NR" else params
+        eta = X.dot(beta)
+        mu = self.f.inv_link(eta)
         return mu
     
     def _check_mats(self, params, X, Y):
@@ -151,17 +147,17 @@ class GLM:
         return H 
     
     
-    def _fit_optim(self, opt_kws={}, t_init=None, X=None, Y=None):
+    def _fit_optim(self, opt_kws=None, t_init=None, X=None, Y=None):
         if t_init is None:
             t_init = self.theta_init
 
-        default_args = dict(verbose=0, gtol=1e-6, xtol=1e-6)
-        for key, val in default_args.items():
-            if key not in opt_kws.keys():
-                opt_kws[key] = val
+        opt_kws = {} if opt_kws is None else opt_kws
+        default_kws = dict(method='trust-constr', options=dict(verbose=0, gtol=1e-6, xtol=1e-6))
+        opt_kws = {**default_kws, **opt_kws}
+
         optimizer = sp.optimize.minimize(self.loglike, t_init, args=(X, Y),
                                          jac=self.gradient, hess=self.hessian, 
-                                         options=opt_kws, method='trust-constr')
+                                         **opt_kws)
         return optimizer
     
     def _fit_manual(self, theta=None):
@@ -202,7 +198,7 @@ class GLM:
             sh = 1.0
         return theta, fit_hist
             
-    def fit(self, method=None):
+    def fit(self, method=None, opt_kws=None):
 
         self.theta0 = self.theta_init.copy()
         if method is None:
@@ -211,7 +207,7 @@ class GLM:
             else:
                 method = 'sp'
         if method == 'sp':
-            res = self._fit_optim()
+            res = self._fit_optim(opt_kws=opt_kws)
             params = res.x
         else:
             params, res = self._fit_manual()

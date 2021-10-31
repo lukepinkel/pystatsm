@@ -565,7 +565,7 @@ class MixedMCMC(LMM):
         if save_pred:
             self.secondary_samples['pred'] = np.zeros((n_chains, n_samples, self.n_ob))        
         if save_lvar:
-            self.secondary_samples['u'] = np.zeros((n_chains, n_samples, self.n_ob))
+            self.secondary_samples['lvar'] = np.zeros((n_chains, n_samples, self.n_ob))
         self.save_pred, self.save_u, self.save_lvar = save_pred, save_u, save_lvar
 
         if self.response_dist=='binomial':
@@ -588,7 +588,16 @@ class MixedMCMC(LMM):
                 xm = np.mean(xv, axis=0)
                 tmp.append(sign_change(xv, nth_change=50, offset=xm))
             burnin = np.max(tmp)
-            
+        
+        if self.response_dist == 'bernoulli':
+            c = np.sqrt(1.0+(16*np.sqrt(3))/(15*np.pi))
+            if save_u:
+                self.secondary_samples['u'] /= c
+            if save_pred:
+                self.secondary_samples['pred'] /=c
+            samples[:, :, self.vnames["$\\beta$"]] /= c
+            samples[:, :, self.vnames["$\\theta$"]] /= c
+        
         self.burnin=burnin
         self.samples = samples
         self.az_dict = to_arviz_dict(samples, self.vnames, burnin=burnin)

@@ -826,7 +826,9 @@ class GauLS:
         return fig, ax
     
     def plot_smooth_quantiles(self, m_comp=None, s_comp=None, quantiles=None,
-                              mean=True, figax=None, b=0.0, scatter_partial=False,
+                              mean=True, figax=None, m_offset=0.0, s_offset=0.0,
+                              fill_kws=None, line_kws=None,
+                              scatter_partial=False,
                               scatter_kws={}):
         """
         Parameters
@@ -846,7 +848,10 @@ class GauLS:
         figax: tuple
             Tuple of existing  matplotlib figure and axes
         
-        b: float, int
+        m_offset : float, int
+            Offset for mean
+        
+        s_offset: float, int
             Offset for scale(e.g. for a smooth by a categorical variable,
             an intercept would need to go here for the scale to make sense)
  
@@ -866,7 +871,15 @@ class GauLS:
             fig, ax = plt.subplots()
         else:
             fig, ax = figax
-            
+        
+        
+        fill_kws = {} if fill_kws is None else fill_kws
+        line_kws = {} if line_kws is None else line_kws
+        
+        fill_kws = {**{"alpha":0.2, "zorder":1, "color":"b"}, **fill_kws}
+        line_kws = {**{"color":"#ff7f0e"}, **line_kws}
+        
+        
         methods = {"cr":crspline_basis, "cc":ccspline_basis,"bs":bspline_basis} 
         m, s = self.m.smooths[m_comp], self.s.smooths[s_comp]
         mk = m['knots']  
@@ -875,14 +888,14 @@ class GauLS:
         Xs = methods[s['kind']](x, mk, **s['fkws'])
         Xm, _ = absorb_constraints(m['q'], X=Xm)
         Xs, _ = absorb_constraints(s['q'], X=Xs)
-        mu = self.m.link.inv_link(Xm.dot(self.beta[m['ix']]))
-        tau = 1.0 / self.s.link.inv_link(b+Xs.dot(self.beta[self.ixs][s['ix']]))
+        mu = self.m.link.inv_link(m_offset+Xm.dot(self.beta[m['ix']]))
+        tau = 1.0 / self.s.link.inv_link(s_offset+Xs.dot(self.beta[self.ixs][s['ix']]))
         for q in quantiles:
             c = sp.stats.norm(0, 1).ppf(q/100)
-            ax.fill_between(x, mu+c*tau, mu-c*tau, color='b', alpha=0.2, 
-                            zorder=1, label=f"{2*q}th Quantile")
+            ax.fill_between(x, mu+c*tau, mu-c*tau, label=f"{2*q}th Quantile",
+                            **fill_kws)
         if mean:
-            ax.plot(x, mu, color='#ff7f0e')
+            ax.plot(x, mu, **line_kws)
         ax.set_xlim(x.min(), x.max())
         
         if scatter_partial:

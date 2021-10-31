@@ -15,7 +15,7 @@ from sksparse.cholmod import cholesky# analysis:ignore
 from ..utilities.data_utils import _check_np, _check_shape, dummy, _check_shape_nb
 from ..utilities.linalg_operations import invech
 from .model_matrices import (construct_model_matrices, 
-                             create_gmats,make_theta,  update_gmat)
+                             make_gcov, make_theta)
 from ..utilities.output import get_param_table
 from ..pyglm.families import (Binomial, ExponentialFamily, Gamma, Gaussian,  # analysis:ignore
                        InverseGaussian, Poisson, NegativeBinomial)
@@ -72,20 +72,20 @@ class GLMM_AGQ:
         if isinstance(family, ExponentialFamily)==False:
             family = family()
         self.f = family
-        X, Z, y, dims = construct_model_matrices(formula, data)
-        theta, indices = make_theta(dims)
-        Gmats, g_indices = create_gmats(theta, indices, dims)
-        Gmats_inverse, _ = create_gmats(theta, indices, dims, inverse=True)
-        G = sps.block_diag(list(Gmats.values())).tocsc()
-        Ginv =  sps.block_diag(list(Gmats_inverse.values())).tocsc()
+        indices = {}
+        X, Z, y, dims, levels = construct_model_matrices(formula, data)
+        theta, indices["theta"] = make_theta(dims)
+        G, indices["g"] = make_gcov(theta, indices, dims)
         self.X = _check_shape_nb(_check_np(X), 2)
         self.y = _check_shape_nb(_check_np(y), 1)
         self.Z = Z
         self.Zs = sps.csc_matrix(Z)
         self.Zt = self.Zs.T
         group_var, = list(dims.keys())
-        self.J = dummy(data[group_var])
+       
         n_vars = dims[group_var]['n_vars']
+        self.J = sp.linalg.khatri_rao(dummy(data[group_var]).T, 
+                                      np.ones((self.X.shape[0], n_vars)).T).T #dummy(data[group_var])
         self.n_indices = data.groupby(group_var).indices
         self.Xg, self.Zg, self.yg = {}, {}, {}
         self.u_indices, self.c_indices = {}, {}
@@ -112,15 +112,25 @@ class GLMM_AGQ:
                                                    np.arange(self.n))))
         
         self.G = G
-        self.Ginv = Ginv
-        self.g_indices = g_indices
         self.dims = dims
         self.indices = indices
-    
+        self.levels = levels
+    def update_gmat(self, theta, inverse=False):
+
+        G = self.G
+        for key in self.levels:
+            ng = self.dims[key]['n_groups']
+            theta_i = theta[self.indices['theta'][key]]
+            if inverse:
+                theta_i = np.linalg.inv(invech(theta_i)).reshape(-1, order='F')
+            else:
+                theta_i = invech(theta_i).reshape(-1, order='F')
+            G.data[self.indices['g'][key]] = np.tile(theta_i, ng)
+        return G
+        
     def pirls(self, params):
         beta, theta = params[:self.p], params[self.p:]
-        Psi_inv = update_gmat(theta, self.G.copy(), self.dims, self.indices, 
-                           self.g_indices, inverse=True)
+        Psi_inv = self.update_gmat(theta, inverse=True)
         D = cholesky(Psi_inv).L()
         u = np.zeros(self.q)
         Xb = self.X.dot(beta)
