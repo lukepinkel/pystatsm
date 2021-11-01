@@ -75,6 +75,36 @@ class MixedModelSim:
     
     def __init__(self, formula, model_dict, rng=None, group_dict={}, var_ratios=None,
                  ranef_dist=None, resid_dist=None):
+        """
+
+        Parameters
+        ----------
+        formula : string
+            lme4 style formula with random effects specified by terms in 
+            parentheses with a bar
+        model_dict : dict
+            Dictionary with attributes `gcov`, `vcov`, `ginfo`, `mu`, `beta`,
+            and `n_obs`.
+        rng : numpy.random._generator.Generator, optional
+            Numpy random generator for replicability. The default is None.
+        group_dict : dict, optional
+            Arrays specifying group membership for each observation. 
+            The default is {}.
+        var_ratios : arraylike, optional
+            The amount of variance contributed by fixed and random effects.
+            The sum must be less than or equal to one, and the difference is
+            taken to be the residual variance.  The default is None.
+        ranef_dist : function, optional
+            Function to draw random effect samples. The default is a normal 
+            distribution.
+        resid_dist : function, optional
+            Function to draw residuals. The default is a normal distribution.
+
+        Returns
+        -------
+        None.
+
+        """
         rng = np.random.default_rng() if rng is None else rng
         ranef_dist =  rng.multivariate_normal if ranef_dist is None else ranef_dist
         resid_dist =  rng.normal if resid_dist is None else resid_dist
