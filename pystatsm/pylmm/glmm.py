@@ -84,11 +84,8 @@ class GLMM_AGQ:
         group_var, = list(dims.keys())
        
         n_vars = dims[group_var]['n_vars']
-        n_grps = dims[group_var]['n_groups']
-        self.Jy = dummy(data[group_var]) #sp.linalg.khatri_rao(dummy(data[group_var]).T, 
+        self.J = dummy(data[group_var]) #sp.linalg.khatri_rao(dummy(data[group_var]).T, 
                                         #np.ones((self.X.shape[0], n_vars)).T).T #dummy(data[group_var])
-        self.Ju = sp.sparse.csc_matrix(sp.linalg.khatri_rao(np.eye(n_grps), 
-                                                            np.ones((n_grps, n_vars)).T).T)
         self.n_indices = data.groupby(group_var).indices
         self.Xg, self.Zg, self.yg = {}, {}, {}
         self.u_indices, self.c_indices = {}, {}
@@ -169,13 +166,12 @@ class GLMM_AGQ:
         T = self.f.canonical_parameter(mu)
         bT = self.f.cumulant(T)
         Du = D.dot(u_tilde)
-        log_proby= (self.y * T - bT).dot(self.Jy)
-        log_probu = self.Ju.dot(Du**2 / 2)
-        ll = np.exp(log_proby - log_probu)
+        logf = (self.y * T - bT).dot(self.J)
+        ll = np.exp(logf - Du**2 / 2)
         return ll
 
     
-    def loglike(self, params, nagq=7):
+    def loglike(self, params, nagq=20):
         pirls_dict = self.pirls(params)
         z, w, f = gh_rules(nagq, False)
         args = (pirls_dict['Xb'], pirls_dict['Qinv'], pirls_dict['D'], 
