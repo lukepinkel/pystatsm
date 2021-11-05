@@ -34,7 +34,7 @@ def test_lmm():
     assert(np.allclose(var_ratios, np.array([0.4, 0.4, 0.2])))
     
     df = msim.df.copy()
-    df["y"] = msim.simulate_response()
+    df["y"], u = msim.simulate_response()
     model = LMM(formula, data=df)
     model.fit(opt_kws=dict(xtol=1e-16, gtol=1e-12))
     assert(model.optimizer.success==True)

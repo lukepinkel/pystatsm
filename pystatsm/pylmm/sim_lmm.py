@@ -171,13 +171,14 @@ class MixedModelSim:
         u = self.simulate_ranefs(exact_ranefs=exact_ranefs, ranef_dist=ranef_dist,
                                  ranef_kws=ranef_kws)
         eta = self.eta_fe + self.Z.dot(u)
-        return eta
+        return eta, u
     
     def simulate_response(self, rsq=None, resid_scale=None, exact_ranefs=False, 
                           exact_resids=False, ranef_dist=None, resid_dist=None, 
                           ranef_kws={}, resid_kws={}):
-        eta = self.simulate_linpred(exact_ranefs=exact_ranefs, ranef_dist=ranef_dist,
-                                    ranef_kws=ranef_kws)
+        eta, u = self.simulate_linpred(exact_ranefs=exact_ranefs, 
+                                       ranef_dist=ranef_dist,
+                                       ranef_kws=ranef_kws)
         dist = self.resid_dist if resid_dist is None else resid_dist
         if resid_scale is None and self.v_rs is None:
             rsq = 0.64 if rsq is None else rsq
@@ -193,7 +194,7 @@ class MixedModelSim:
             y = eta + resids
         else:
             y = dist(loc=eta, scale=s, size=self.n_obs, **resid_kws)
-        return y
+        return y, u
     
     def update_model(self, model, y):
         model.y = y

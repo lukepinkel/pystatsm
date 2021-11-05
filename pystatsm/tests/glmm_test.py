@@ -36,7 +36,7 @@ def test_glmm_mcmc():
     s = np.sqrt(v * (1 - r) / r)
     msim = MixedModelSim(formula1, model_dict1, rng=rng)
     df = msim.df
-    eta = msim.simulate_linpred()
+    eta, u = msim.simulate_linpred()
     mu = np.exp(eta) / (1.0 + np.exp(eta))
     y = rng.normal(loc=eta, scale=s)
     

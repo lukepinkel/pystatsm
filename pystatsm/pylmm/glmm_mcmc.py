@@ -598,7 +598,7 @@ class MixedMCMC(LMM):
             samples[:, :, self.vnames["$\\beta$"]] /= c
             samples[:, :, self.vnames["$\\theta$"]] /= c
         
-        self.burnin=burnin
+        self.burnin = burnin
         self.samples = samples
         self.az_dict = to_arviz_dict(samples, self.vnames, burnin=burnin)
         self.az_data = az.from_dict(self.az_dict)
@@ -607,12 +607,27 @@ class MixedMCMC(LMM):
         self.res.index = self.param_names
         self.res.insert(2, "z-value", self.res["mean"]/self.res["sd"])
         self.res.insert(3, "p-value", sp.stats.norm(0, 1).sf(np.abs(self.res["z-value"])))
-        self.beta = np.mean(samples[:, :, self.vnames["$\\beta$"]], axis=(0, 1))
-        self.theta = np.mean(samples[:, :, self.vnames["$\\theta$"]], axis=(0, 1))
+        self.beta = np.mean(samples[:, burnin:, self.vnames["$\\beta$"]], axis=(0, 1))
+        self.theta = np.mean(samples[:, burnin:, self.vnames["$\\theta$"]], axis=(0, 1))
         if self.response_dist == 'ordinal_probit':
-            self.tau = np.mean(samples[:, :, self.vnames["$\\tau$"]], axis=(0, 1))
+            self.tau = np.mean(samples[:, burnin:, self.vnames["$\\tau$"]], axis=(0, 1))
             
+    
+    def aggregate_samples(self, burnin=None):
+        burnin = self.burnin if burnin is None else burnin
+        agg_samples = {}
+        for name, ix in self.vnames.items():
+            x = self.samples[:, burnin, ix]
+            x = x.reshape(np.product(x.shape[:-1]), x.shape[-1])
+            agg_samples[name] = x
+        
+        if 'u' in self.secondary_samples.keys():
+            u = self.secondary_samples["u"][:, burnin:]
+            u = u.reshape(np.product(u.shape[:-1]), u.shape[-1])
+        agg_samples['u'] = u
+        return agg_samples
 
+        
     def plot_trace(self, plot_kws=None):
         axes = _plot_trace(self.az_data, plot_kws)
         return axes
