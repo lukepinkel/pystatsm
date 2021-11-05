@@ -191,7 +191,6 @@ class GLMM_AGQ:
 
     
         
-       
     
 class GLMM_LAP:
     def __init__(self, formula, data, family):
@@ -227,10 +226,16 @@ class GLMM_LAP:
         self.n, self.p = self.X.shape
         self.q = self.Z.shape[1]
         self.nt = len(theta)
+        if isinstance(family, Binomial):
+            self.freeR = False
+            self.nt = self.nt-1
+            theta = theta[:-1]
+        else:
+            self.freeR = True
         self.params = np.zeros(self.p+self.nt)
         self.params[-self.nt:] = theta
         self.bounds = [(None, None) for i in range(self.p)]+\
-                 [(None, None) if int(x)==0 else (0, None) for x in theta]
+                      [(None, None) if int(x)==0 else (0, None) for x in theta]
         
         self.D = np.eye(n_vars)
         self.W = sps.csc_matrix((np.ones(self.n), (np.arange(self.n), 
@@ -240,8 +245,8 @@ class GLMM_LAP:
         self.dims = dims
         self.indices = indices
         self.levels = levels
+        
     def update_gmat(self, theta, inverse=False):
-
         G = self.G
         for key in self.levels:
             ng = self.dims[key]['n_groups']
@@ -282,26 +287,15 @@ class GLMM_LAP:
         utGinv_u = Ginv_u.dot(u)
         return u, Xb, RtR, utGinv_u
     
-    def _dloglike(self, db, Xb, Qinv, D, u):
-        db = np.zeros(Qinv.shape[0]) + db
-        u_tilde = Qinv.dot(db) + u
-        eta = (self.Z.dot(u_tilde)) + Xb
-        mu = self.f.inv_link(eta)
-        T = self.f.canonical_parameter(mu)
-        bT = self.f.cumulant(T)
-        Du = D.dot(u_tilde)
-        logf = (self.y * T - bT).dot(self.J)
-        ll = np.exp(logf - Du**2 / 2)
-        return ll
-
-    
     def loglike(self, params):
+        if self.freeR is False:
+            params = np.r_[params, 1.0]
         u, Xb, RtR, utGinv_u = self.pirls(params)
         lndL = lndet_gmat(params[self.p:], self.dims, self.indices)
         lndQ = np.linalg.slogdet(RtR.A)[1]
         lnd = lndL + lndQ
         llf = 2.0 * self.f.loglike(self.y, eta=self.Zs.dot(u)+Xb)
-        ll = llf + utGinv_u + lnd
+        ll = (llf + utGinv_u + lnd)/2.0
         return ll
     
     def fit(self, opt_kws=None):
