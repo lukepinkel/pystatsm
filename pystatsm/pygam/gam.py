@@ -446,7 +446,7 @@ class GAM:
         H[-1, -1] = Dp / (2.0 * phi) + ls1*phi  + ls2*phi**2 
         return H
     
-    def get_smooth_comps(self, beta, ci=90):
+    def get_smooth_comps(self, smooth_names=None, data=None, beta=None, ci=90):
         """
         Parameters
         ----------
@@ -465,12 +465,15 @@ class GAM:
             the estimated value, f(x), and the standard error.
 
         """
+        beta = self.beta if beta is None else beta
+        smooth_names = self.smooths.keys() if smooth_names is None else smooth_names
         methods = {"cr":crspline_basis, "cc":ccspline_basis,"bs":bspline_basis} 
         f = {}
         ci = sp.stats.norm(0, 1).ppf(1.0 - (100 - ci) / 200)
-        for i, (key, s) in enumerate(self.smooths.items()):
+        for i, key in enumerate(smooth_names):
+            s = self.smooths[key]
             knots = s['knots']         
-            x = np.linspace( knots.min(),  knots.max(), 200)
+            x = np.linspace(knots.min(), knots.max(), 200) if data is None else data[key]
             X = methods[s['kind']](x, knots, **s['fkws'])
             X, _ = absorb_constraints(s['q'], X=X)
             y = X.dot(beta[s['ix']])
@@ -480,8 +483,8 @@ class GAM:
             f[key] = np.vstack((x, y, se)).T
         return f
             
-    def plot_smooth_comp(self, beta, single_fig=True, subplot_map=None, 
-                         ci=95, fig_kws={}):
+    def plot_smooth_comp(self, smooth_names=None, data=None, beta=None, single_fig=True, 
+                         subplot_map=None, ci=95, fig_kws={}):
         """
         Parameters
         ----------
@@ -511,6 +514,8 @@ class GAM:
             Axis object
 
         """
+        beta = self.beta if beta is None else beta
+        smooth_names = self.smooths.keys() if smooth_names is None else smooth_names
         ci = sp.stats.norm(0, 1).ppf(1.0 - (100 - ci) / 200)
         methods = {"cr":crspline_basis, "cc":ccspline_basis,"bs":bspline_basis} 
         if single_fig:
@@ -518,9 +523,10 @@ class GAM:
             
         if subplot_map is None:
             subplot_map = dict(zip(np.arange(self.ns), np.arange(self.ns)))
-        for i, (key, s) in enumerate(self.smooths.items()):
+        for i, key in enumerate(smooth_names):
+            s = self.smooths[key]
             knots = s['knots']         
-            x = np.linspace( knots.min(),  knots.max(), 200)
+            x = np.linspace(knots.min(), knots.max(), 200) if data is None else data[key]
             X = methods[s['kind']](x, knots, **s['fkws'])
             X, _ = absorb_constraints(s['q'], X=X)
             y = X.dot(beta[s['ix']])

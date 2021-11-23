@@ -226,7 +226,7 @@ class GLMM_LAP:
         self.n, self.p = self.X.shape
         self.q = self.Z.shape[1]
         self.nt = len(theta)
-        if isinstance(family, Binomial):
+        if isinstance(family, Binomial) or isinstance(family, Poisson):
             self.freeR = False
             self.nt = self.nt-1
             theta = theta[:-1]
@@ -309,6 +309,8 @@ class GLMM_LAP:
         self.se_params = np.sqrt(np.diag(np.linalg.inv(self.hess_theta)))
         self.res = get_param_table(self.params, self.se_params, 
                                    self.X.shape[0]-len(self.params))
+        self.ll = self.loglike(self.params)
+        
 
 
     

@@ -146,7 +146,7 @@ def crspline_basis(x, knots, F):
     return X
     
 def ccspline_basis(x, knots, F):
-    n, h, j = len(knots), np.diff(knots), x.copy()
+    n, h, j = len(knots), np.diff(knots), np.searchsorted(knots, x) - 1
     for i in range(n, 1, -1):
         j[x<=knots[i-1]] = i-1
     j1 = hj = j - 1
@@ -243,7 +243,7 @@ def _get_bsplines(x, df=10):
 
 def _get_ccsplines(x, df=10):
     knots = ccspline_knots(x, df)
-    S, F = ccspline_penalty(x, knots)
+    S, F = ccspline_penalty(knots)
     X = ccspline_basis(x, knots, F)
     fkws = {"F":F}
     return X, S, knots, fkws

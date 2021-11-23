@@ -55,7 +55,7 @@ def replace_duplicate_operators(match):
     return match.group()[-1:]
 
 def get_smooth(x, df=10, kind="cr", by=None):
-    methods = {"cr":_get_crsplines, "cc":_get_bsplines, "bs":_get_ccsplines}
+    methods = {"cr":_get_crsplines, "cc":_get_ccsplines, "bs":_get_bsplines}
     X, S, knots, fkws = methods[kind](x, df)
     sc = get_penalty_scale(X, S)
     q, _ = np.linalg.qr(X.mean(axis=0).reshape(-1, 1), mode='complete')

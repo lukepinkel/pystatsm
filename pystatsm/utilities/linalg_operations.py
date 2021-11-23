@@ -83,6 +83,17 @@ def toeplitz_cholesky_lower_nb(n, A):
     return L
 
 
+@numba.jit(nopython=True)
+def ar1_chol(n, rho):
+    L = np.zeros((n, n))
+    L[:, 0] = rho**np.arange(n)
+    L[1:, 1] = L[:-1, 0] * np.sqrt(1.0 - rho**2)
+    for i in range(2, n):
+        L[i:, i] = L[1:1-i, 1]
+    return L
+
+
+
 def vec(X):
     return X.reshape(-1, order='F')
 

@@ -267,11 +267,10 @@ class MixedMCMC(LMM):
             for i, j in list(zip(*np.triu_indices(self.dims[level]['n_vars']))):
                 param_names.append(f"{level}:G[{i}][{j}]")
         
-        param_names.append("error_cov")
+        if self.freeR:
+            param_names.append("resid_cov")
         if response_dist=='ordinal_probit':
-            param_names = param_names + [f"t{i}" for i in range(1, self.n_thresh)]
-        if not self.freeR:
-            param_names = param_names[:-1]
+            param_names = param_names + [f"t{i}" for i in range(1, self.n_thresh+1)]
         self.param_names = param_names
         
 

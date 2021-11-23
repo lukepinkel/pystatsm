@@ -663,12 +663,14 @@ class FactorAnalysis(object):
         self.Sigma = self.implied_cov(self.theta)
         self.H = so_gc_cd(self.gradient_augmented, self.params)
         if self._rotation_method is not None:
+            self.L_unrotated = self.L.dot(self.T)
             self.J = oblique_constraint_derivs(self.params, self)
             i, j = np.indices((self.n_facs, self.n_facs))
             i, j = i.flatten(), j.flatten()
             #self.J = self.J[j>=i]
             self.J = self.J[i!=j]
         else:
+            self.L_unrotated = None
             self.J = self.constraint_derivs(self.theta)
         q = self.J.shape[0]
         self.Hc = np.block([[self.H, self.J.T], [self.J, np.zeros((q, q))]])
