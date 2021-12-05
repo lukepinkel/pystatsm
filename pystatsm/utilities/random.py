@@ -185,6 +185,11 @@ def students_t(loc, scale, nu=1, size=None, rng=None):
      rng = np.random.default_rng() if rng is None else rng
      x = loc + rng.standard_t(df=nu, size=size) * scale
      return x
+
+def cauchy(loc, scale, size=None, rng=None):
+     rng = np.random.default_rng() if rng is None else rng
+     x = loc + rng.standard_cauchy(size=size) * scale
+     return x
     
 def multivariate_t(mean, cov, nu=1, size=None, rng=None):
     rng = np.random.default_rng() if rng is None else rng
