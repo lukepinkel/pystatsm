@@ -58,6 +58,7 @@ class RobustRegressionModel:
         self.resid_dist = resid_dist
         self.data = pd.DataFrame(X, columns=[f"x{i}" for i in range(n_var)])
         self.data["y"] = 0
+        self.formula = "y~1+"+"+".join([f"x{i}" for i in range(n_var)])
         
     
     def simulate_dependent(self, n_samples=1):

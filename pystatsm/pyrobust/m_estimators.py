@@ -9,303 +9,212 @@ Created on Mon May 18 00:50:23 2020
 import numpy as np
 import scipy as sp
 from .dispersion_estimators import mad, gmd, sn_estimator, qn_estimator # analysis:ignore
+from ..utilities.func_utils import norm_pdf
+from ..utilities.linalg_operations import nwls
 
 QTF75 = sp.stats.norm(0, 1).ppf(0.75)
 
-
+class MEstimator(object):
     
     
-
-class Huber:
-    
-    def __init__(self, scale_estimator=mad):
-        self.c0 = 1.345
-        self.c1 = QTF75
-        self._scale_estimator = scale_estimator
+    def _normal_ev(self, f, a=-np.inf, b=np.inf, *args, **kwargs):
+        I, _ =sp.integrate.quad(f, a, b, *args, **kwargs)
+        return I
         
-    def rho_func(self, u):
-        '''
-        Function to be minimized
-        '''
-        v = u.copy()
-        ixa = np.abs(u) < self.c0
-        ixb = ~ixa
-        v[ixa] = u[ixa]**2
-        v[ixb] = np.abs(2*u[ixb])*self.c0 - self.c0**2
-        return v
+    def E_rho(self, c=None):
+        f = lambda x: self.rho(x, c) * norm_pdf(x)
+        return self._normal_ev(f)
     
-    def psi_func(self, u):
-        '''
-        Derivative of rho
-        '''
-        v = u.copy()
-        ixa = np.abs(u) < self.c0
-        ixb = ~ixa
-        v[ixb] = self.c0 * np.sign(u[ixb])
-        return v
-    
-    def phi_func(self, u):
-        '''
-        Second derivative of rho
-        '''
-        v = u.copy()
-        ixa = np.abs(u) <= self.c0
-        ixb = ~ixa
-        v[ixa] = 1
-        v[ixb] = 0
-        return v
-    
-    def weights(self, u):
-        '''
-        Equivelant to psi(u)/u
-        '''
-        v = u.copy()
-        ixa = np.abs(u) < self.c0
-        ixb = ~ixa
-        v[ixa] = 1
-        v[ixb] = self.c0 / np.abs(u[ixb])
-        return v
-    
-    def estimate_scale(self, r, *args):
-        return self._scale_estimator(r, *args)
-    
-    def scale_weights(self, u):
-        w = np.ones_like(u)
-        ixa = u!=0
-        ixb = u==0
-        w[ixa] = self.rho_func(u[ixa]) / u**2
-        w[ixb] = self.phi_func(u[ixb])
-        return w
+    def E_psi(self, c=None):
+        f = lambda x: self.rho(x, c) * norm_pdf(x)
+        return self._normal_ev(f)
         
-class Bisquare:
+    def E_phi(self, c=None):
+        f = lambda x: self.phi(x, c) * norm_pdf(x)
+        return self._normal_ev(f)
     
-    def __init__(self, scale_estimator=mad):
-        self.c0 = 4.685
-        self.c1 = 0.6745
-        self._scale_estimator = scale_estimator
+    def E_psi2(self, c=None):
+        f = lambda x: self.psi(x, c)**2 * norm_pdf(x)
+        return self._normal_ev(f)
     
-    def rho_func(self, u):
-        '''
-        Function to be minimized
-        '''
-        v = u.copy()
-        c = self.c0
-        ixa = np.abs(u) < c
-        ixb = ~ixa
-        v[ixa] = c**2 / 3 * (1 - ((1 - (u[ixa] / c)**2)**3))
-        v[ixb] = 2 * c
-        return v
-    
-    def psi_func(self, u):
-        '''
-        Derivative of rho
-        '''
-        v = u.copy()
-        c = self.c0
-        ixa = np.abs(u) <= c
-        ixb = ~ixa
-        v[ixa] = u[ixa] * (1 - (u[ixa] / c)**2)**2
-        v[ixb] = 0
-        return v
-    
-    def phi_func(self, u):
-        '''
-        Second derivative of rho
-        '''
-        v = u.copy()
-        c = self.c0
-        ixa = np.abs(u) <= self.c0
-        ixb = ~ixa
-        u2c2 = (u**2 / c**2)
-        v[ixa] = (1 -u2c2[ixa]) * (1 - 5 * u2c2[ixa])
-        v[ixb] = 0
-        return v
-    
-    def weights(self, u):
-        '''
-        Equivelant to psi(u)/u
-        '''
-        v = u.copy()
-        c = self.c0
-        ixa = np.abs(u) < c
-        ixb = ~ixa
-        v[ixa] = (1 - (u[ixa] / c)**2)**2
-        v[ixb] = 0
-        return v
-    
-    def scale_weights(self, u):
-        w = np.ones_like(u)
-        ixa = u!=0
-        ixb = u==0
-        w[ixa] = self.rho_func(u[ixa]) / u**2
-        w[ixb] = self.phi_func(u[ixb])
-        return w
-     
-    def estimate_scale(self, r, *args):
-        return self._scale_estimator(r, *args)
+    def chi(self, x, deriv=0, *args):
+        if deriv == 0:
+            y =self.rho(x, *args)
+        elif deriv == 1:
+            y = self.psi(x, *args)
+        elif deriv == 2:
+            y = self.phi(x, *args)
         
-class Hampel:
+        if deriv > 0:
+            I = self.rho_norm(*args)
+            y /= I
+        return y
     
-    def __init__(self, k=0.9016085, scale_estimator=mad):
-        self.a = 1.5 * k
-        self.b = 3.5 * k
-        self.r = 8.0 * k
-        self.k = k
-        self.c = self.a / 2.0 * (self.b - self.a + self.r)
-        self.a2 = self.a**2
-        self._scale_estimator = scale_estimator
+    def m_estimate_scale(self, r, scale=None, bd=0.5, n_iters=1, tol=1e-12):
+        scale = mad(r) if scale is None else scale
+        for i in range(n_iters):
+            ss = np.mean(self.rho(r / scale)) / bd
+            s_new = np.sqrt(scale**2 * ss)
+            conv = np.abs(s_new / scale - 1.0) < tol
+            scale = s_new
+            if conv:
+                break
+        return scale
     
-    def rho_func(self, u):
-        '''
-        Function to be minimized
-        '''
-        a, a2, b, c, r = self.a, self.a2, self.b, self.c, self.r
-        v = u.copy()
-        au = np.abs(u)
-        ixa = au <= a
-        ixb = (au>a) * (au<=b)
-        ixc = (au>b) * (au<=r)
-        ixd = au>r
-        v[ixa] = 0.5 * u[ixa]**2 / c
-        v[ixb] = (0.5 * a2 + a*(au[ixb] - a)) / c
-        v[ixc] = 0.5 * (2*b-a+(au[ixc]-b)*(1+(r-au[ixc])/(r-b))) / c
-        v[ixd] = 1.0
-        return v
+    def irls_step(self, X, y,  beta, scale=None, bd=0.5, n_iters=50, tol=1e-12):
+        r = y - X.dot(beta)
+        scale = mad(r) if scale is None else scale
+        for i in range(n_iters):
+            ss = np.mean(self.rho(r / scale)) / bd
+            scale = np.sqrt(scale**2 * ss)
+            w = self.weights(r / scale)
+            beta_new = nwls(X, y, w)
+            conv = np.linalg.norm(beta - beta_new)**2 < tol * np.linalg.norm(beta)+tol
+            r = y - X.dot(beta_new)
+            beta = beta_new
+            if conv:
+                break
+        return r, beta, scale
+            
+            
+        
+
+        
     
-    def psi_func(self, u):
-        '''
-        Derivative of rho
-        '''
-        v = u.copy()
-        a, b, r = self.a, self.b, self.r
-        au = np.abs(u)
-        sgnu = np.sign(u)
-        ixa = au <= self.a
-        ixb = (au>a) * (au<=b)
-        ixc = (au>b) * (au<=r)
-        ixd = au>r
-        v[ixa] = u[ixa]
-        v[ixb] = a * sgnu[ixb]
-        v[ixc] = a * sgnu[ixc] * (r - au[ixc]) / (r - b)
-        v[ixd] = 0
-        return v
     
-    def phi_func(self, u):
-        '''
-        Second derivative of rho
-        '''
-        v = np.zeros(u.shape[0])
-        a, b, r = self.a, self.b, self.r
-        au = np.abs(u)
-        ixa = au <= self.a
-        ixc = (au>b) * (au<=r)
-        v[ixa] = 1.0
-        v[ixc] = (a * np.sign(u)[ixc] * u[ixc]) / (au[ixc] * (r - b))
-        return v
+
+class Huber(MEstimator):
     
-    def scale_weights(self, u):
-        w = np.ones_like(u)
-        ixa = u!=0
-        ixb = u==0
-        w[ixa] = self.rho_func(u[ixa]) / u**2
-        w[ixb] = self.phi_func(u[ixb])
-        return w
+    def __init__(self, c=1.345):
+        self.c = 1.345
+
+        
+    def rho(self, x, c=None):
+        c = self.c if c is None else c
+        x = np.asarray(x)
+        abs_x = np.abs(x)
+        ix = abs_x <= c
+        y = np.zeros_like(x)
+        y[ix] = x[ix]**2 / 2.0
+        y[~ix] = c * (abs_x[~ix] - c / 2.0)
+        return y
     
-    def weights(self, u):
-        '''
-        Equivelant to psi(u)/u
-        '''
-        v = np.zeros(u.shape[0])
-        a, b, r = self.a, self.b, self.r
-        au = np.abs(u)
-        ixa = au <= self.a
-        ixb = (au>a) * (au<=b)
-        ixc = (au>b) * (au<=r)
-        v[ixa] = 1.0
-        v[ixb] = a / au[ixb]
-        v[ixc] = a * (r - au[ixc]) / (au[ixc] * (r - b))
-        return v
-      
-    def estimate_scale(self, r, *args):
-        return self._scale_estimator(r, *args)
+    def psi(self, x, c=None):
+        c = self.c if c is None else c
+        x = np.asarray(x)
+        abs_x = np.abs(x)
+        ix = abs_x <= c
+        y = np.zeros_like(x)
+        y[ix] = x[ix]
+        y[~ix] = c *np.sign(x[~ix])
+        return y
     
+    def phi(self, x, c=None):
+        c = self.c if c is None else c
+        x = np.asarray(x)
+        abs_x = np.abs(x)
+        ix = abs_x <= c
+        y = np.zeros_like(x)
+        y[ix] = 1.0
+        return y
+    
+    def weights(self, x, c=None):
+        c = self.c if c is None else c
+        x = np.asarray(x)
+        abs_x = np.abs(x)
+        ix = abs_x <= c
+        y = np.zeros_like(x)
+        y[ix] = 1.0
+        y[~ix] = c / abs_x[~ix]
+        return y
+    
+    def E_rho(self, c=None):
+        c = self.c if c is None else c
+        p = 1.0 - sp.special.ndtr(c)
+        d = norm_pdf(c)
+        return 0.5 - p + c * (d - c * p)
+    
+    def E_psi(self, c=None):
+        c = self.c if c is None else c
+        return 0.0
+    
+    def E_psi2(self, c=None):
+        c = self.c if c is None else c
+        p = sp.special.ndtr(c)
+        d = norm_pdf(c)
+        return 2.0 * (c**2 * (1.0 - p) + p - 0.5 - c * d)
+    
+    def E_phi(self, c=None):
+        c = self.c if c is None else c
+        return 2.0 * sp.special.ndtr(c) -  1.0
+    
+    def rho_norm(self, c=None):
+        return 1.0
+    
+    
+    
+        
+
+        
+class Bisquare(MEstimator):
+    
+    def __init__(self, c=4.685):
+        #1.548 for S
+        self.c = c
+    
+    def rho(self, x, c=None):
+        x = np.atleast_1d(x)
+        c = self.c if c is None else c
+        abs_x = np.abs(x)
+        ix = abs_x <= c
+        y = np.zeros_like(x)
+        y[~ix] = 1.0
+        t = x[ix] / c
+        t = t**2
+        y[ix] = t * (3.0 + t * (t - 3.0))
+        y = y
+        return y
+        
+    def psi(self, x, c=None):
+        x = np.asarray(x)
+        c = self.c if c is None else c
+        abs_x = np.abs(x)
+        ix = abs_x <= c
+        y = np.zeros_like(x)
+        a = x[ix] / c
+        u = 1.0 - a**2
+        y[ix] = x[ix] * u**2
+        return y
+
+    def phi(self, x, c=None):
+        x = np.asarray(x)
+        c = self.c if c is None else c
+        abs_x = np.abs(x)
+        ix = abs_x <= c
+        y = np.zeros_like(x)
+        u = x[ix] / c
+        u *= u
+        y[ix] = (1.0 - u) * (1.0 - 5.0 * u)
+        return y
+        
+    def weights(self, x, c=None):
+        x = np.asarray(x)
+        c = self.c if c is None else c
+        abs_x = np.abs(x)
+        ix = abs_x <= c
+        y = np.zeros_like(x)
+        u = x[ix] / c
+        y[ix] = ((1.0 - u) * (1.0 + u))**2
+        return y
+    
+    
+    def rho_norm(self, c=None):
+        c = self.c if c is None else c
+        return c**2 / 6.0
 
 
 
 
-class Laplace:
-    
-    def __init__(self, scale_estimator=mad):
-        self.a = 1.0
-        self._scale_estimator = scale_estimator
-     
-    def rho_func(self, u):
-        rho = np.abs(u)
-        return rho
-
-    def psi_func(self, u):
-        psi = np.sign(u)
-        return psi
-
-    def phi_func(self, u):
-        phi = np.ones_like(u)
-        return phi
-
-    def weights(self, u):
-        w = self.psi_func(u) / u
-        return w
-       
-    def estimate_scale(self, r):
-        return self._scale_estimator(r)   
-    
-    def scale_weights(self, u):
-        w = np.ones_like(u)
-        ixa = u!=0
-        ixb = u==0
-        w[ixa] = self.rho_func(u[ixa]) / u**2
-        w[ixb] = self.phi_func(u[ixb])
-        return w
-    
-    
-class Lpnorm:
-    
-    def __init__(self, p=1.5, scale_estimator=mad):
-        self.p = p
-        self.a = p - 1.0
-        self.b = p / 2.0
-        self.c = self.a * self.b
-        self.d = p - 2.0
-        self._scale_estimator = scale_estimator
-     
-    def rho_func(self, u):
-        rho = 0.5 * np.abs(u)**self.p
-        return rho
-
-    def psi_func(self, u):
-        psi = self.b * np.abs(u)**self.a
-        psi*= np.sign(u)
-        return psi
-
-    def phi_func(self, u):
-        phi = -np.abs(u)**self.d * self.c * np.sign(u)
-        return phi
-
-    def weights(self, u):
-        w = self.psi_func(u) / u
-        return w
-          
-    def estimate_scale(self, r, *args):
-        return self._scale_estimator(r, *args)
-
-    def scale_weights(self, u):
-        w = np.ones_like(u)
-        ixa = u!=0
-        ixb = u==0
-        w[ixa] = self.rho_func(u[ixa]) / u**2
-        w[ixb] = self.phi_func(u[ixb])
-        return w
-    
-    
    
  
 def estimate_simultaneous(x, func=Huber(), d=0.5, n_iters=200, tol=1e-6, 

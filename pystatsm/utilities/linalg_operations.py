@@ -182,4 +182,52 @@ def gb_diag(*arrs):
         res[tuple(s)] = arrs[i]
         ix += k
     return res
+
+
+def wls_chol(X, y, w):
+    Xwt = X.T * w
+    L = np.linalg.cholesky(Xwt.dot(X))
+    c = sp.linalg.solve_triangular(L, Xwt.dot(y), lower=True)
+    b = sp.linalg.solve_triangular(L.T, c, lower=False)
+    return b
+
+def wls_qr(X, y, w):
+    wsqr = np.sqrt(w)
+    Q, R = np.linalg.qr(X * wsqr[:, None])
+    c = Q.T.dot(wsqr * y)
+    b = sp.linalg.solve_triangular(R, c, lower=False)
+    return b
+
+def nwls(X, y, w):
+    neg = w < 0
+    w_neg = np.zeros_like(w)
+    w_neg[neg] = -w[neg]
+    w_sqr = np.sqrt(np.abs(w))
+    
+    Q, R = np.linalg.qr((X * w_sqr[:, None]))
+    non_pos = (w <= 0)
+    U, s, Vt = np.linalg.svd(Q * non_pos[:, None], full_matrices=False)
+    neg = neg * -1.0 + (~neg) * 1.0
+    Qtz = Q.T.dot(w_sqr * neg * y)
+    a = 1.0 / (1.0  - 2.0 * s**2)
+    c = Vt.T.dot(a * Vt.dot(Qtz))
+    b = sp.linalg.solve_triangular(R, c, lower=False)
+    return b
+
+def lsqr(X, y):
+    Q, R = np.linalg.qr(X, mode='reduced')
+    b = np.linalg.solve(R, Q.T.dot(y))
+    return b
+
+
+
+
+
+
+
+
+
+
+
+
   
