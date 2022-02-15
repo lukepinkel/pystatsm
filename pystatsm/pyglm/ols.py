@@ -11,11 +11,11 @@ import numpy as np # analysis:ignore
 import scipy as sp # analysis:ignore
 import scipy.stats # analysis:ignore
 import pandas as pd # analysis:ignore
-
+from ..utilities.linalg_operations import wdiag_outer_prod, diag_outer_prod
 
 class OLS:
     
-    def __init__(self, X=None, y=None, formula=None, data=None):
+    def __init__(self, formula=None, data=None, X=None, y=None):
         if formula is not None and data is not None:
             y, X = patsy.dmatrices(formula, data=data, return_type='dataframe')
             xcols, xinds = X.columns, X.index
@@ -47,7 +47,16 @@ class OLS:
         self.ymean = self.y.mean()
         self.formula = formula
         self.data = data
-        
+        U, S, Vt= np.linalg.svd(X, full_matrices=False)
+        self.U, self.S, self.V = U, S, Vt.T
+        self.h = diag_outer_prod(U, U)
+        self.W = (self.V / self.S).dot(self.U.T)
+        self.vif = 1.0/np.diag((self.V * 1.0 / self.S**2).dot(self.V.T))
+        self.condition_indices = np.max(self.S**2) / self.S**2
+        self.vdp = np.sum(self.V**2, axis=0) / self.S**2
+        self.cond = np.vstack((self.vif, self.condition_indices, self.vdp)).T
+        self.cond = pd.DataFrame(self.cond, index=self.xcols,
+                                 columns=["VIF", "Cond", "VDP"])
     
     def _fit_mats(self, X, y):
         n, p = X.shape
@@ -72,15 +81,32 @@ class OLS:
         beta_se = s2 * Ginv
         return beta, np.sqrt(beta_se)
     
-    def fit(self):
+    def fit(self, var_beta=None):
         beta, beta_se = self._fit_mats(self.X, self.y)
-        res = pd.DataFrame(np.vstack((beta, beta_se)).T,
-                                index=self.xcols, columns=['beta', 'SE'])
-        res['t'] = res['beta'] / res['SE']
-        res['p'] = sp.stats.t(self.n-self.p).sf(np.abs(res['t']))*2.0
+        self.beta = beta
         yhat = self.X.dot(beta)
         resids = self.y - yhat
+        if var_beta is not None:
+            if type(var_beta) is str:
+                var_beta = [var_beta]
+            rse = {}
+            for vb in var_beta:
+                _, _, rse[vb] = self.robust_rcov(vb, resids=resids, W=self.W)
+        else:
+            rse = None
         
+        res = pd.DataFrame(np.vstack((beta, beta_se)).T, index=self.xcols, columns=['beta', 'SE'])            
+        if rse is not None:
+            for key, val in rse.items():
+                res["SE_"+key] = val
+        res['t'] = res['beta'] / res['SE']
+        if rse is not None:
+            for key, val in rse.items():
+                res["t_"+key] = res['beta'] / res["SE_"+key]
+        res['p'] = sp.stats.t(self.n-self.p).sf(np.abs(res['t']))*2.0
+        if rse is not None:
+            for key, val in rse.items():
+                res["p_"+key] = sp.stats.t(self.n-self.p).sf(np.abs(res['t_'+key]))*2.0
         dfr = self.n - self.p - 1
         dfm = self.p
         dft = self.n - 1
@@ -115,6 +141,7 @@ class OLS:
         self.Ginv = np.dot(self.Linv.T, self.Linv)
         self.Vbeta = self.Ginv * msr
         self.s2 = msr
+        self.resids = resids
     
     def _permutation_test_store(self,n_perms, L, Linv, X, y, verbose):
         pbar = tqdm.tqdm(total=n_perms) if verbose else None
@@ -129,7 +156,7 @@ class OLS:
         return t_samples
         
     def _permutation_test(self, n_perms, L, Linv, X, y, verbose):
-        pbar = tqdm.tqdm(total=n_perms) if verbose else None
+        pbar = tqdm.tqdm(total=n_perms, smoothing=0.001) if verbose else None
         p_values = np.zeros((self.p))
         p_values_fwer = np.zeros((self.p))
         abst = np.abs(self.tvalues)
@@ -145,7 +172,7 @@ class OLS:
         return p_values_fwer, p_values
     
     def _freedman_lane(self, vars_of_interest, n_perms=5000, verbose=True):
-        pbar = tqdm.tqdm(total=n_perms) if verbose else None
+        pbar = tqdm.tqdm(total=n_perms, smoothing=0.001) if verbose else None
         p_values = np.zeros(len(vars_of_interest))
         p_values_fwer = np.zeros(len(vars_of_interest))
         abst = np.abs(self.tvalues[vars_of_interest])
@@ -166,9 +193,16 @@ class OLS:
             pbar.close()
         return p_values_fwer, p_values
         
-    def freedman_lane(self, vars_of_interest, n_perms=5000, verbose=True):
+    def freedman_lane(self, vars_of_interest=None, n_perms=5000, verbose=True):
         if hasattr(self, 'res')==False:
             self.fit()
+        if vars_of_interest is None:
+            vars_of_interest = np.arange(self.p)
+            if "Intercept" in self.res.index:
+                ii = np.ones(self.p).astype(bool)
+                ii[self.res.index.get_loc("Intercept")] = False
+                vars_of_interest = vars_of_interest[ii]
+        vars_of_interest = np.arange(self.p) if vars_of_interest is None else vars_of_interest
         pvals_fwer, pvals = self._freedman_lane(vars_of_interest, n_perms, verbose)
         rows = self.res.index[vars_of_interest]
         self.res['freedman_lane_p'] = '-'
@@ -193,7 +227,7 @@ class OLS:
         self.res['permutation_p_fwer'] = p_values_fwer
         
     def _bootstrap(self, n_boot):
-        pbar = tqdm.tqdm(total=n_boot)
+        pbar = tqdm.tqdm(total=n_boot, smoothing=0.001)
         beta_samples = np.zeros((n_boot, self.p))
         beta_se_samples =  np.zeros((n_boot, self.p))
         for i in range(n_boot):
@@ -208,9 +242,9 @@ class OLS:
         if hasattr(self, 'res')==False:
             self.fit()
         self.beta_samples, self.beta_se_samples = self._bootstrap(n_boot)
-        self.res.insert(2, "SE_boot", self.beta_samples.std(axis=0))
-        self.res.insert(4, "t_boot", self.res['beta']/self.res['SE_boot'])
-        self.res.insert(6, "p_boot",  
+        self.res.insert(self.res.columns.get_loc("SE")+1, "SE_boot", self.beta_samples.std(axis=0))
+        self.res.insert(self.res.columns.get_loc("t")+1, "t_boot", self.res['beta']/self.res['SE_boot'])
+        self.res.insert(self.res.columns.get_loc("p")+1, "p_boot",  
                         sp.stats.t(self.n-self.p).sf(np.abs(self.res['t_boot']))*2.0)
         
 
@@ -219,4 +253,113 @@ class OLS:
                     'display.float_format', '{:.4f}'.format)
         with pd.option_context(*opt_cont):
             print(self.res)
+    
+    def robust_rcov(self, kind=None, resids=None, Ginv=None, X=None, U=None, 
+                    W=None):
+        kind = "HC3" if kind is None else kind
+        if Ginv is None:
+            if hasattr(self, "Ginv"):
+                Ginv = self.Ginv
+            else:
+                Ginv = np.dot(self.Linv.T, self.Linv)
+        if resids is None:
+            if hasattr(self, "resids"):
+                resids = self.resids
+            else:
+                resids = self.y - self.X.dot(self.beta)
+        if U is None:
+            if X is None:
+                U, S, V, h = self.U, self.S, self.V, self.h
+            else:
+                U, S, Vt = np.linalg.svd(X, full_matrices=False)
+                V = Vt.T
+                h = diag_outer_prod(U, U)
+ 
+        X = self.X if X is None else X
+            
+        n, p = X.shape
+        u = resids**2
+        if kind == "HC0":
+            omega = u
+        elif kind == "HC1":
+            omega = n / (n - p) * u
+        elif kind == "HC2":
+            omega = u / (1.0 - h)
+        elif kind == "HC3":
+            omega = u / (1 - h)**2
+        elif kind == "HC4":
+            omega = u / (1.0 - h)**np.minimum(4.0, h / np.mean(h))
         
+        if W is None:
+            W = (V / S).dot(U.T)
+        se = np.sqrt(diag_outer_prod(W*omega, W))
+        return W, omega, se
+            
+    def get_influence(self, r=None, h=None):
+        h = self.h if h is None else h
+        r = self.resids if r is None else r
+        ssr = np.sum(r**2)
+        dfe = self.n - self.p - 1.0
+        msr = ssr / dfe
+        n = self.n
+        p = self.p
+        s = np.sqrt(msr)
+        s_i = np.sqrt((ssr-r**2) / (dfe-1))
+        
+        r_students = r / (s_i * np.sqrt(1.0 - h))
+        dfbeta = r / (1.0 - h) * self.W
+        h_tilde = 1.0 / n + h
+
+        cov_ratio = (s_i / s)**(2 * p) * 1.0 / (1.0 - h_tilde)
+
+        
+        d_residuals = r / (1.0 - h_tilde)
+        
+        s_star_i = 1/np.sqrt(n-p-1)*np.sqrt((n-p)*s**2/(1-h_tilde)-d_residuals**2)
+        s_i = s_star_i * np.sqrt(1.0 - h_tilde)
+        
+        studentized_d_residuals = d_residuals / s_star_i
+                
+        dfits = r * np.sqrt(h) / (s_i * (1.0 -h))
+        
+        cooks_distance = d_residuals**2 * h_tilde / (s**2 * (p + 1))
+        
+        res = dict(r_students=r_students, cov_ratio=cov_ratio,
+                   s_i=s_i, studentized_d_residuals=studentized_d_residuals,
+                   dfits=dfits, cooks_distance=cooks_distance)
+        res = pd.DataFrame(res)
+        dfbeta = pd.DataFrame(dfbeta.T, columns=self.xcols)
+        res = pd.concat([res, dfbeta], axis=1)
+        res["leverage"] = h
+        return res
+    
+    def loglike(self, params, X=None, y=None):
+        X = self.X if X is None else X
+        y = self.y if y is None else y
+        if len(params)==(self.p+1):
+            beta = params[:-1]
+            sigma = np.exp(params[-1])
+        else:
+            beta = params
+            r = y - X.dot(beta)
+            sigma = np.sqrt(np.dot(r, r) / (X.shape[0]))
+        
+        n = X.shape[0]
+        
+        const = -n / 2.0 * np.log(2.0 * np.pi)
+        
+        lndetS = -n / 2.0 * np.log(sigma**2)
+        
+        r = y - X.dot(beta)
+        
+        ll = const + lndetS - 1.0 / (2.0 * sigma**2) * np.dot(r, r)
+        return ll
+        
+        
+        
+        
+        
+    
+    
+            
+            

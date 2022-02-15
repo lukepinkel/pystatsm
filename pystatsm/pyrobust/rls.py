@@ -201,7 +201,7 @@ class RobustLM:
 
 class RobustSLM:
     
-    def __init__(self, formula, data, c=1.548):
+    def __init__(self, formula, data, c=1.56):
         self.Ydf, self.Xdf = patsy.dmatrices(formula, data, 
                                              return_type='dataframe')
         

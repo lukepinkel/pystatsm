@@ -219,7 +219,14 @@ def lsqr(X, y):
     b = np.linalg.solve(R, Q.T.dot(y))
     return b
 
+def diag_outer_prod(A, B):
+    v = np.einsum("ij,ij->i", A, B, optimize=True)
+    return v
 
+def wdiag_outer_prod(X, W, Y):
+    v = np.einsum("ij,jk,ik->i", X, W, Y, optimize=True)
+    return v
+    
 
 
 
