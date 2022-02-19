@@ -17,7 +17,7 @@ from .smooth_setup import parse_smooths, get_parametric_formula,  get_smooth_ter
 from ..utilities.splines import crspline_basis, bspline_basis, ccspline_basis, absorb_constraints
 from ..utilities.numerical_derivs import so_gc_cd
 from ..utilities.linalg_operations import wcrossp
-
+from ..utilities.optimizer_utils import MemoizeGradHess
 
 class LogbLink(Link):
     
@@ -734,6 +734,50 @@ class GauLS:
         return H
     
     
+    def _f_grad_hess(self, rho):
+        lam = np.exp(rho)
+        beta, S = self.beta_rho(rho),  self.get_penalty_mat(lam)
+        H = self.hess_ll_beta(beta)
+        Hp = H + S
+        ldetS = self.logdetS(rho)
+        _, ldetH = np.linalg.slogdet(Hp)
+        ll = self.penalized_loglike(beta, S)
+        L = -(-ll + ldetS / 2.0 - ldetH / 2.0 + self.mp * np.log(2.0*np.pi) / 2.0)
+        
+        dH = self.dhess(beta, lam)
+        A = np.linalg.inv(Hp)
+        bsb = np.zeros_like(rho)
+        ldh = np.zeros_like(rho)
+        lds = np.zeros_like(rho)
+        for i in range(self.ns):
+            Si, ai = self.S[i], lam[i]
+            dbsb = beta.T.dot(Si).dot(beta) * ai
+            dldh = np.trace(A.dot(Si*ai + dH[i]))
+            dlds = self.ranks[i]
+            bsb[i] = dbsb
+            ldh[i] = dldh
+            lds[i] = dlds
+        g = bsb / 2.0 - lds / 2.0 + ldh / 2.0
+        
+        d2H = self.d2hess(beta, lam)
+        b1 = self.grad_beta_rho(beta, lam)
+        D2r = b1.T.dot(Hp).dot(b1)
+        H_rho = np.zeros((self.ns, self.ns))
+        for i in range(self.ns):
+            Si, ai = self.S[i], lam[i]
+            for j in range(i, self.ns):
+                Sj, aj = self.S[j], lam[j]
+                d = (i==j)
+                H1i, H1j, H2ij = dH[i], dH[j], d2H[i, j]
+                ldh2 = -(np.trace(A.dot(H1i+Si*ai).dot(A).dot(H1j+aj*Sj))\
+                          -np.trace(A.dot(H2ij+d*ai*Si)))
+                t1 = d * ai / (2.0) * beta.T.dot(Si).dot(beta)
+                t2 = -D2r[i, j]
+                H_rho[i, j] = H_rho[j, i] = t1 + t2 + ldh2/2
+        
+        return L, g, H_rho
+    
+    
     def get_smooth_comps(self, beta, ci=90):
         """
         Parameters
@@ -908,7 +952,7 @@ class GauLS:
         
         return fig, ax
     
-    def optimize_penalty(self, approx_hess=False, opt_kws={}):
+    def optimize_penalty(self, opt_kws={}):
         """
         Parameters
         ----------
@@ -920,14 +964,15 @@ class GauLS:
             scipy.optimize.minimize keyword arguments
         
         """
-        if approx_hess:
-            hess = lambda x: so_gc_cd(self.gradient, x)
-        else:
-            hess = self.hessian
+        
+        fun_grad_hess = MemoizeGradHess(self._f_grad_hess)
+        
+        grad, hess = fun_grad_hess.derivative, fun_grad_hess.hessian
+        
+        
         x = self.theta.copy()
-        opt = sp.optimize.minimize(self.reml, x, jac=self.gradient, 
-                                   hess=hess, method='trust-constr',
-                                   **opt_kws)
+        opt = sp.optimize.minimize(fun_grad_hess, x, jac=grad, hess=hess, 
+                                   method='trust-constr', **opt_kws)
         rho = opt.x.copy()
         lambda_ = np.exp(rho)
         beta = self.beta_rho(rho)
@@ -975,7 +1020,7 @@ class GauLS:
         self.smooths = smooths
         self.res_smooths = pd.DataFrame(s_table).T
         
-    def fit(self, approx_hess=False, opt_kws={}, confint=95):
+    def fit(self, opt_kws={}, confint=95):
         """
         Parameters
         ----------
@@ -990,7 +1035,7 @@ class GauLS:
             Confidence intervals for summary table
         
         """
-        self.optimize_penalty(approx_hess=approx_hess, opt_kws=opt_kws)
+        self.optimize_penalty(opt_kws=opt_kws)
 
         b, se = self.beta, np.sqrt(np.diag(self.Vc))
         b = np.concatenate((b, self.theta))

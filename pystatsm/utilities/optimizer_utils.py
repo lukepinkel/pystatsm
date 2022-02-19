@@ -5,6 +5,8 @@ Created on Tue May 19 21:42:34 2020
 
 @author: lukepinkel
 """
+import numpy as np
+from scipy.optimize.optimize import MemoizeJac
 
 LBFGSB_options = dict(disp=10, maxfun=5000, maxiter=5000, gtol=1e-8)
 SLSQP_options = dict(disp=True, maxiter=1000)
@@ -35,8 +37,26 @@ def process_optimizer_kwargs(optimizer_kwargs, default_method='trust-constr'):
     return optimizer_kwargs
             
             
+
+class MemoizeGradHess(MemoizeJac):
+    """ Decorator that caches the return vales of a function returning
+        (fun, grad, hess) each time it is called. 
+    https://stackoverflow.com/a/68608349
     
-    
+    """
+
+    def __init__(self, fun):
+        super().__init__(fun)
+        self.hess = None
+
+    def _compute_if_needed(self, x, *args):
+        if not np.all(x == self.x) or self._value is None or self.jac is None or self.hess is None:
+            self.x = np.asarray(x).copy()
+            self._value, self.jac, self.hess = self.fun(x, *args)
+
+    def hessian(self, x, *args):
+        self._compute_if_needed(x, *args)
+        return self.hess
     
     
     
