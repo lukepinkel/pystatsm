@@ -21,6 +21,7 @@ def fo_fc_fd(f, x, eps=None, args=()):
         h[i] = 0
     return g
 
+
 def so_fc_fd(f, x, eps=None, args=()):
     if eps is None:
         eps = (np.finfo(float).eps)**(1.0/3.0)
@@ -36,6 +37,7 @@ def so_fc_fd(f, x, eps=None, args=()):
             hj[j] = 0  
         hi[i] = 0
     return H
+
 
 def so_gc_fd(g, x, eps=None, args=()):
     if eps is None:
@@ -53,6 +55,7 @@ def so_gc_fd(g, x, eps=None, args=()):
             H[i, j] = ((gxh[i, j] - gx[i, j]) + (gxh[j, i] - gx[j, i])) / (2 * eps)
             H[j, i] = H[i, j]
     return H
+
 
 def fo_fc_cd(f, x, eps=None, args=()):
     if eps is None:
@@ -89,6 +92,7 @@ def so_fc_cd(f, x, eps=None, args=()):
             ei[i], ej[j] = 0.0, 0.0
     return H
         
+
 def so_gc_cd(g, x, eps=None, args=()):
     if eps is None:
         eps = (np.finfo(float).eps)**(1./3.)
@@ -135,30 +139,7 @@ def fd_coefs(x, x0=0, n=1, last_col=True):
     W = _fd_coefs(W, x, x0, n)
     res = W[: ,-1] if last_col else W   
     return res
-      
-#def fd_coefficients(points, order):
-#    A = np.zeros((len(points), len(points)))
-#    A[0] = 1
-#    for i in range(len(points)):
-#        A[i] = np.asarray(points)**(i)
-#    b = np.zeros(len(points))
-#    b[order] = sp.special.factorial(order)
-#    c = np.linalg.inv(A).dot(b)
-#    return c
-        
-    
-#def finite_diff(f, x, epsilon=None, order=1, points=None):
-#    if points is None:
-#        points = np.arange(-4, 5)
-#    if epsilon is None:
-#        epsilon = (np.finfo(float).eps)**(1./3.)
-#    coefs = fd_coefficients(points, order)
-#    df = 0.0
-#    for c, p in list(zip(coefs, points)):
-#        df+=c*f(x+epsilon*p)
-#    df = df / (epsilon**order)
-#    return df
-        
+          
 
 def finite_diff(y, x, n=1, m=2):
     num_x = len(x)
@@ -174,7 +155,6 @@ def finite_diff(y, x, n=1, m=2):
         j, k = i - mm, i + mm + 1
         du[i] = np.dot(fd_coefs(x[j:k], x0=x[i], n=n), y[j:k])
     return du
-
 
 
 def grad_approx(f, x, eps=1e-4, tol=None, d=1e-4, nr=6, v=2):
@@ -193,6 +173,7 @@ def grad_approx(f, x, eps=1e-4, tol=None, d=1e-4, nr=6, v=2):
         t = 4**(i+1)
         A = (A[1:(nr-i)]*t - A[:(nr-i-1)]) / (t-1.0)
     return A
+
 
 def jac_approx(f, x, eps=1e-4, tol=None, d=1e-4, nr=6, v=2):
     tol = np.finfo(float).eps**(1/3) if tol is None else tol
@@ -267,7 +248,8 @@ def _hess_approx(f, x, a_eps=1e-4, r_eps=1e-4, xtol=None, nr=6, s=2):
                 D[:, c] = Da[:, 0]
                 u[i] = v[j] = 0.0
     return D
-    
+   
+ 
 def hess_approx(f, x, a_eps=1e-4, r_eps=1e-4, xtol=None, nr=6, s=2):
     D = _hess_approx(f, x, a_eps, r_eps, xtol, nr, s)
     y = f(x)
@@ -281,5 +263,26 @@ def hess_approx(f, x, a_eps=1e-4, r_eps=1e-4, xtol=None, nr=6, s=2):
     return H
     
 
- 
+ #def fd_coefficients(points, order):
+ #    A = np.zeros((len(points), len(points)))
+ #    A[0] = 1
+ #    for i in range(len(points)):
+ #        A[i] = np.asarray(points)**(i)
+ #    b = np.zeros(len(points))
+ #    b[order] = sp.special.factorial(order)
+ #    c = np.linalg.inv(A).dot(b)
+ #    return c
+         
+     
+ #def finite_diff(f, x, epsilon=None, order=1, points=None):
+ #    if points is None:
+ #        points = np.arange(-4, 5)
+ #    if epsilon is None:
+ #        epsilon = (np.finfo(float).eps)**(1./3.)
+ #    coefs = fd_coefficients(points, order)
+ #    df = 0.0
+ #    for c, p in list(zip(coefs, points)):
+ #        df+=c*f(x+epsilon*p)
+ #    df = df / (epsilon**order)
+ #    return df
     
