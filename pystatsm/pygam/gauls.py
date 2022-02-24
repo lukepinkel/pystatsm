@@ -82,6 +82,19 @@ class PredictorTerm:
         self.theta = theta
         self.smooth_info = smooth_info
         self.link = link
+        self.component_varnames = list(self.smooth_info.keys())
+        self.methods = {"cr":crspline_basis, "cc":ccspline_basis,"bs":bspline_basis} 
+
+    
+    def evaluate_component_basis(self, comp, points=None):
+        knots = self.smooths[comp]['knots']
+        smooth = self.smooths[comp]
+        knots = smooth['knots']
+        x = np.linspace(knots.min(), knots.max(), 200) if points is None else points
+        X = self.methods[smooth['kind']](x, knots, **smooth['fkws'])
+        X, _ = absorb_constraints(smooth['q'], X=X)
+        return X
+    
         
 class GauLS:
     
@@ -869,6 +882,40 @@ class GauLS:
                 ax[subplot_map[i]].fill_between(x, y-se, y+se, color='b', alpha=0.4)
         return fig, ax
     
+
+    def predict_component(self, comp, points=None):  
+        m, s = self.m, self.s
+        
+        if points is None:
+            if comp in m.component_varnames:
+                knots = m.smooths[comp]['knots']  
+                points = np.linspace(knots.min(), knots.max(), 200)
+            elif comp in s.component_varnames:
+                knots = s.smooths[comp]['knots']
+                points = np.linspace(knots.min(), knots.max(), 200)
+                
+        if comp in m.component_varnames:
+            eta_m = m.evaluate_component_basis(comp, points).dot(self.beta[self.ixm][m.smooths[comp]['ix']])
+        else:
+            eta_m = np.zeros_like(points)
+        if "Intercept" in m.x_varnames:
+            eta_m = eta_m + self.res.loc["m(Intercept)", "param"]
+        
+        if comp in s.component_varnames:
+            eta_s = s.evaluate_component_basis(comp, points).dot(self.beta[self.ixs][s.smooths[comp]['ix']])
+        else:
+            eta_s = np.zeros_like(points)
+        if "Intercept" in m.x_varnames:
+            eta_s = eta_s + self.res.loc["s(Intercept)", "param"]
+        
+        
+        mu = self.m.link.inv_link(eta_m)
+        sd = 1.0 / self.s.link.inv_link(eta_s)
+        mu_sd = pd.DataFrame(np.vstack((mu, sd)).T, columns=["mu", "sd"], index=points)
+        mu_sd.index.name = comp
+        return mu_sd
+
+    
     def plot_smooth_quantiles(self, m_comp=None, s_comp=None, quantiles=None,
                               mean=True, figax=None, m_offset=0.0, s_offset=0.0,
                               fill_kws=None, line_kws=None,
@@ -910,12 +957,14 @@ class GauLS:
 
         """
         if quantiles is None:
-            quantiles = [5, 10, 20, 30, 40]
+            quantiles = [0.05, 0.10, 0.20, 0.30, 0.40]
         if figax is None:
             fig, ax = plt.subplots()
         else:
             fig, ax = figax
         
+        quantiles = np.sort(np.asarray(quantiles))
+        quantiles = quantiles[quantiles<0.5]
         
         fill_kws = {} if fill_kws is None else fill_kws
         line_kws = {} if line_kws is None else line_kws
@@ -935,9 +984,8 @@ class GauLS:
         mu = self.m.link.inv_link(m_offset+Xm.dot(self.beta[m['ix']]))
         tau = 1.0 / self.s.link.inv_link(s_offset+Xs.dot(self.beta[self.ixs][s['ix']]))
         for q in quantiles:
-            c = sp.stats.norm(0, 1).ppf(q/100)
-            ax.fill_between(x, mu+c*tau, mu-c*tau, label=f"{2*q}th Quantile",
-                            **fill_kws)
+            c = sp.special.ndtri(q)
+            ax.fill_between(x, mu+c*tau, mu-c*tau, **fill_kws)
         if mean:
             ax.plot(x, mu, **line_kws)
         ax.set_xlim(x.min(), x.max())

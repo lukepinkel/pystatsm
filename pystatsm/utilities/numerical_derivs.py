@@ -5,9 +5,10 @@ Created on Sat Jun  6 14:40:17 2020
 
 @author: lukepinkel
 """
-
+import numba
 import numpy as np
 import scipy as sp
+import scipy.special
 
 def fo_fc_fd(f, x, eps=None, args=()):
     if eps is None:
@@ -106,29 +107,76 @@ def so_gc_cd(g, x, eps=None, args=()):
     return H
 
 
-def fd_coefficients(points, order):
-    A = np.zeros((len(points), len(points)))
-    A[0] = 1
-    for i in range(len(points)):
-        A[i] = np.asarray(points)**(i)
-    b = np.zeros(len(points))
-    b[order] = sp.special.factorial(order)
-    c = np.linalg.inv(A).dot(b)
-    return c
+@numba.jit(nopython=True)
+def _fd_coefs(W, x, x0=0, n=1):
+    m = len(x)
+    c1, c4 = 1.0, x[0] - x0
+    W[0,0] = 1.
+    for i in range(1, m):
+        r = min(i, n)
+        c2, c5, c4 = 1.0, c4, x[i] - x0
+        for j in range(i):
+            c3 = x[i] - x[j]
+            c2 = c2 * c3
+            if j==i-1:
+                for k in range(r, 0, -1):
+                    W[i, k] = c1 * (k * W[i-1, k-1] - c5 * W[i-1, k]) / c2
+                W[i, 0] = -c1 * c5 * W[i-1, 0] / c2
+            for k in range(r, 0, -1):
+                W[j, k] = (c4 * W[j, k] - k * W[j, k-1]) / c3
+            W[j, 0] = c4 * W[j, 0] / c3
+        c1 = c2
+    return W
+
+  
+def fd_coefs(x, x0=0, n=1, last_col=True):
+    m = len(x)
+    W = np.zeros((m, n + 1))
+    W = _fd_coefs(W, x, x0, n)
+    res = W[: ,-1] if last_col else W   
+    return res
+      
+#def fd_coefficients(points, order):
+#    A = np.zeros((len(points), len(points)))
+#    A[0] = 1
+#    for i in range(len(points)):
+#        A[i] = np.asarray(points)**(i)
+#    b = np.zeros(len(points))
+#    b[order] = sp.special.factorial(order)
+#    c = np.linalg.inv(A).dot(b)
+#    return c
         
     
-def finite_diff(f, x, epsilon=None, order=1, points=None):
-    if points is None:
-        points = np.arange(-4, 5)
-    if epsilon is None:
-        epsilon = (np.finfo(float).eps)**(1./3.)
-    coefs = fd_coefficients(points, order)
-    df = 0.0
-    for c, p in list(zip(coefs, points)):
-        df+=c*f(x+epsilon*p)
-    df = df / (epsilon**order)
-    return df
+#def finite_diff(f, x, epsilon=None, order=1, points=None):
+#    if points is None:
+#        points = np.arange(-4, 5)
+#    if epsilon is None:
+#        epsilon = (np.finfo(float).eps)**(1./3.)
+#    coefs = fd_coefficients(points, order)
+#    df = 0.0
+#    for c, p in list(zip(coefs, points)):
+#        df+=c*f(x+epsilon*p)
+#    df = df / (epsilon**order)
+#    return df
         
+
+def finite_diff(y, x, n=1, m=2):
+    num_x = len(x)
+    du = np.zeros_like(y)
+    mm = n // 2 + m
+    size = 2 * mm + 2  
+    x1, x2 = x[:size], x[-size:]
+    y1, y2 = y[:size], y[-size:]
+    for i in range(mm):
+        du[i] = np.dot(fd_coefs(x1, x0=x[i], n=n),y1)
+        du[-i - 1] = np.dot(fd_coefs(x2, x0=x[-i - 1], n=n), y2)
+    for i in range(mm, num_x - mm):
+        j, k = i - mm, i + mm + 1
+        du[i] = np.dot(fd_coefs(x[j:k], x0=x[i], n=n), y[j:k])
+    return du
+
+
+
 def grad_approx(f, x, eps=1e-4, tol=None, d=1e-4, nr=6, v=2):
     tol = np.finfo(float).eps**(1/3) if tol is None else tol
     h = np.abs(d * x) + eps * (np.abs(x) < tol)

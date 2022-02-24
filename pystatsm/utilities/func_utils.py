@@ -31,3 +31,23 @@ def norm_pdf(x, mean=0.0, sd=1.0):
     z = (x - mean) / sd
     p = np.exp(-z**2 / 2.0) / (ROOT2PI * sd)
     return p
+
+
+
+def get_part(arr, sol, size, step, maximum, res):
+    if step==size:
+        res.append(sol.copy())
+    else:
+        sol[step] = 1
+        while sol[step]<=maximum:
+            get_part(arr, sol, size, step+1, maximum, res)
+            sol[step] += 1
+        get_part(arr, sol, size, step+1, maximum+1, res)
+
+def partition_set(n):    
+    size = n
+    arr = np.arange(1, size+1)-1
+    sol = np.zeros(size, dtype=int)
+    res = []
+    get_part(arr, sol, size, 0, 0, res)
+    return res

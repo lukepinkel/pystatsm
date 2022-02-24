@@ -230,6 +230,29 @@ def wdiag_outer_prod(X, W, Y):
 
 
 
+@numba.jit(nopython=True)
+def _solve_vander(a, x, n):
+    for k in range(n-1):
+        x[k+1 : n] -= a[k] * x[k : n-1]
+    for k in range(n-1, 0, -1):
+        x[k:n] /= a[k:n] - a[:n-k]
+        x[k-1 : n-1] -= x[k:n]
+    return x
+
+def solve_vander(a, b):
+    x = b.copy()
+    n = a.size
+    return _solve_vander(a, x, n)
+
+@numba.jit(nopython=True)
+def _inv_vander(a):
+    n = len(a)
+    B = np.zeros((n, n))
+    for i in range(n):
+        B[i, n - i - 1] = 1.0
+        _solve_vander(a, B[i], n)
+    return B
+
 
 
 
