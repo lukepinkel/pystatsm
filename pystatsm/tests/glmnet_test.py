@@ -30,8 +30,8 @@ def test_gaussian_elnet():
     model = GLMEN(X=X, y=y, family="gaussian")
     model.fit_cv(cv=10, n_iters=2000, lmin=np.exp(-9), alpha=alpha)
     
-    theta = np.array([-0.99174026, -0.        ,  0.86848155, -0.        , -0.88097313,
-                      0.        ,  0.95625015,  0.02576123])
+    theta = np.array([-1.01872993, -0.        ,  0.91734174, -0.        , -0.9268515 ,
+                      0.        ,  0.97742278,  0.02820904])
     
     assert(np.allclose(model.beta, theta))
     

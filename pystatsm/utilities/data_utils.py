@@ -217,10 +217,71 @@ def sign_change(arr, nth_change=1, offset=None):
     return ix
 
 
+@numba.jit(nopython=True)
+def _welford_update(x, n, mean, sumsq):
+    n += 1
+    d1 = x - mean
+    mean += d1 / n
+    d2 = x - mean
+    sumsq += d1 * d2
+    return n, mean, sumsq
 
 
+@numba.jit(nopython=True)
+def _welford_variance(arr, n, mean, sumsq):
+    i = 0
+    for _ in range(n):
+        i, mean, sumsq = _welford_update(arr[i], i, mean, sumsq)
+    return mean, sumsq
+    
+    
+def welford_variance(arr, axis=None, unbiased=False):
+    axis = 0 if axis is None else axis
+    arr = np.asarray(arr)
+    shape = list(arr.shape)
+    n = shape.pop(axis)
+    mean = np.zeros(tuple(shape))
+    sumsq = np.zeros(tuple(shape))
+    arr = np.swapaxes(arr, 0, axis)
+    mean, sumsq = _welford_variance(arr, n, mean, sumsq)
+    variance = sumsq / (n - unbiased)
+    return mean, variance
+    
 
+@numba.jit(nopython=True)
+def _welford_cov_cross(X, Y, x_mean, y_mean, xy_prod, n):
+    for i in range(n):
+        dx = X[i] - x_mean
+        x_mean += dx / (i + 1)
+        y_mean += (Y[i] - y_mean) / (i + 1)
+        dy = Y[i] - y_mean
+        xy_prod += np.outer(dx, dy)
+    return x_mean, y_mean, xy_prod
 
+ 
+
+@numba.jit(nopython=True)
+def _welford_cov(X, x_mean, x_prod, n):
+    for i in range(n):
+        dx = X[i] - x_mean
+        x_mean += dx / (i + 1)
+        x_prod += np.outer(dx, dx) * i / (i + 1)
+    return x_mean, x_prod
+
+    
+def welford_cov(arr1, arr2=None, unbiased=False):
+    if arr2 is None:
+        n, k = arr1.shape
+        mean1, prod = np.zeros(k), np.zeros((k, k))
+        mean, prod = _welford_cov(arr1, mean1, prod, n)
+    else:
+        n, k = arr1.shape
+        p = arr2.shape[1]
+        mean1, mean2, prod = np.zeros(k), np.zeros(p), np.zeros((k, p))
+        mean1, mean2, prod = _welford_cov_cross(arr1, arr2, mean1, mean2, prod, n)
+        mean = np.r_[mean2, mean1]
+    cov = prod / (n - unbiased)
+    return mean, cov 
 
 
 

@@ -8,10 +8,11 @@ import numba
 import numpy as np
 from math import erf
 from .data_utils import corr as _corr, csd as _csd
+from .tf_utils import spherical_uniform, clockwise_spiral_fill_triangular
 SQRT2 = np.sqrt(2.0)
 
 @numba.jit(nopython=True)
-def vine_corr(d, eta=1, beta=None, seed=None):
+def vine_corr(d, eta=1, beta=None, seed=None, min_eig=False):
     if beta is None:
         beta = eta + (d - 1) / 2.0
     if seed is not None:
@@ -28,15 +29,17 @@ def vine_corr(d, eta=1, beta=None, seed=None):
                 p = p * np.sqrt((1 - P[l, i]**2)*(1 - P[l, k]**2)) + P[l, i]*P[l, k]
             S[k, i] = p
             S[i, k] = p
-    u, V = np.linalg.eigh(S)
-    umin = np.min(u[u>0])
-    u[u<0] = [umin*0.5**(float(i+1)/len(u[u<0])) for i in range(len(u[u<0]))]
-    V = np.ascontiguousarray(V)
-    S = V.dot(np.diag(u)).dot(np.ascontiguousarray(V.T))
-    v = np.diag(S)
-    v = np.diag(1/np.sqrt(v))
-    S = v.dot(S).dot(v)
+    if min_eig:
+        u, V = np.linalg.eigh(S)
+        umin = np.min(u[u>0])
+        u[u<0] = [umin*0.5**(float(i+1)/len(u[u<0])) for i in range(len(u[u<0]))]
+        V = np.ascontiguousarray(V)
+        S = V.dot(np.diag(u)).dot(np.ascontiguousarray(V.T))
+        v = np.diag(S)
+        v = np.diag(1/np.sqrt(v))
+        S = v.dot(S).dot(v)
     return S
+
 
 @numba.jit(nopython=True)
 def onion_corr(d, eta=1, beta=None):
@@ -198,5 +201,56 @@ def multivariate_t(mean, cov, nu=1, size=None, rng=None):
     X = mean + u * Y
     return X
     
+def r_lkj_cholesky(eta=1.0, n=1, dim=1, rng=None, seed=None):
+    rng = np.random.default_rng(seed) if rng is None else rng
     
+    eta = np.asarray(eta)
+    batch_shape = np.concatenate([[n], np.shape(eta)], axis=0).astype(np.int32)
+    beta = eta + (dim - 2.) / 2.
+    dimension_range = np.arange(1., dim)
+    a = dimension_range / 2.
+    b = beta[..., np.newaxis] - (dimension_range - 1) / 2.
+    norm = rng.beta(a=a, b=b, size=[n] + list(b.shape))
+    distance = np.sqrt(norm)[..., np.newaxis]
+    d = dim - 1
+    rows = []
+    paddings_prepend = [[0, 0]] * len(batch_shape)
+    for n in range(1, min(d, 2) + 1):
+        u = spherical_uniform(shape=batch_shape, dim=n, rng=rng)
+        row = np.pad(u, paddings_prepend + [[0, d - n]], constant_values=0.)
+        rows.append(row)
+    samples = np.stack(rows, axis=-2)
+    if d>2:
+        normal_shape = np.concatenate([batch_shape, [d * (d + 1) // 2 - 3]], axis=0).astype(np.int32)
+        j1 = np.ones(np.concatenate([batch_shape, [1]], axis=0).astype(np.int32))
+        j2 = np.ones(np.concatenate([batch_shape, [2]], axis=0).astype(np.int32))
+        u = rng.normal(size=normal_shape)
+        normal_samples = np.concatenate([u[..., :d], j1,  u[..., d:(2 * d - 1)],
+                                         j2, u[..., (2 * d - 1):]], axis=-1)
+        mat_samples = clockwise_spiral_fill_triangular(normal_samples, upper=False)[..., 2:, :]
+        remaining_rows = mat_samples / np.linalg.norm(mat_samples, ord=2, axis=-1, keepdims=True)
+        samples = np.concatenate([samples, remaining_rows], axis=-2)
+    
+    direction = samples
+    raw_correlation = distance * direction
+    
+    paddings_prepend = [[0, 0]] * len(batch_shape)
+    diag = np.pad(np.sqrt(1. - norm), paddings_prepend + [[1, 0]], constant_values=1.)
+    chol_result = np.pad(raw_correlation, paddings_prepend + [[1, 0], [0, 1]], constant_values=0.)
+    ix = np.arange(dim)
+    chol_result[...,  ix, ix] = diag
+    return chol_result
+
+def r_lkj(eta=1.0, n=1, dim=1, rng=None, seed=None):
+    L = r_lkj_cholesky(eta, n, dim, rng, seed)
+    axes = np.arange(len(L.shape), dtype=np.int32)
+    axes[2:] = 3, 2
+    R = np.matmul(L, np.transpose(L, axes))
+    ix = np.arange(dim)
+    R[...,  ix, ix] = 1.0
+    return R
+
+
+
+
 

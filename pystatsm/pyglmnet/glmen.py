@@ -70,9 +70,11 @@ class GLMEN:
                lambdas=None, b=None, refit=True, **kws):
         X = self.X if X is None else X
         y = self.y if y is None else y
-        b_path, f_path, lambdas, bfits, _ = self._fit_cv(cv, X, y, alpha, lambdas=lambdas,
-                                                         n_iters=n_iters, b=b, 
-                                                         refit=refit, **kws)
+        b_path, b0_path, f_path, lambdas, bfits, b0, n_its = self._fit_cv(
+                                                            cv, X, y, alpha, 
+                                                            lambdas=lambdas,
+                                                            n_iters=n_iters, b=b, 
+                                                            refit=refit, **kws)
         self.beta_path = b_path
         self.f_path = f_path
         self.lambdas = lambdas
@@ -80,6 +82,8 @@ class GLMEN:
         self.cvres, self.lambda_min = process_cv(f_path[:, :, 0], lambdas)
         self.n_nonzero = (bfits!=0).sum(axis=1)
         self.beta = bfits[self.cvres["mean"].idxmin()]
+        self.n_its = n_its
+        self.b0_path, self.b0 = b0_path, b0
         
     
     def plot_cv(self, f_path=None, lambdas=None, bfits=None):

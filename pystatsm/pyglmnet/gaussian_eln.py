@@ -183,7 +183,7 @@ def cv_glmnet(cv, X, y, alpha=0.99, lambdas=None, b=None, dtol=1e-4, btol=1e-9,
     if verbose:
         progress_bar.close()
     fvals[:, :, 0] *= 2.0
-    return betas_cv[1:], fvals, lambdas, betas[1:], n_its
+    return betas_cv[1:], None, fvals, lambdas, betas[1:], None, n_its
        
     
 '''
