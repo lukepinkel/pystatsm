@@ -5,6 +5,7 @@ Created on Wed Aug 12 13:34:49 2020
 
 @author: lukepinkel
 """
+import numba
 import numpy as np
 import scipy as sp
 import scipy.special
@@ -51,3 +52,15 @@ def partition_set(n):
     res = []
     get_part(arr, sol, size, 0, 0, res)
     return res
+
+@numba.jit(nopython=True)
+def soft_threshold(x, t):
+    y = np.maximum(np.abs(x) - t, 0) * np.sign(x)
+    return y
+
+@numba.jit(nopython=True)
+def expit(x):
+    u = np.exp(x)
+    y = u / (1.0 + u)
+    return y
+

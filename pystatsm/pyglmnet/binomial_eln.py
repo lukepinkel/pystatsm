@@ -48,6 +48,7 @@ def inv_logit(x):
     y = u / (u + 1.0)
     return y
 
+
 @numba.jit(nopython=True)
 def elnet_penalty(b, alpha, lambda_):
     '''
@@ -187,12 +188,14 @@ def binom_glm_cd(b, b0, X, Xsq, r, w, xv, la, dla, active, index, n):
             r = r - d * w * xj
     d = np.sum(r) / np.sum(w)
     b0 = b0 + d
+    r = r - d * w
     return b, b0, active, xv
     
   
 @numba.jit(nopython=True)
 def _binom_glmnet(b, X, Xsq, y, la, dla, acs, ix, n, n_iters=2000, 
-                  btol=1e-4, dtol=1e-4, pmin=1e-9, nr_ent=False, b0=0.0):
+                  btol=1e-4, dtol=1e-4, pmin=1e-9, nr_ent=False, 
+                  b0=0.0, intercept=1.0):
     '''
     Binomial glmnet.  This function fits a binomial GLM via a doubly iterative
     outer approximation followed by an inner cycle of coordinate descent. 
@@ -254,11 +257,15 @@ def _binom_glmnet(b, X, Xsq, y, la, dla, acs, ix, n, n_iters=2000,
         Array with three columns, respectively containing the deviance, penalty,
         and deviance+penalty
     '''
+    ub = np.log(1.0 / pmin - 1.0)
+    lb = -ub
     fvals = np.zeros(n_iters+1)
     xv = np.zeros_like(b)
     yconj = 1.0 - y
     for i in range(n_iters):
-        eta = X.dot(b) + b0
+        eta = X.dot(b) + b0 * intercept
+        eta[eta<lb] = lb
+        eta[eta>ub] = ub
         mu = inv_logit(eta)
         muconj = 1.0 - mu
         w = mu * muconj
@@ -356,7 +363,8 @@ def binom_glmnet(X, y, lambda_, alpha, b=None, active=None, n_iters=2000,
     la, dla = alpha * lambda_, (1 - alpha) * lambda_
     Xsq = X**2
     b, b0, active, fvals = _binom_glmnet(b, X, Xsq, y, la, dla, active, index, n, 
-                                     n_iters, btol, dtol, pmin, nr_ent, b0)
+                                         n_iters, btol, dtol, pmin, nr_ent, b0,
+                                         float(intercept))
     return b, b0, active, fvals, len(fvals)
 
 

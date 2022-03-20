@@ -56,13 +56,14 @@ class SparseRegressionModel:
         self.df = pd.DataFrame(X, columns=self.var_names)
         self.df["y"] = 0
     
-    def simulate_dependent(self, response_dist="gaussian", n_samples=1, binom_n=1):
+    def simulate_dependent(self, response_dist="gaussian", n_samples=1, binom_n=1,
+                           offset=0.0):
         size = (n_samples, self.n_obs)
         Y = self.rng.normal(loc=self.lpred, scale=self.resid_scale, size=size).T
         if n_samples == 1:
             Y = Y[:, 0]
         if response_dist=="binomial":
-            u = np.exp(Y)
+            u = np.exp(Y+offset)
             mu = u / (1.0 + u)
             Y = self.rng.binomial(n=binom_n, p=mu) / binom_n
         return Y

@@ -81,7 +81,8 @@ class GLMEN:
         self.bfits = bfits
         self.cvres, self.lambda_min = process_cv(f_path[:, :, 0], lambdas)
         self.n_nonzero = (bfits!=0).sum(axis=1)
-        self.beta = bfits[self.cvres["mean"].idxmin()]
+        self.lmin_idx = self.cvres["mean"].idxmin()
+        self.beta = bfits[self.lmin_idx]
         self.n_its = n_its
         self.b0_path, self.b0 = b0_path, b0
         
