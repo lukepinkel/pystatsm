@@ -10,7 +10,7 @@ import numba # analysis:ignore
 import numpy as np # analysis:ignore
 import scipy as sp # analysis:ignore
 import scipy.stats # analysis:ignore
-from .eln_utils import crossval_mats
+from .eln_utils import crossval_mats, kfold_indices
 from ..utilities.func_utils import soft_threshold, expit
 
 
@@ -76,11 +76,16 @@ def _welnet_cd(X, Xsq, r, w, alpha, lam, beta, active, index):
     return b, b0, active, dlx
     
     
-def make_start_params(X, y, weights, n_lambdas, alpha, lmin=1e-4):
+def get_intercept(y, weights):
     wmean = np.dot(weights, y) / np.sum(weights)
-    pmean =  np.log(wmean /(1.0 - wmean))
+    b0 =  np.log(wmean /(1.0 - wmean))
     mu = np.ones_like(y) * wmean
-    eta = np.ones_like(y) * pmean
+    eta = np.ones_like(y) * b0
+    return b0, mu, eta
+    
+
+def get_lambdas(X, y, weights, n_lambdas, alpha, lmin=1e-4):
+    b0, mu, eta = get_intercept(y, weights)
 
     r = y - mu
     nweights = weights / np.sum(weights)
@@ -96,10 +101,16 @@ def make_start_params(X, y, weights, n_lambdas, alpha, lmin=1e-4):
     lams = np.exp(np.linspace(np.log(lambda_max), np.log(lambda_min), n_lambdas))
     return lams
 
+@numba.jit(nopython=True)
+def get_eta_mu(X, b, b0):
+    eta = X.dot(b)+b0
+    mu = expit(eta)
+    w = mu * (1.0 - mu)
+    return eta, mu, w
 
 @numba.jit(nopython=True)
 def _binom_elnet_cd(lam, beta, active, X, Xsq, y, weights, alpha, halc, index, 
-                    n_iters=100, dtol=1e-9, store_betas=False, max_halves=50):
+                    n_iters=100, dtol=1e-6, store_betas=False, max_halves=50):
     fvals = np.zeros((n_iters,))
     step_halves = np.zeros((n_iters,), dtype=numba.int32)
     if store_betas:
@@ -107,18 +118,14 @@ def _binom_elnet_cd(lam, beta, active, X, Xsq, y, weights, alpha, halc, index,
         betas[0] = beta
     else:
         betas = None
-    eta = X.dot(beta[1:])+beta[0]
-    mu = expit(eta)
+    eta, mu, w = get_eta_mu(X, beta[1:], beta[0])
     r = y - mu
-    w = mu * (1.0 - mu)
     fvals[0] = objective_function(y, mu, w, beta[1:], alpha, halc, lam)
     for i in range(1, n_iters):
         b, b0, active, dlx = _welnet_cd(X, Xsq, r, w, alpha, lam, beta.copy(),
                                         active, index)
-        eta = X.dot(b)+b0
-        mu = expit(eta)
+        eta, mu, w = get_eta_mu(X, b, b0)
         r = y - mu
-        w = mu * (1.0 - mu)
         fvals[i] = objective_function(y, mu, w, b, alpha, halc, lam)
         ii = 0
         if fvals[i]>fvals[i-1]+1e-7:
@@ -128,35 +135,40 @@ def _binom_elnet_cd(lam, beta, active, X, Xsq, y, weights, alpha, halc, index,
                     break
                 b = (beta[1:] + b) / 2
                 b0 = (beta[0] + b0) / 2
-                eta = X.dot(b)+b0
-                mu = expit(eta)
-                w = mu * (1.0 - mu)
+                eta, mu, w = get_eta_mu(X, b, b0)
                 fvals[i] = objective_function(y, mu, w, b, alpha, halc, lam)
         step_halves[i] = ii
         if store_betas:
             betas[i, 1:], betas[i, 0] = b, b0
-        if abs(dlx)<1e-9:
+        if abs(dlx)<dtol:
             fvals = fvals[:i+1]
             step_halves = step_halves[:i+1]
             if store_betas:
                 betas = betas[:i+1]
             break
-        beta[1:], beta[0] = b, b0    
+        beta[1:], beta[0] = b, b0 
+        fdiff = np.abs(fvals[i]-fvals[i-1]) / (np.abs(fvals[i]) + 1.0)
+        if fdiff < 1e-6:
+            break
     return beta, fvals, betas, step_halves        
     
 
-def binom_elnet_path(X, y, weights, alpha, lambdas, cd_kws=None, progress_bar=None):
-    n_lambdas = len(lambdas)
-    wmean = np.dot(weights, y) / np.sum(weights)
-    b0 =  np.log(wmean /(1.0 - wmean))
+def binom_elnet_path(X, y, weights, alpha, lambdas=None, cd_kws=None, progress_bar=None):
+    if (lambdas is None) or (type(lambdas) in [int, float]):
+        if lambdas is None:
+            n_lambdas = 150
+        else:
+            n_lambdas = int(lambdas)
+        lambdas = get_lambdas(X, y, np.ones_like(y), n_lambdas, alpha)
+    else:
+        n_lambdas = len(lambdas)
+    b0, mu, eta = get_intercept(y, weights)
     halc = (1 - alpha) / 2.0
     Xsq = X**2
     n_obs, n_var = X.shape
     betas = np.zeros((n_lambdas+1, n_var+1))
     fvals_hist = []
-    fvals = np.zeros(n_lambdas+1)
-    active = np.ones(n_var, dtype=bool)
-    index = np.arange(n_var)
+    fvals, active, index = np.zeros(n_lambdas+1), np.ones(n_var, dtype=bool), np.arange(n_var)
     weights = np.ones_like(y)
     betas[0, 0] = b0
     
@@ -179,27 +191,34 @@ def binom_elnet_path(X, y, weights, alpha, lambdas, cd_kws=None, progress_bar=No
     return betas[1:], fvals[1:], fvals_hist
         
 
-def binom_glmnet_cv(X, y, alpha=0.99, lambdas=None, cv=10, progress_bar=None):
+def binom_glmnet_cv(X, y, alpha=0.99, lambdas=None, cv=10, n_rep=1, 
+                    cd_kws=None, progress_bar=None):
     if (lambdas is None) or (type(lambdas) in [int, float]):
         if lambdas is None:
             n_lambdas = 150
         else:
             n_lambdas = int(lambdas)
-        lambdas = make_start_params(X, y, np.ones_like(y), n_lambdas, alpha)
+        lambdas = get_lambdas(X, y, np.ones_like(y), n_lambdas, alpha)
     else:
         n_lambdas = len(lambdas)
     n_obs, n_vars = X.shape
     Xf, yf, Xt, yt = crossval_mats(X, y, X.shape[0], cv, categorical=True)
-    betas = np.zeros((cv, n_lambdas,  1+n_vars))
-    fvals = np.zeros((n_lambdas, cv))
-    pbar_kws = dict(total=n_lambdas*10, mininterval=0.01, maxinterval=1, smoothing=0.00001)
+    betas = np.zeros((n_rep, cv, n_lambdas,  1+n_vars))
+    fvals = np.zeros((n_rep, n_lambdas, cv))
+    pbar_kws = dict(total=n_lambdas*cv*n_rep, mininterval=0.01, maxinterval=1, smoothing=0.00001)
     pbar = tqdm.tqdm(**pbar_kws) if progress_bar is None else progress_bar
-    for i in range(cv):
-        betas[i], _, _ = binom_elnet_path(Xf[i], yf[i], np.ones_like(yf[i]), alpha, lambdas,
-                                          progress_bar=pbar)
-        w  = np.ones_like(yt[i])
-        w /= np.sum(w)
-        fvals[:, i] = cv_dev(betas[i], yt[i], Xt[i], w)
+    ind = np.arange(n_obs)
+    for j in range(n_rep):
+        ind = np.random.permutation(ind)
+        kfix = kfold_indices(n_obs, cv, y[ind], categorical=True)
+        for k, (f_ix, v_ix) in enumerate(kfix):
+            Xf, yf = X[ind][f_ix], y[ind][f_ix]
+            Xt, yt = X[ind][v_ix], y[ind][v_ix]
+            betas[j, k], _, _ = binom_elnet_path(Xf, yf, np.ones_like(yf), alpha, lambdas,
+                                              progress_bar=pbar, cd_kws=cd_kws)
+            w  = np.ones_like(yt)
+            w /= np.sum(w)
+            fvals[j, :, k] = cv_dev(betas[j, k], yt, Xt, w)
     if progress_bar is None:
         pbar.close()
     return betas, fvals, lambdas
