@@ -228,12 +228,12 @@ class Gaussian(ExponentialFamily):
         res = 0.0*mu+1.0
         return res
     
-    def deviance(self, y, T=None, mu=None, eta=None, scale=1.0):
+    def deviance(self, y, weights=None, T=None, mu=None, eta=None, scale=1.0):
         if mu is None:
             mu = self._to_mean(eta=eta, T=T)
         
         y, mu = self.cshape(y, mu)
-        w = self.weights
+        w = self.weights if weights is None else weights
         d = w * np.power((y - mu), 2.0)
         return d
     
@@ -323,12 +323,12 @@ class InverseGaussian(ExponentialFamily):
         res = 3.0 / (np.power(mu, 4))
         return res
     
-    def deviance(self, y, T=None, mu=None, eta=None, scale=1.0):
+    def deviance(self, y, weights=None, T=None, mu=None, eta=None, scale=1.0):
         if mu is None:
             mu = self._to_mean(eta=eta, T=T)
         
         y, mu = self.cshape(y, mu)
-        w = self.weights
+        w = self.weights if weights is None else weights
         d = w * np.power((y - mu), 2.0) / (y * np.power(mu, 2))
         return d
     
@@ -418,12 +418,12 @@ class Gamma(ExponentialFamily):
         res = -2 /(mu**3)
         return res
     
-    def deviance(self, y, T=None, mu=None, eta=None, scale=1.0):
+    def deviance(self, y, weights=None, T=None, mu=None, eta=None, scale=1.0):
         if mu is None:
             mu = self._to_mean(eta=eta, T=T)
         
         y, mu = self.cshape(y, mu)
-        w = self.weights
+        w = self.weights if weights is None else weights
         d = 2 * w * ((y - mu) / mu - np.log(y / mu))
         return d
     
@@ -532,12 +532,12 @@ class NegativeBinomial(ExponentialFamily):
         res/= (np.power(mu, 2) * np.power((mu*scale+1.0), 2))
         return res
     
-    def deviance(self, y, T=None, mu=None, eta=None, scale=1.0):
+    def deviance(self, y, weights=None, T=None, mu=None, eta=None, scale=1.0):
         if mu is None:
             mu = self._to_mean(eta=eta, T=T)
         
         y, mu = self.cshape(y, mu)
-        w = self.weights
+        w = self.weights if weights is None else weights
         d = np.zeros(y.shape[0])
         ix = (y==0)
         v = 1.0 / scale
@@ -638,12 +638,12 @@ class Poisson(ExponentialFamily):
         res = -1  /(mu**2)
         return res
     
-    def deviance(self, y, T=None, mu=None, eta=None, scale=1.0):
+    def deviance(self, y, weights=None, T=None, mu=None, eta=None, scale=1.0):
         if mu is None:
             mu = self._to_mean(eta=eta, T=T)
         
         y, mu = self.cshape(y, mu)
-        w = self.weights
+        w = self.weights if weights is None else weights
         d = np.zeros(y.shape[0])
         ixa = y==0
         ixb = ~ixa
@@ -725,12 +725,12 @@ class Binomial(ExponentialFamily):
         res = 1.0/((1 - mu)**2)-1.0/(mu**2)
         return res
     
-    def deviance(self, y, T=None, mu=None, eta=None, scale=1.0):
+    def deviance(self, y, weights=None, T=None, mu=None, eta=None, scale=1.0):
         if mu is None:
             mu = self._to_mean(eta=eta, T=T)
         
         y, mu = self.cshape(y, mu)
-        w = self.weights
+        w = self.weights if weights is None else weights
         ixa = y==0
         ixb = (y!=0)&(y!=1)
         ixc = y==1

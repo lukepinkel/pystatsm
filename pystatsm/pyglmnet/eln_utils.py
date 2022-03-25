@@ -19,19 +19,29 @@ def crossval_mats(X, y, n, cv, categorical=False):
         yt.append(y[v_ix])
     return Xf, yf, Xt, yt
     
-def kfold_indices(n, k, y, categorical=False):
+def kfold_indices(n, k, y, categorical=False, randomize=False, random_state=None):
+    random_state = np.random.default_rng() if random_state is None else random_state
     if categorical:
-        _,  idx =np.unique(y, return_inverse=True)
+        _,  idx = np.unique(y, return_inverse=True)
         t = np.arange(y.shape[0])
-        splits = list(zip(*[np.array_split(t[idx==i], k) for i in np.unique(idx)]))
+        fold_indices = []
+        for i in np.unique(idx):
+            ii = t[idx==i]
+            if randomize:
+                ii = random_state.permutation(ii)
+            fold_indices.append(ii)
+        splits = list(zip(*[np.array_split(ii, k) for ii in fold_indices]))
         splits = [np.concatenate(x) for x in splits]
-    splits = np.array_split(np.arange(n), k)
+    else:
+        idx = np.arange(n)
+        if randomize:
+            idx = random_state.permutation(idx)
+        splits = np.array_split(idx, k)
     inds = []
     for i in range(k):
         fit_ind = np.concatenate([splits[j] for j in range(k) if j!=i])
         inds.append([fit_ind, splits[i]])
     return inds
-
 
 def process_cv(fval, lambdas):
     df = pd.DataFrame(fval)
