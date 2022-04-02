@@ -87,13 +87,18 @@ class GLM:
         s/= self.dfe
         return s
     
-    def predict(self, params=None, X=None, Y=None):
+    def predict(self, params=None, kind="mean", X=None, Y=None):
         X = self.X if X is None else X
         params = self.params if params is None else params
         beta = params[:-1] if self.scale_handling == "NR" else params
         eta = X.dot(beta)
-        mu = self.f.inv_link(eta)
-        return mu
+        if kind.lower() in ["lp", "eta", "linpred"]:
+            res = eta
+        elif kind.lower() in ["mean", "mu"]:
+            res = self.f.inv_link(eta)
+        elif kind.lower()=="both":
+            res = np.vstack((eta, self.f.inv_link(eta))).T
+        return res
     
     def _check_mats(self, params, X, Y):
         if X is None:
@@ -213,7 +218,7 @@ class GLM:
             params, res = self._fit_manual()
         self.optimizer = res
         self.params = params
-        mu = self.predict(params)
+        mu = self.predict(params, kind="mean")
         y, mu = self.f.cshape(self.Y, mu)
         presid = self.f.weights * (y - mu) / np.sqrt(self.f.var_func(mu=mu))
         self.pearson_resid = presid
@@ -241,7 +246,7 @@ class GLM:
         sumstats['caic'] = 2*llf + k*(np.log(N) + 1.0)
         sumstats['LLR'] = 2*(lln - llf)
         sumstats['pearson_chi2'] = self._est_scale(self.Y, 
-                                    self.predict(self.params))*self.dfe
+                                    self.predict(self.params, kind="mean"))*self.dfe
         sumstats['deviance'] = self.f.deviance(y=self.Y, mu=mu, scale=phi).sum()
 
         sumstats['PseudoR2_CS'] = 1-np.exp(1.0/N * (self.LLA - self.LL0))

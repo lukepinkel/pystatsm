@@ -355,6 +355,13 @@ class OLS:
         ll = const + lndetS - 1.0 / (2.0 * sigma**2) * np.dot(r, r)
         return ll
         
+    def predict(self, beta=None, X=None):
+        beta = self.beta if beta is None else beta
+        X = self.X if X is None else X
+        y_hat = np.dot(X, beta)
+        return y_hat
+        
+        
         
         
         
