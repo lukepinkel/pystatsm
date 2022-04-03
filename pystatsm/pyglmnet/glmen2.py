@@ -45,10 +45,10 @@ def _coordinate_descent_cycle(b, b0, r, v, X, Xsq, xv, xv_ind, active, index,
         if abs(d)>0:
             r = r - d * v * xj
             dlx = max(xv[j] * d**2, dlx)
-    d = np.sum(r) / xmz
-    b0 = b0 + d
-    r = r - d * v
-    dlx = max(dlx, xmz * d**2)
+            d = np.sum(r) / xmz
+            b0 = b0 + d
+            r = r - d * v
+            dlx = max(dlx, xmz * d**2)
     return b, b0, active, dlx, r
 
 @numba.jit(nopython=True)
