@@ -137,7 +137,6 @@ class ElasticNetGLM(object):
         return g
         
     def dev_grad(self, beta, lam, X=None, y=None, wobs=None):
-        b, b0 = beta[1:], beta[0]
         mu = self._get_mu(beta, X)
         
         y = self.y if y is None else y
@@ -151,7 +150,7 @@ class ElasticNetGLM(object):
         X = self.X if X is None else X
         y = self.y if y is None else y
         wobs = self.wobs if wobs is None else wobs
-        b, b0 = beta[1:], beta[0]
+        b = beta[1:]
         mu = self._get_mu(beta, X)
         dL = -wdcrossp(X, wobs, y-mu)
         dP = lam * (1.0 - self.alpha) * b + np.sign(b) * lam * self.alpha
@@ -162,7 +161,6 @@ class ElasticNetGLM(object):
         X = self.X if X is None else X
         y = self.y if y is None else y
         wobs = self.wobs if wobs is None else wobs
-        b0, b = beta[0], beta[1:]
         mu = self._get_mu(beta, X)
         v = wobs * self.family.get_w(y, mu)
         H = np.zeros((self.n_var+1, self.n_var+1))
@@ -189,7 +187,6 @@ class ElasticNetGLM(object):
         wobs = self.wobs if wobs is None else wobs
         beta = np.zeros(self.n_var+1)
         ymean = np.dot(wobs, y)
-        mu = ymean
         beta[0] = self.family.link(ymean)
         return beta
 
@@ -290,7 +287,6 @@ class ElasticNetGLM(object):
         fvals = np.zeros((n_rep, n_lambdas, cv,))
         pbar_kws = dict(total=n_lambdas*cv*n_rep, smoothing=1e-4)
         pbar = tqdm.tqdm(**pbar_kws) if progress_bar is None else progress_bar
-        ind = np.arange(self.n_obs)
         rng = np.random.default_rng()
         randomize = False
         for j in range(n_rep):
