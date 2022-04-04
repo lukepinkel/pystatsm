@@ -45,10 +45,10 @@ def _coordinate_descent_cycle(b, b0, r, v, X, Xsq, xv, xv_ind, active, index,
         if abs(d)>0:
             r = r - d * v * xj
             dlx = max(xv[j] * d**2, dlx)
-            d = np.sum(r) / xmz
-            b0 = b0 + d
-            r = r - d * v
-            dlx = max(dlx, xmz * d**2)
+    d = np.sum(r) / xmz
+    b0 = b0 + d
+    r = r - d * v
+    dlx = max(dlx, xmz * d**2)
     return b, b0, active, dlx, r
 
 @numba.jit(nopython=True)
@@ -56,6 +56,7 @@ def weighted_elnet(beta, y, v, X, Xsq, active, index, lam, lam0, alpha,
                    max_iters, dtol=1e-21):
     r = v * y
     xv = np.zeros(X.shape[1], dtype=numba.float64)
+    #beta[0] = np.sum(r) / np.sum(v)
     xv_ind = np.zeros(X.shape[1], dtype=numba.boolean)
     #g = np.abs(np.dot(X.T, r-np.mean(r)))
     #dem = lam * (1.0 - alpha)
@@ -200,7 +201,7 @@ class ElasticNetGLM(object):
         beta[0] = self.family.link(ymean)
         r = self.y - mu
         eta = self.family.link(mu)
-        var = self.family.var_func(mu)
+        var = self.family.var_func(mu=mu)
         dmu_deta = self.family.dinv_link(eta)
         rv = r  / var * dmu_deta * self.wobs
         g = np.dot(self.X.T, rv)  / max(self.alpha, alpha_min)
