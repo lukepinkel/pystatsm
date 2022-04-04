@@ -58,7 +58,6 @@ def weighted_elnet(beta, y, v, X, Xsq, active, index, lam, lam0, alpha,
     xv = np.zeros(X.shape[1], dtype=numba.float64)
     xv_ind = np.zeros(X.shape[1], dtype=numba.boolean)
     #g = np.abs(np.dot(X.T, r-np.mean(r)))
-    #dem = lam * (1.0 - alpha)
     #tlam = alpha * (2.0 * lam - lam0)
     #active[g<tlam] = False
     for i in range(max_iters):
@@ -138,10 +137,8 @@ class ElasticNetGLM(object):
         
     def dev_grad(self, beta, lam, X=None, y=None, wobs=None):
         mu = self._get_mu(beta, X)
-        
         y = self.y if y is None else y
         wobs = self.wobs if wobs is None else wobs
-
         dll = -wdcrossp(X, wobs, y-mu)
         return dll
     
@@ -228,7 +225,6 @@ class ElasticNetGLM(object):
         mu = self.family.inv_link(eta)
         f_curr = self._obj_func_mu(mu, beta, lam, X, y, wobs)
         f_hist = [[f_curr, 0]]
-        #beta_hist = [beta]
         for i in range(n_iters):
             var_mu = self.family.var_func(mu=mu)
             dmu_deta = self.family.dinv_link(eta)
@@ -237,7 +233,6 @@ class ElasticNetGLM(object):
             r = z - eta
             beta_new, i, xv = weighted_elnet(beta.copy(), r, v, X, Xsq, active, index,
                                              lam, lam0, self.alpha, **inner_kws)
-            #beta_hist.append(beta_new.copy())
             eta_new = overflow_adjust(beta_new[0] + X.dot(beta_new[1:]), lower, upper)
             mu_new = self.family.inv_link(eta_new)
             f_new = self._obj_func_mu(mu_new, beta_new, lam, X, y, wobs)
@@ -269,7 +264,7 @@ class ElasticNetGLM(object):
         betas[-1] = betas[0]
         for i, lam in enumerate(lambdas):
             active = np.ones(self.n_var, dtype=bool)
-            beta_start = betas[i-1] if  warm_start else betas[i-1]*0.0
+            beta_start = betas[i-1].copy() if  warm_start else betas[i-1].copy()*0.0
             beta, fval = self._glm_elnet(beta_start, X, Xsq, y, wobs, lam, lam0,
                                          active,  **kws)
             betas[i+1] = beta
@@ -296,7 +291,7 @@ class ElasticNetGLM(object):
                                  random_state=rng)
             for k, (f_ix, v_ix) in enumerate(kfix):
                 Xf, Xsqf, yf, wf = X[f_ix], Xsq[f_ix], y[f_ix], wobs[f_ix]
-                Xt, Xsqt, yt, wt = X[v_ix], Xsq[v_ix], y[v_ix], wobs[v_ix]
+                Xt, _, yt, wt = X[v_ix], Xsq[v_ix], y[v_ix], wobs[v_ix]
                 betas[j, k], _, _ = self._glm_elnet_path(Xf, Xsqf, yf, wf, lambdas,
                                                          progress_bar=pbar, 
                                                          kws=kws)
