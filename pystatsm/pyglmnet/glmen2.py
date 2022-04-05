@@ -12,6 +12,7 @@ import numpy as np # analysis:ignore
 import scipy as sp # analysis:ignore
 import scipy.stats # analysis:ignore
 import pandas as pd
+import matplotlib.pyplot as plt
 from .eln_utils import crossval_mats, kfold_indices
 from ..utilities.func_utils import soft_threshold
 from ..pyglm.families import Binomial, Gaussian
@@ -34,8 +35,8 @@ def _coordinate_descent_cycle(b, b0, r, v, X, Xsq, xv, xv_ind, active, index,
     for j in active_vars:
         bj, xj, xjsq = b[j], X[:, j], Xsq[:, j]
         if xv_ind[j]==False:
-            xv[j], xv_ind[j] = np.dot(xjsq, v), True
-        gj = np.dot(xj, r)
+            xv[j], xv_ind[j] = np.dot(np.ascontiguousarray(xjsq), v), True
+        gj = np.dot(np.ascontiguousarray(xj), r)
         u = gj + xv[j] * bj
         b[j] = soft_threshold(u, la) / (xv[j]+dla)
         d = b[j] - bj
@@ -138,10 +139,11 @@ class ElasticNetGLM(object):
         
     def dev_grad(self, beta, lam, X=None, y=None, wobs=None):
         mu = self._get_mu(beta, X)
+        X = self.X if X is None else X
         y = self.y if y is None else y
         wobs = self.wobs if wobs is None else wobs
-        dll = -wdcrossp(X, wobs, y-mu)
-        return dll
+        dL = np.r_[-np.dot(wobs, y-mu), -wdcrossp(X, wobs, y-mu)]
+        return dL
     
     
     def obj_grad(self, beta, lam, X=None, y=None, wobs=None):
@@ -210,7 +212,7 @@ class ElasticNetGLM(object):
         fvals = np.zeros(n)
         for i in range(n):
             mu = self._get_mu(betas[i], X)
-            fvals[i] =  np.sum(self.family.deviance(y=y, mu=mu, weights=wobs))
+            fvals[i] = np.sum(self.family.deviance(y=y, mu=mu, weights=wobs))/np.sum(wobs)
         return fvals
     
     def _glm_elnet(self, beta, X, Xsq, y, wobs, lam, lam0=None, active=None, n_iters=1000,
@@ -281,7 +283,7 @@ class ElasticNetGLM(object):
         n_lambdas = len(lambdas)
         betas = np.zeros((n_rep, cv, n_lambdas,  1+self.n_var))
         fvals = np.zeros((n_rep, n_lambdas, cv,))
-        pbar_kws = dict(total=n_lambdas*cv*n_rep, smoothing=1e-4)
+        pbar_kws = dict(total=n_lambdas*cv*n_rep, smoothing=1e-3, miniters=1, maxinterval=1e-3)
         pbar = tqdm.tqdm(**pbar_kws) if progress_bar is None else progress_bar
         rng = np.random.default_rng()
         randomize = False
@@ -318,6 +320,43 @@ class ElasticNetGLM(object):
         self.betas, _, self.fvals_hist = self._glm_elnet_path(self.X, self.Xsq, self.y, 
                                                 self.wobs, lambdas, kws=kws,
                                                 warm_start=False)
+        dev_vals = self.crossval_path(self.betas, self.lambdas, self.X, 
+                                      self.y, self.wobs)
+        self.dev_vals = np.maximum(dev_vals, 0.0)
+        self.dev_ratios = 1.0 - self.dev_vals / self.null_dev
+        
+        f_mean  = self.f_paths.mean(axis=(1, 2))
+        self.lmin_idx = np.argmin(f_mean, axis=0)
+        self.lmin = lambdas[self.lmin_idx]
+    
+    
+    def plot_cv(self, lambdas=None, dev_path=None, fig_kws=None):
+        lam = self.lambdas if lambdas is None else lambdas
+        dev = self.f_paths if dev_path is None else dev_path
+        default_fig_kws = dict(figsize=(9, 6))
+        fig_kws = {} if fig_kws is None else fig_kws
+        fig_kws = {**default_fig_kws, **fig_kws}
+        fig, ax = plt.subplots(**fig_kws)
+        x = np.log(lam)
+        dev_mean = dev.mean(axis=(1, 2))
+        dev_se = dev.std(axis=(1, 2)) / np.sqrt(dev.shape[2])
+        ax.scatter(x=x, y=dev_mean, s=10, color='red', zorder=0)
+        ax.errorbar(x=x, y=dev_mean, yerr=dev_se, elinewidth=1.0, fmt='none', 
+                    ecolor='grey', capsize=2.0)
+        lmin_idx = np.argmin(dev_mean, axis=0)
+        lmin = np.log(lam[lmin_idx])
+        ax.axvline(lmin)
+        _, ypos = ax.get_ylim()
+        xlb, xub = ax.get_xlim()
+        xpos = lmin + (xub - lmin) * 0.01
+        xy = xpos, ypos*0.95
+        ax.annotate(f"{lmin:.2f}", xy=xy, xytext=xy, horizontalalignment='left')
+        return fig, ax
+        
+
+        
+        
+        
         
         
 
