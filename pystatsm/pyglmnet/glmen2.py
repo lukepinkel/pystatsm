@@ -40,7 +40,7 @@ def _coordinate_descent_cycle(b, b0, r, v, X, Xsq, xv, xv_ind, active, index,
         u = gj + xv[j] * bj
         b[j] = soft_threshold(u, la) / (xv[j]+dla)
         d = b[j] - bj
-        if abs(b[j]) ==0:
+        if abs(b[j])<1e-12:
             b[j] = 0.0
             active[j] = False
         if abs(d)>0:
@@ -57,7 +57,6 @@ def weighted_elnet(beta, y, v, X, Xsq, active, index, lam, lam0, alpha,
                    max_iters, dtol=1e-21):
     r = v * y
     xv = np.zeros(X.shape[1], dtype=numba.float64)
-    #beta[0] = np.sum(r) / np.sum(v)
     xv_ind = np.zeros(X.shape[1], dtype=numba.boolean)
     #g = np.abs(np.dot(X.T, r-np.mean(r)))
     #tlam = alpha * (2.0 * lam - lam0)
@@ -216,8 +215,8 @@ class ElasticNetGLM(object):
         return fvals
     
     def _glm_elnet(self, beta, X, Xsq, y, wobs, lam, lam0=None, active=None, n_iters=1000,
-                   ftol=1e-8, lower=-36, upper=36, inner_kws=None):
-        default_inner_kws = dict(max_iters=1000, dtol=1e-8)
+                   ftol=1e-5, lower=-36, upper=36, inner_kws=None):
+        default_inner_kws = dict(max_iters=1000, dtol=1e-5)
         inner_kws = {} if inner_kws is None else inner_kws
         inner_kws = {**default_inner_kws, **inner_kws}
         lam0 = lam if lam0 is None else lam0
@@ -226,6 +225,8 @@ class ElasticNetGLM(object):
         index = np.arange(self.n_var)
         eta = overflow_adjust(beta[0] + X.dot(beta[1:]), lower, upper)
         mu = self.family.inv_link(eta)
+        g = np.abs(np.dot(X.T, wobs * (y - mu)))
+        active[g<(2.0 * lam - lam0)] = False
         f_curr = self._obj_func_mu(mu, beta, lam, X, y, wobs)
         f_hist = [[f_curr, 0]]
         for i in range(n_iters):
@@ -256,7 +257,7 @@ class ElasticNetGLM(object):
         fvals_hist = []
         X = (X - np.mean(X, axis=0)) / np.std(X, axis=0)
         Xsq = X**2
-        default_kws = dict(n_iters=1000, ftol=1e-8, lower=-36, upper=36, inner_kws=None)
+        default_kws = dict(n_iters=1000, ftol=1e-6, lower=-36, upper=36, inner_kws=None)
         kws = {} if kws is None else kws
         kws = {**default_kws, **kws}
         betas[0] = self.get_intercept(y, wobs)
@@ -265,8 +266,10 @@ class ElasticNetGLM(object):
         pbar = tqdm.tqdm(**pbar_kws) if progress_bar is None else progress_bar
         lam0 = lambdas[0]
         betas[-1] = betas[0]
+        #g = np.abs(np.dot(X.T, wobs * (y-np.mean(y))))
         for i, lam in enumerate(lambdas):
             active = np.ones(self.n_var, dtype=bool)
+            #active[g<(2.0 * lam - lambdas[0])] = False
             beta_start = betas[i-1].copy() if  warm_start else betas[i-1].copy()*0.0
             beta, fval = self._glm_elnet(beta_start, X, Xsq, y, wobs, lam, lam0,
                                          active,  **kws)
@@ -274,6 +277,7 @@ class ElasticNetGLM(object):
             fvals_hist.append(fval)
             fvals[i+1] = fval[-1]
             pbar.update(1)
+            #lam0 = lambdas[i]
         if progress_bar is None:
             pbar.close()
         return betas[1:], fvals[1:], fvals_hist
@@ -306,7 +310,7 @@ class ElasticNetGLM(object):
     
     def fit(self, n_lambdas=200, cv=10, n_rep=1, lambda_min_ratio=1e-4, kws=None):
         lambdas, null_dev, b_init, _, _ = self.get_start_param(n_lambdas,
-                                                               lambda_min_ratio)
+                                                               lambda_min_ratio=lambda_min_ratio)
         
         betas, fvals, lambdas = self._glm_elnet_cv(self.X, self.Xsq, self.y, 
                                                    self.wobs, lambdas, cv=cv,
@@ -315,11 +319,11 @@ class ElasticNetGLM(object):
         self.null_dev = null_dev
         self.beta_path = np.swapaxes(np.swapaxes(betas, 0, 2), 1, 3)
         self.f_paths = np.swapaxes(fvals, 0, 1)
-        kws = dict(inner_kws=dict(max_iters=10_000, dtol=1e-12),
-                   n_iters=10_000, ftol=1e-12)
+        kws = dict(inner_kws=dict(max_iters=10_000, dtol=1e-6),
+                   n_iters=10_000, ftol=1e-6)
         self.betas, _, self.fvals_hist = self._glm_elnet_path(self.X, self.Xsq, self.y, 
                                                 self.wobs, lambdas, kws=kws,
-                                                warm_start=False)
+                                                warm_start=True)
         dev_vals = self.crossval_path(self.betas, self.lambdas, self.X, 
                                       self.y, self.wobs)
         self.dev_vals = np.maximum(dev_vals, 0.0)
@@ -328,6 +332,10 @@ class ElasticNetGLM(object):
         f_mean  = self.f_paths.mean(axis=(1, 2))
         self.lmin_idx = np.argmin(f_mean, axis=0)
         self.lmin = lambdas[self.lmin_idx]
+        self.beta = self.betas[self.lmin_idx]
+        self.eta = self._get_eta(self.beta)
+        self.mu = self.family.inv_link(self.eta)
+        
     
     
     def plot_cv(self, lambdas=None, dev_path=None, fig_kws=None):
