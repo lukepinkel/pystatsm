@@ -81,6 +81,7 @@ def rotate_ortho(A, vgq, T=None, alpha=1.0, gamma=0, tol=1e-9, n_iters=1000):
     ft, Gq = vgq(L, gamma)
     G = np.dot(A.T, Gq)
     opt_hist = []
+    alpha0 = alpha
     for i in range(n_iters):
         M = np.dot(T.T, G)
         S = (M + M.T) / 2.0
@@ -89,7 +90,7 @@ def rotate_ortho(A, vgq, T=None, alpha=1.0, gamma=0, tol=1e-9, n_iters=1000):
         opt_hist.append([ft, s])
         if s<tol:
             break
-        alpha = 2.0 * alpha
+        alpha = 2.0 * alpha0
         for c in range(10):
             X = T - alpha * Gp
             U, D, V = np.linalg.svd(X, full_matrices=False)

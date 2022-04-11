@@ -274,6 +274,11 @@ class Gaussian(ExponentialFamily):
     def d2llscale(self, phi, y):
         ls2 = -len(y) / (2.0 * phi**2)
         return ls2
+    
+    def rvs(self, mu, scale=1.0, rng=None, seed=None):
+        rng = np.random.default_rng(seed) if rng is None else rng
+        return rng.normal(loc=mu, scale=scale)
+        
 
 class InverseGaussian(ExponentialFamily):
     
@@ -371,6 +376,10 @@ class InverseGaussian(ExponentialFamily):
     def d2llscale(self, phi, y):
         ls2 = -len(y) / (2.0 * phi**2)
         return -ls2
+    
+    def rvs(self, mu, scale=1.0, rng=None, seed=None):
+        rng = np.random.default_rng(seed) if rng is None else rng
+        return rng.wald(mean=mu, scale=scale)
     
 class Gamma(ExponentialFamily):
     
@@ -475,6 +484,10 @@ class Gamma(ExponentialFamily):
         ls2 = (sp.special.polygamma(1, v) * v + 2.0 * sp.special.digamma(v) \
               - (1.0 - 2.0 * np.log(phi))) * v**3 * len(y)
         return ls2
+    
+    def rvs(self, mu, scale=1.0, rng=None, seed=None):
+        rng = np.random.default_rng(seed) if rng is None else rng
+        return rng.gamma(shape=mu, scale=scale)
     
 
 class NegativeBinomial(ExponentialFamily):
@@ -592,6 +605,13 @@ class NegativeBinomial(ExponentialFamily):
     def d2llscale(self, phi, y):
         return None
     
+    def rvs(self, mu, scale=1.0, rng=None, seed=None):
+        rng = np.random.default_rng(seed) if rng is None else rng
+        var = mu + scale * mu**2
+        n = - mu**2 / (mu - var)
+        p = mu / var
+        y = rng.negative_binomial(n=n, p=p)
+        return y
     
 class Poisson(ExponentialFamily):
     
@@ -673,7 +693,10 @@ class Poisson(ExponentialFamily):
     def d2llscale(self, phi, y):
         return None
     
-    
+    def rvs(self, mu, scale=1.0, rng=None, seed=None):
+        rng = np.random.default_rng(seed) if rng is None else rng
+        y = rng.poisson(lam=mu)
+        return y
     
     
 class Binomial(ExponentialFamily):
@@ -763,7 +786,10 @@ class Binomial(ExponentialFamily):
     def d2llscale(self, phi, y):
         return None
     
-    
+    def rvs(self, mu, scale=1.0, rng=None, seed=None):
+        rng = np.random.default_rng(seed) if rng is None else rng
+        y = rng.binomial(n=self.weights, p=mu) / self.weights
+        return y
 
     
     

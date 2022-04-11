@@ -270,7 +270,7 @@ class MixedMCMC(LMM):
         if self.freeR:
             param_names.append("resid_cov")
         if response_dist=='ordinal_probit':
-            param_names = param_names + [f"t{i}" for i in range(1, self.n_thresh+1)]
+            param_names = param_names + [f"t{i}" for i in range(1, self.n_thresh)]
         self.param_names = param_names
         
 

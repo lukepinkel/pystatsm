@@ -628,7 +628,7 @@ class FactorAnalysis(object):
                          BIC=BIC)
         return sumstats
     
-    def _fit(self, hess=True, **opt_kws):
+    def _fit(self, hess=True, opt_kws=None):
         """
         
 
@@ -643,7 +643,7 @@ class FactorAnalysis(object):
 
         """
         hess = self.hessian if hess else None
-        
+        opt_kws = {} if opt_kws is None else opt_kws
         self.opt = sp.optimize.minimize(self.loglike, self.theta, jac=self.gradient,
                                         hess=hess, method='trust-constr', **opt_kws)
         self.theta = self.opt.x
@@ -678,7 +678,7 @@ class FactorAnalysis(object):
         self.L_se = invec(self.se_params[self.lix], self.n_vars, self.n_facs)
         
     def fit(self, compute_factors=True, factor_method='regression', hess=True,
-            **opt_kws):
+            opt_kws=None):
         """
         
 
@@ -698,7 +698,7 @@ class FactorAnalysis(object):
         None.
 
         """
-        self._fit(hess, **opt_kws)
+        self._fit(hess, opt_kws)
         self.sumstats = self._fit_indices(self.Sigma)
         z = self.params / self.se_params
         p = sp.stats.norm(0, 1).sf(np.abs(z)) * 2.0
@@ -721,9 +721,9 @@ class FactorAnalysis(object):
         
         if compute_factors:
             factor_coefs, factors = self.compute_factors(factor_method)
-        self.factor_coefs = pd.DataFrame(factor_coefs, index=self.cols, columns=fcols)
-        self.factors = pd.DataFrame(factors, index=self.inds, columns=fcols)
-        
+            self.factor_coefs = pd.DataFrame(factor_coefs, index=self.cols, columns=fcols)
+            self.factors = pd.DataFrame(factors, index=self.inds, columns=fcols)
+            
     def compute_factors(self, method="regression"):
         """
         

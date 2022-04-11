@@ -204,7 +204,7 @@ def multivariate_t(mean, cov, nu=1, size=None, rng=None):
 def r_lkj_cholesky(eta=1.0, n=1, dim=1, rng=None, seed=None):
     rng = np.random.default_rng(seed) if rng is None else rng
     
-    eta = np.asarray(eta)
+    eta = np.atleast_1d(eta)
     batch_shape = np.concatenate([[n], np.shape(eta)], axis=0).astype(np.int32)
     beta = eta + (dim - 2.) / 2.
     dimension_range = np.arange(1., dim)
