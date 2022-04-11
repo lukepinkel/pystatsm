@@ -9,9 +9,275 @@ Created on Mon Jun 15 22:04:25 2020
 import numpy as np
 import pandas as pd
 from ..utilities.linalg_operations import vec, invec, vecl, vdg
-from ..utilities.special_mats import kmat
+from ..utilities.special_mats import kmat, nmat, lmat
 
+class RotationMethod(object):
+    
+    def __init__(self, A, rotation_type="ortho"):
+        self.p, self.m = A.shape
+        self.A = A
+        self.rotation_type = rotation_type
+        self.Kmp = kmat(self.m, self.p)
+    
+    def rotate(self, T):
+        if self.rotation_type == "ortho":
+            L = np.dot(self.A, T)
+        else:
+            L = np.dot(self.A, np.linalg.inv(T.T))
+        return L
 
+    
+    def _d_rotate_oblique(self, T):
+        A = self.A
+        B = np.linalg.inv(T.T)
+        L = np.dot(A, B)
+        J = -self.Kmp.dot(np.kron(L, B.T))#J = np.kron(B.T, L)
+        return J
+    
+    def _d_rotate_ortho(self, T):
+        J = np.kron(np.eye(self.m), self.A)
+        return J
+    
+    def d_rotate(self, T):
+        if self.rotation_type == "ortho":
+            J = self._d_rotate_ortho(T)
+        else:
+            J = self._d_rotate_oblique(T)
+        return J
+    
+    def f(self, T):
+        L = self.rotate(T)
+        return self.Q(L)
+    
+    def df(self, T):
+        L = self.rotate(T)
+        Gq = self.dQ(L)
+        dR= self.d_rotate(T)
+        J = invec(vec(Gq).dot(dR), *T.shape)
+        return J
+    
+    def _rotate_ortho(self, A, vgq, T=None, alpha=1.0, tol=1e-6, n_iters=1000):
+        if T is None:
+            T = np.eye(A.shape[1])
+        L = np.dot(A, T)
+        ft, Gq = vgq(L)
+        G = np.dot(A.T, Gq)
+        opt_hist = []
+        alpha0 = alpha
+        for i in range(n_iters):
+            M = np.dot(T.T, G)
+            S = (M + M.T) / 2.0
+            Gp = G - np.dot(T, S)
+            s = np.linalg.norm(Gp)
+            opt_hist.append([ft, s])
+            if s<tol:
+                break
+            alpha = 2.0 * alpha0
+            for c in range(10):
+                X = T - alpha * Gp
+                U, D, V = np.linalg.svd(X, full_matrices=False)
+                Tt = np.dot(U, V)
+                L = np.dot(A, Tt)
+                ft_new, Gq = vgq(L)
+                if ft_new < (ft - 0.5*s**2*alpha):
+                    break
+                else:
+                    alpha = alpha * 0.5
+            ft, T =ft_new, Tt
+            G = np.dot(A.T, Gq)
+        return T, G, Gq, opt_hist
+    
+    def _rotate_obli(self,  A, vgq, T=None, alpha=1.0, tol=1e-9, n_iters=500):
+        if T is None:
+            T = np.eye(A.shape[1])
+        Tinv = np.linalg.inv(T)
+        L = np.dot(A, Tinv.T)
+        ft, Gq = vgq(L)
+        G = -np.linalg.multi_dot([L.T, Gq, Tinv]).T
+        opt_hist = []
+        for i in range(n_iters):
+            TG = T*G
+            Gp = G - np.dot(T, np.diag(np.sum(TG, axis=0)))
+            s = np.linalg.norm(Gp)
+            opt_hist.append([ft, s])
+            if s<tol:
+                break
+            alpha = 2.0 * alpha
+            for c in range(10):
+                X = T - alpha * Gp
+                X2 = X**2
+                V = np.diag(1 / np.sqrt(np.sum(X2, axis=0)))
+                Tt = np.dot(X, V)
+                Tinv = np.linalg.pinv(Tt)
+                L = np.dot(A, Tinv.T)
+                ft_new, Gq = vgq(L)
+                if ft_new < (ft - 0.5*s**2*alpha):
+                    break
+                else:
+                    alpha = alpha * 0.5
+            ft, T =ft_new, Tt
+            G = -np.linalg.multi_dot([L.T, Gq, Tinv]).T
+        return T, G, Gq, opt_hist
+    
+    def fit(self, opt_kws=None):
+        opt_kws = {} if opt_kws is None else opt_kws
+        if self.rotation_type == "ortho":
+            T, G, Gq, opt_hist = self._rotate_ortho(self.A, self.vgQ, **opt_kws)
+        else:
+            T, G, Gq, opt_hist = self._rotate_obli(self.A, self.vgQ, **opt_kws)
+        self.T, self.G, self.Gq, self.opt_hist = T, G, Gq, opt_hist
+        
+    def oblique_constraints(self, L, Phi):
+        dQ = self.dQ(L)
+        C = np.dot(L.T, dQ).dot(np.linalg.inv(Phi))
+        C[np.diag_indices_from(C)] = 1.0
+        return C
+    
+    def ortho_constraints(self, L, Phi):
+        dQ = self.dQ(L)
+        C = np.dot(L.T, dQ) - np.dot(dQ.T, L)
+        return C
+    
+    def unrotated_constraints(self, L, Phi, Psi):
+        Lm = lmat(self.m)
+        Nm = nmat(self.m)
+        Im = np.eye(self.m)
+        d_inds = vec(np.eye(self.p))==1
+        Psi_inv = np.diag(1.0 / np.diag(Psi))
+        LtP = L.T.dot(Psi_inv)
+        J1 = Lm.dot(Nm.dot(np.kron(Im, LtP)))
+        J2 =-Lm.dot(np.kron(LtP, LtP)[:, d_inds])
+        J = np.concatenate([J1, J2], axis=1)
+        i, j = np.tril_indices(self.p)
+        J = J[i!=j]
+        return J
+               
+
+class GeneralizedCrawfordFerguson(RotationMethod):
+    def __init__(self, A, k1, k2, k3, k4, rotation_type="ortho"):
+        super().__init__(A, rotation_type)
+        self.k1, self.k2, self.k3, self.k4 = k1, k2, k3, k4
+        
+    def Q(self, L):
+        B = L**2
+        f1 = self.k1 * np.sum(B)**2 
+        f2 = self.k2 * np.sum(np.sum(B, axis=1)**2)
+        f3 = self.k3 * np.sum(np.sum(B, axis=0)**2)
+        f4 = self.k4 * np.sum(B * B)
+        f = (f1 + f2 + f3 + f4) / 4
+        return f
+    
+    def dQ(self, L):
+        B = L**2
+        dQ1 = self.k1 * np.sum(B) #self.k1 * Jp.dot(B).dot(Jm) 
+        dQ2 = self.k2 * np.sum(B, axis=1).reshape(-1, 1) #self.k2 * (B).dot(Jm) 
+        dQ3 = self.k3 * np.sum(B, axis=0).reshape(1, -1) #self.k3 * (Jp).dot(B) 
+        dQ4 = self.k4 * B #self.k4 * B
+        dQ = (dQ1 + dQ2 + dQ3 + dQ4) * L 
+        return dQ
+    
+    def vgQ(self, L):
+        fq = self.Q(L)
+        Gq = self.dQ(L)
+        return fq, Gq
+    
+    def dC_dL_Obl(self, L, Phi):
+        B = L * L 
+        dQ1 = self.k1 * np.sum(B)
+        dQ2 = self.k2 * np.sum(B, axis=1).reshape(-1, 1)
+        dQ3 = self.k3 * np.sum(B, axis=0).reshape(1, -1)
+        dQ4 = self.k4 * B
+        W = (dQ1 + dQ2 + dQ3 + dQ4) 
+        Q = L * W
+        V = np.linalg.inv(Phi)
+        p,  m = self.p, self.m
+        QV = np.dot(Q, V)
+        LV = np.dot(L, V)
+        LtLV = np.dot(L.T, LV)
+        LtL = np.dot(L.T, L)
+        J = np.zeros((m, m, p, m))
+        for v, u in np.ndindex((m, m)):
+            for r, i in np.ndindex((m, p)):
+                if v!=u:
+                    t1 = (u==r) * QV[i, v]
+                    t2 = W[i, r] * L[i, u] * V[r, v]
+                    t3 = 2.0 * self.k1 * L[i, r] * LtLV[u, v]
+                    t4 = 2.0 * self.k2 * L[i, r] * L[i, u] * LV[i, v]
+                    t5 = 2.0 * self.k3 * L[i, r] * LtL[u, r] * V[r ,v]
+                    t6 = 2.0 * self.k4 * L[i, r] * L[i, r] * L[i, u] * V[r, v]
+                    J[u, v, i, r] = t1 + t2 + t3 + t4 + t5 + t6
+        return J
+    
+    def dL_dA_Ortho(self, L, Phi):
+        AAt = np.dot(self.A, self.A.T)
+        B = L * L
+        k1, k2, k3, k4, p, m = self.k1, self.k2, self.k3, self.k4, self.p, self.m
+        Jm, Jp = np.ones((m, m)), np.ones((p, p))
+        Ip, Im, Kpm = np.eye(p), np.eye(m), kmat(p, m).A
+        T1 = k1 * Jp.dot(B).dot(Jm) 
+        T2 = k2 * (B).dot(Jm) 
+        T3 = k3 * (Jp).dot(B) 
+        T4 = k4 * B
+        Q = (T1 + T2 + T3 + T4) * L 
+        V = vdg(L)
+        R1 = k1 * np.kron(Jm, Jp)
+        R2 = k2 * np.kron(Jm, Ip)
+        R3 = k3 * np.kron(Im, Jp)
+        R4 = k4 * V
+        D1 = V.dot(2.0 * (R1 + R2 + R3).dot(V) + 2.0 * R4)
+        D2 = vdg(T1 + T2 + T3 + T4)
+        Y = D1 + D2
+        Omega = np.kron(L.T, L).dot(Kpm) - np.kron(Im, AAt)
+        Xi = np.kron(L.T.dot(Q), Ip) + np.kron(Im, L.dot(Q.T))
+        Gamma = np.kron(Q.T.dot(self.A), Ip) + np.kron(Q.T, self.A).dot(Kpm)
+        G = np.linalg.solve(np.dot(Omega, Y) + Xi, Gamma)
+        return G
+    
+    def dC_dL_Ortho(self, L, Phi):
+        B = L * L
+        k1, k2, k3, k4, p, m = self.k1, self.k2, self.k3, self.k4, self.p, self.m
+        Jm, Jp = np.ones((m, m)), np.ones((p, p))
+        Ip, Im, Kpm = np.eye(p), np.eye(m), kmat(p, m)
+        T1 = k1 * Jp.dot(B).dot(Jm) 
+        T2 = k2 * (B).dot(Jm) 
+        T3 = k3 * (Jp).dot(B) 
+        T4 = k4 * B
+        Q = (T1 + T2 + T3 + T4) * L
+        V = vdg(L)
+        R1 = k1 * np.kron(Jm, Jp)
+        R2 = k2 * np.kron(Jm, Ip)
+        R3 = k3 * np.kron(Im, Jp)
+        R4 = k4 * V
+        D1 = V.dot(2.0 * (R1 + R2 + R3).dot(V) + 2.0 * R4)
+        D2 = vdg(T1 + T2 + T3 + T4)
+        DQ = D1 + D2
+        HQ1 = np.kron(Q.T, Im).dot(Kpm.A) + np.kron(Im, L.T).dot(DQ)
+        HQ2 = np.kron(L.T, Im).dot(Kpm.A).dot(DQ) + np.kron(Im, Q.T)
+        HQ = HQ1 - HQ2
+        return HQ
+         
+    def dC_dP_Obl(self, L, Phi):
+        B = L * L 
+        dQ1 = self.k1 * np.sum(B)
+        dQ2 = self.k2 * np.sum(B, axis=1).reshape(-1, 1)
+        dQ3 = self.k3 * np.sum(B, axis=0).reshape(1, -1)
+        dQ4 = self.k4 * B
+        W = (dQ1 + dQ2 + dQ3 + dQ4) 
+        V = np.linalg.inv(Phi)
+        Q = L * W
+        C = np.dot(L.T, Q).dot(V)
+        J = np.zeros((self.m, self.m, self.m, self.m))
+        for v, u in np.ndindex((self.m, self.m)):
+            for x, y in np.ndindex((self.m, self.m)):
+                if (v!=u) and (x!=y):
+                    t1 = (u==x) * V[y, v]
+                    t2 = (u==y) * V[x, v]
+                    J[u, v, x, y] = -C[u, u] * (t1 + t2)
+        return J
+    
+    
+
+                   
 
 
 def vgq_cf(L, gamma):
