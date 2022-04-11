@@ -540,6 +540,7 @@ class FactorAnalysis(object):
             self.L = self._rotate.rotate(self.T)
             self.theta[self.lix] = vec(self.L)
         else:
+            self.L = self.A
             self.T = np.eye(self.n_facs)
             
         self.Phi = np.dot(self.T, self.T.T)

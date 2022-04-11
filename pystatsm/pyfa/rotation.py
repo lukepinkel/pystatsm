@@ -88,7 +88,7 @@ class RotationMethod(object):
             G = np.dot(A.T, Gq)
         return T, G, Gq, opt_hist
     
-    def _rotate_obli(self,  A, vgq, T=None, alpha=1.0, tol=1e-9, n_iters=500):
+    def _rotate_obli(self,  A, vgq, T=None, alpha=1.0, tol=1e-7, n_iters=500):
         if T is None:
             T = np.eye(A.shape[1])
         Tinv = np.linalg.inv(T)
