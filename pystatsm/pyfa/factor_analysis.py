@@ -407,11 +407,9 @@ class FactorAnalysis(object):
         """
         Psi_inv = np.diag(1.0 / np.diag(Psi))
         A = L.T.dot(Psi_inv)
-        J1 = self.Lk.dot(self.Nk.dot(np.kron(self.Ik, A)))
-        J2 =-self.Lk.dot(np.kron(A, A)[:, self.d_inds])
+        J1 = self.Nk.dot(np.kron(self.Ik, A))
+        J2 =-np.kron(A, A)[:, self.d_inds]
         J = np.concatenate([J1, J2], axis=1)
-        i, j = np.tril_indices(self.n_facs)
-        J = J[i!=j]
         return J
         
     def constraint_derivs(self, theta):
@@ -543,7 +541,7 @@ class FactorAnalysis(object):
             self.L = self.A
             self.T = np.eye(self.n_facs)
             
-        self.Phi = np.dot(self.T, self.T.T)
+        self.Phi = np.dot(self.T.T, self.T)
         self._make_augmented_params(self.L, self.Phi, self.Psi)
         self.Sigma = self.implied_cov(self.theta)
         self.H = so_gc_cd(self.gradient_augmented, self.params)
@@ -577,17 +575,19 @@ class FactorAnalysis(object):
             H[:nl, -nc:] = dCdL[lix].T 
         else:
             dCdL = self.constraint_derivs(self.theta)
-            nt, nc = self.nl + self.nr, self.nc
+            nl, nt, nc = self.nl, self.nl + self.nr, self.nc
             H = np.zeros((nt+nc, nt+nc))
             ixp = np.r_[np.arange(self.nl),
                        np.arange(self.nl+self.ns, self.nl+self.ns+self.nr)]
+            lix = vec(np.tril(np.ones((self.m, self.m)), -1)!=0)
             H[:nt, :nt] = self.H[ixp, ixp[:, None]] 
-            H[nt:, :nl] = dCdL
-            H[:nl, nt:] = dCdL.T 
+            H[nt:, :-nc] = dCdL[lix]
+            H[:-nc, nt:] = dCdL[lix].T 
+            
             
         self.ixp = ixp
         self.H_aug = H
-        self.se_params = np.sqrt(1.0 / np.diag(np.linalg.inv(self.H_aug))[:nt]/self.n_obs)
+        self.se_params = np.sqrt(np.diag(np.linalg.inv(self.H_aug))[:nt]/self.n_obs)
         self.L_se = invec(self.se_params[self.lix], self.n_vars, self.n_facs)
         
     def fit(self, compute_factors=True, factor_method='regression', hess=True,
