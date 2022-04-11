@@ -11,6 +11,7 @@ import pandas as pd
 from ..utilities.linalg_operations import vec, invec, vecl, vdg
 from ..utilities.special_mats import kmat, nmat, lmat
 
+
 class RotationMethod(object):
     
     def __init__(self, A, rotation_type="ortho"):
@@ -152,6 +153,17 @@ class RotationMethod(object):
         J = J[i!=j]
         return J
                
+    
+def get_gcf_constants(method, p, m):
+    if method == 'varimax':
+        consts = dict(k1=0.0, k2=(p-1)/p, k3=1/p, k4=-1)
+    elif method == 'quartimax':
+        consts = dict(k1=0.0, k2=1, k3=1, k4=-1)
+    elif method == 'equamax':
+        consts = dict(k1=0.0, k2=1-m/(2.0 * p), k3=m/(2.0 * p), k4=-1)
+    elif method == 'parsimax':
+        consts = dict(k1=0.0, k2=1-(m-1)/(p+m-2), k3=(m-1)/(p+m-2), k4=-1)
+    return consts
 
 class GeneralizedCrawfordFerguson(RotationMethod):
     def __init__(self, A, k1, k2, k3, k4, rotation_type="ortho"):

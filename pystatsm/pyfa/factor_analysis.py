@@ -1,6 +1,7 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Mon Aug 23 18:11:20 2021
+Created on Sun Apr 10 16:02:21 2022
 
 @author: lukepinkel
 """
@@ -9,69 +10,23 @@ import numpy as np
 import scipy as sp
 import scipy.stats
 import pandas as pd
-from .rotation import rotate, oblique_constraint_derivs
 from ..utilities.linalg_operations import vec, invec, vech, vecl, invecl, vecl_inds
 from ..utilities.special_mats import nmat, dmat, lmat
-from ..utilities.numerical_derivs import so_gc_cd
 from ..utilities.data_utils import _check_type, cov, eighs, flip_signs
 from .fit_measures import srmr, lr_test, gfi, agfi
+from .rotation import GeneralizedCrawfordFerguson, get_gcf_constants
+from ..utilities.numerical_derivs import so_gc_cd
 
 
 class FactorAnalysis(object):
    
     
     def __init__(self, X=None, S=None, n_obs=None, n_factors=None, 
-                 rotation_method=None, **n_factor_kws):
-        """
-        Exploratory Factor Analysis
-        
-        Parameters
-        ----------
-        X : dataframe, optional
-            A dataframe of size (n x p) containing the n observations and p
-            variables to be analyzed
-        
-        S : arraylike
-            Dataframe or ndarray containing (p x p) variables to be analyzed 
-            
-        
-        n_obs : int or float, optional
-            If X is not provided, and the covariance matrix S is, then 
-            n_obs  is required to compute test statistics
-        
-        n_factors : int float or str, optional
-            The number of factors to model.  If a string, must be one of
-            'proportion' or 'eigmin'.
-        
-        rotation_method : str, optional
-            One of the rotation methods, e.g. quartimax, varimax, equamax
-        
-        Keyword Arguments:
-            
-            proportion : float
-                Float in [0, 1] specifying the cutoff variance explained when
-                calculating the number of factors to model
-            
-            eigmin : float
-                The eigenvalue cutoff when determining the number of factors
-        
-        
-        Notes
-        -----
-        In the docs, p will be used to denote the the number of variables, 
-        and q the number of factors, t the number of parameters, k the 
-        number of covariance parameters to model, and m the number of
-        parameters in the explicit 'augmented' model
-        
-        t = p * (q + 1)
-        k = p * (p + 1) // 2
-        m = p * (q + 1) + q * (q - 1) // 2 = t + q * (q - 1) // 2
-        
-        """
+                 rotation_method=None, rotation_type=None, **n_factor_kws):
         self._process_data(X, S, n_obs)
         self._get_n_factors(n_factors, **n_factor_kws)
-        self._rotation_method = rotation_method
         self._make_params()
+        self.p, self.m = self.n_vars, self.n_facs
         self.E = np.eye(self.n_vars)
         self.Ik = np.eye(self.n_facs)
         self.Nk = nmat(self.n_facs).A
@@ -83,6 +38,15 @@ class FactorAnalysis(object):
         self.LpNp = np.dot(self.Lp, self.Np)
         self.d_inds = vec(self.Ip)==1
         self.l_inds = vecl_inds(self.n_facs)
+        if rotation_method is not None:
+            rotation_type = 'ortho' if rotation_type is None else rotation_type
+            consts = get_gcf_constants(rotation_method, self.p, self.m)
+            self._rotate = GeneralizedCrawfordFerguson(A=np.zeros((self.p, self.m)),
+                                                       rotation_type=rotation_type, 
+                                                       **consts)
+        else:
+            self._rotate = None
+        self.rotation_method, self.rotation_type = rotation_method, rotation_type
 
     def _process_data(self, X, S, n_obs):
         given_x = X is not None
@@ -116,8 +80,8 @@ class FactorAnalysis(object):
     def _make_params(self):
         self.n_pars = self.n_vars*self.n_facs + self.n_vars
         self.theta = np.zeros(self.n_pars)
-        self.lix=np.arange(self.n_vars*self.n_facs)
-        self.pix =np.arange(self.n_vars*self.n_facs, self.n_vars*self.n_facs+self.n_vars)
+        self.lix = np.arange(self.n_vars*self.n_facs)
+        self.pix = np.arange(self.n_vars*self.n_facs, self.n_vars*self.n_facs+self.n_vars)
         L = self.V[:, :self.n_facs]
         psi = np.diag(self.S - np.dot(L, L.T))
         self.theta[self.lix] = vec(L)
@@ -208,25 +172,8 @@ class FactorAnalysis(object):
         g[self.pix] = g2
         return g
     
-    def hessian_approx(self, theta):
-        H = so_gc_cd(self.gradient, theta)
-        return H
         
     def dsigma(self, theta):
-        """
-        
-        Parameters
-        ----------
-        theta : ndarray
-             ndarray of length t containing model parameters.
-
-        Returns
-        -------
-        G : ndarray
-            (k x t) matrix of derivatives of the implied covariance with 
-            respect to parameters
-
-        """
         L, Psi = self.model_matrices(theta)
         DLambda = np.dot(self.LpNp, np.kron(L, self.Ip))
         DPsi = np.dot(self.Lp, np.diag(vec(Psi)))[:, self.d_inds]
@@ -234,21 +181,6 @@ class FactorAnalysis(object):
         return G
     
     def hessian(self, theta):
-        """
-        
-
-        Parameters
-        ----------
-        theta : ndarray
-             ndarray of length t containing model parameters.
-
-        Returns
-        -------
-        H : ndarray
-             (t x t) matrix of second derivative of the log likelihood with 
-             respect to the parameters
-
-        """
         L, Psi = self.model_matrices(theta)
         Sigma = L.dot(L.T) + Psi
         Sigma_inv = np.linalg.inv(Sigma)
@@ -286,74 +218,30 @@ class FactorAnalysis(object):
         return H
     
     def _make_augmented_params(self, L, Phi, Psi):
-        """
-        
-
-        Parameters
-        ----------
-        L : ndarray
-            (p x q) array of loadings.
-        Phi : ndarray
-            (q x q) factor covariance matrix.
-        Psi : ndarray
-            (p x p) diagonal matrix of residual covariances.
-
-        Returns
-        -------
-        None.
-        
-        
-        Notes
-        -----
-        
-        If rotation_method is not None, then a params vector is added to
-        account for the restricted parameters when computing the hessian.  
-        Makes implicit assumptions about factor covariance explicit by 
-        augmenting theta with (q - 1) * q // 2 factor covariance parameters.
-
-        """
         p, q = self.n_vars, self.n_facs
         nl = p * q
-        nc = q * (q - 1) // 2  if self._rotation_method is not None else 0
+        ns = q * (q - 1) // 2
         nr = p
-        nt = nl + nc + nr
+        if self.rotation_type == "oblique":
+            nc = q * (q - 1) 
+        else:
+            nc = q * (q - 1) //2
+        nt = nl + ns + nr
         params = np.zeros(nt)
         ixl = np.arange(nl)
-        ixc = np.arange(nl, nl+nc)
-        ixr = np.arange(nl+nc, nl+nc+nr)
+        ixs = np.arange(nl, nl + ns)
+        ixr = np.arange(nl + ns, nl + ns + nr)
         params[ixl] = vec(L)
-        if self._rotation_method is not None:
-            params[ixc] = vecl(Phi)
+        params[ixs] = vecl(Phi)
         params[ixr] = np.diag(Psi)
-        
-        self.nl, self.nc, self.nr, self.nt = nl, nc, nr, nt
-        self.ixl, self.ixc, self.ixr = ixl, ixc, ixr
+        self.ixl, self.ixs, self.ixr = ixl, ixs, ixr
+        self.nl, self.ns, self.nr, self.nc = nl, ns, nr, nc
+        self.nt = nl + ns + nr
         self.params = params
     
     def model_matrices_augmented(self, params):
-        """
-        
-
-        Parameters
-        ----------
-        params : ndarray
-            ndarray of length m containing model parameters..
-
-        Returns
-        -------
-        L : ndarray
-            (p x q) array of loadings.
-        Phi : ndarray
-            (q x q) factor covariance matrix..
-        Psi : ndarray
-            (p x p) diagonal matrix of residual covariances.
-
-        """
         L = invec(params[self.ixl], self.n_vars, self.n_facs)
-        if self._rotation_method is not None:
-            Phi = invecl(params[self.ixc])
-        else:
-            Phi = np.eye(self.n_facs)
+        Phi = invecl(params[self.ixs])            
         Psi = np.diag(params[self.ixr])
         return L, Phi, Psi
     
@@ -377,10 +265,7 @@ class FactorAnalysis(object):
         DLambda = np.dot(self.LpNp, np.kron(L.dot(Phi), self.Ip))
         DPhi = self.Lp.dot(np.kron(L, L))[:, self.l_inds]
         DPsi = np.dot(self.Lp, np.diag(vec(np.eye(self.n_vars))))[:, self.d_inds]
-        if self._rotation_method is not None:
-            G = np.block([DLambda, DPhi, DPsi])
-        else:
-            G = np.block([DLambda, DPsi])
+        G= np.block([DLambda, DPhi, DPsi])
         return G
     
     def implied_cov_augmented(self, params):
@@ -448,8 +333,7 @@ class FactorAnalysis(object):
         gPsi = np.diag(VRV)
         g = np.zeros(self.nt)
         g[self.ixl] = gL
-        if self._rotation_method is not None:
-            g[self.ixc] = gPhi
+        g[self.ixs] = gPhi
         g[self.ixr] = gPsi
         return g
     
@@ -491,8 +375,8 @@ class FactorAnalysis(object):
                 H11 = np.kron(Phi, T)
                 H22 = np.kron(Ik, T.dot(L))[:, self.l_inds]
                 Hij[self.ixl, self.ixl[:, None]] = H11
-                Hij[self.ixl, self.ixc[:, None]] = H22.T
-                Hij[self.ixc, self.ixl[:, None]] = H22
+                Hij[self.ixl, self.ixs[:, None]] = H22.T
+                Hij[self.ixs, self.ixl[:, None]] = H22
                 E[i, j] = 0.0
                 Hpp.append(Hij[:, :, None])
                 Hij = Hij*0.0
@@ -647,34 +531,62 @@ class FactorAnalysis(object):
         self.opt = sp.optimize.minimize(self.loglike, self.theta, jac=self.gradient,
                                         hess=hess, method='trust-constr', **opt_kws)
         self.theta = self.opt.x
-        self.L, self.Psi = self.model_matrices(self.theta)
+        self.A, self.Psi = self.model_matrices(self.theta)
         
-        if self._rotation_method is not None:
-            self.L, self.T, _, _, _, vgq, gamma = rotate(self.L, self._rotation_method)
+        if self.rotation_method is not None:
+            self._rotate.A = self.A
+            self._rotate.fit()
+            self.T = self._rotate.T
+            self.L = self._rotate.rotate(self.T)
             self.theta[self.lix] = vec(self.L)
         else:
             self.T = np.eye(self.n_facs)
-            vgq, gamma = None, None
             
-        self.L, self.T, self.theta = self._reorder_factors(self.L, self.T, self.theta)
         self.Phi = np.dot(self.T, self.T.T)
         self._make_augmented_params(self.L, self.Phi, self.Psi)
-        self._vgq, self._gamma = vgq, gamma
         self.Sigma = self.implied_cov(self.theta)
         self.H = so_gc_cd(self.gradient_augmented, self.params)
-        if self._rotation_method is not None:
-            self.L_unrotated = self.L.dot(self.T)
-            self.J = oblique_constraint_derivs(self.params, self)
-            i, j = np.indices((self.n_facs, self.n_facs))
-            i, j = i.flatten(), j.flatten()
-            #self.J = self.J[j>=i]
-            self.J = self.J[i!=j]
+        if self.rotation_type == "oblique":
+            nl, ns, nr, nc = self.nl, self.ns, self.nr, self.nc
+            nt = nl + ns + nr
+            dCdL = self._rotate.dC_dL_Obl(self.L, self.Phi)
+            dCdP = self._rotate.dC_dP_Obl(self.L, self.Phi)
+            dCdL = dCdL.reshape(self.m * self.m, self.p * self.m, order='F')
+            dCdP = dCdP.reshape(self.m**2, self.m**2, order='F')
+            lix = vec(np.eye(self.m)!=1)
+            cix = vec(np.tril(np.ones(self.m), -1)!=0)
+            H = np.zeros((nt+nc, nt+nc))
+            H[:nt, :nt] = self.H
+            H[nt:, :nl] = dCdL[lix] 
+            H[:nl, nt:] = dCdL[lix].T
+            H[nt:, nl:nl+ns] = dCdP[lix][:, cix]
+            H[nl:nl+ns, nt:] = dCdP[lix][:, cix].T
+            ixp = np.arange(nt)
+            
+        elif self.rotation_type == "ortho":
+            dCdL = self._rotate.dC_dL_Ortho(self.L, self.Phi)
+            nl, nr, nc = self.nl, self.nr, self.nc
+            nt, nc = nl + nr, nc 
+            H = np.zeros((nt+nc, nt+nc))
+            ixp = np.r_[np.arange(self.nl),
+                       np.arange(self.nl+self.ns, self.nl+self.ns+self.nr)]
+            lix = vec(np.tril(np.ones((self.m, self.m)), -1)!=0)
+            H[:nt, :nt] = self.H[ixp, ixp[:, None]] 
+            H[-nc:, :nl] = dCdL[lix]
+            H[:nl, -nc:] = dCdL[lix].T 
         else:
-            self.L_unrotated = None
-            self.J = self.constraint_derivs(self.theta)
-        q = self.J.shape[0]
-        self.Hc = np.block([[self.H, self.J.T], [self.J, np.zeros((q, q))]])
-        self.se_params = np.sqrt(1.0 / np.diag(np.linalg.inv(self.Hc))[:-q]/self.n_obs)
+            dCdL = self.constraint_derivs(self.theta)
+            nt, nc = self.nl + self.nr, self.nc
+            H = np.zeros((nt+nc, nt+nc))
+            ixp = np.r_[np.arange(self.nl),
+                       np.arange(self.nl+self.ns, self.nl+self.ns+self.nr)]
+            H[:nt, :nt] = self.H[ixp, ixp[:, None]] 
+            H[nt:, :nl] = dCdL
+            H[:nl, nt:] = dCdL.T 
+            
+        self.ixp = ixp
+        self.H_aug = H
+        self.se_params = np.sqrt(1.0 / np.diag(np.linalg.inv(self.H_aug))[:nt]/self.n_obs)
         self.L_se = invec(self.se_params[self.lix], self.n_vars, self.n_facs)
         
     def fit(self, compute_factors=True, factor_method='regression', hess=True,
@@ -700,14 +612,14 @@ class FactorAnalysis(object):
         """
         self._fit(hess, opt_kws)
         self.sumstats = self._fit_indices(self.Sigma)
-        z = self.params / self.se_params
+        z = self.params[self.ixp] / self.se_params
         p = sp.stats.norm(0, 1).sf(np.abs(z)) * 2.0
         
         param_labels = []
         for j in range(self.n_facs):
             for i in range(self.n_vars):
                 param_labels.append(f"L[{i}][{j}]")
-        if self._rotation_method is not None:
+        if self.rotation_type == "oblique":
             for i in range(self.n_facs):
                 for j in range(i):
                     param_labels.append(f"Phi[{i}][{j}]")
@@ -715,7 +627,7 @@ class FactorAnalysis(object):
             param_labels.append(f"Psi[{i}]")
         res_cols = ["param", "SE", "z", "p"]
         fcols = [f"Factor{i}" for i in range(self.n_facs)]
-        self.res = pd.DataFrame(np.vstack((self.params, self.se_params, z, p)).T,
+        self.res = pd.DataFrame(np.vstack((self.params[self.ixp], self.se_params, z, p)).T,
                                 columns=res_cols, index=param_labels)
         self.L = pd.DataFrame(self.L, index=self.cols, columns=fcols)
         
@@ -754,5 +666,3 @@ class FactorAnalysis(object):
 
 
                 
-            
-            
