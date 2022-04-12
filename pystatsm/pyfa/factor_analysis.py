@@ -613,6 +613,25 @@ class FactorAnalysis(object):
         self.H_aug = H
         self.se_params = np.sqrt(np.diag(np.linalg.inv(self.H_aug))[:nt]/self.n_obs * 2.0) 
         self.L_se = invec(self.se_params[self.lix], self.n_vars, self.n_facs)
+    
+    def constraint_jac(self, params):
+        if self.rotation_type == "oblique":
+            dCdL = self._rotate.dC_dL_Obl(self.L, self.Phi)
+            dCdP = self._rotate.dC_dP_Obl(self.L, self.Phi)
+            dCdL = dCdL.reshape(self.m * self.m, self.p * self.m, order='F')
+            dCdP = dCdP.reshape(self.m**2, self.m**2, order='F')
+            lix = vec(np.eye(self.m)!=1)
+            cix = vec(np.tril(np.ones(self.m), -1)!=0)
+            dC = np.concatenate([dCdL[lix], dCdP[lix][:, cix]], axis=1)
+        elif self.rotation_type == "ortho":
+            dCdL = self._rotate.dC_dL_Ortho(self.L, self.Phi)
+            lix = vec(np.tril(np.ones((self.m, self.m)), -1)!=0)
+            dC = dCdL[lix]
+        else:
+            dCdL = self.constraint_derivs(self.theta)
+            lix = vec(np.tril(np.ones((self.m, self.m)), -1)!=0)
+            dC = dCdL[lix]
+        return dC
         
     def fit(self, compute_factors=True, factor_method='regression', hess=True,
             opt_kws=None):
