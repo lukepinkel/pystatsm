@@ -175,7 +175,26 @@ def grad_approx(f, x, eps=1e-4, tol=None, d=1e-4, nr=6, v=2):
     return A
 
 
-def jac_approx(f, x, eps=1e-4, tol=None, d=1e-4, nr=6, v=2):
+
+
+def jac_approx(F, X, eps=1e-4, tol=None, d=1e-4, args=()):
+    def Func(X, args=()):
+        return np.atleast_1d(F(X, *args))
+    X = np.asarray(X)
+    Y = np.asarray(Func(X, *args))
+    tol = np.finfo(float).eps**(1/3) if tol is None else tol
+    H = np.zeros_like(X)
+    J = np.zeros(Y.shape+X.shape)
+    for ii in np.ndindex(Y.shape):
+        for jj in np.ndindex(X.shape):
+            H[jj] = np.abs(d * X[jj]) + eps * (np.abs(X[jj]) < tol)
+            FpH = Func(X+H, *args)[ii]
+            FmH = Func(X-H, *args)[ii]
+            J[ii+jj] = (FpH - FmH) / (2.0 * H[jj])
+            H[jj] = 0.0
+    return J
+
+def jac_approx2(f, x, eps=1e-4, tol=None, d=1e-4, nr=6, v=2):
     tol = np.finfo(float).eps**(1/3) if tol is None else tol
     h = np.abs(d * x) + eps * (np.abs(x) < tol)
     n = len(x)
