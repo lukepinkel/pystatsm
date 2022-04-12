@@ -31,6 +31,7 @@ class FactorAnalysis(object):
         self.Ik = np.eye(self.n_facs)
         self.Nk = nmat(self.n_facs).A
         self.Lk = lmat(self.n_facs).A
+        self.Dk = dmat(self.n_facs).A
         self.Ip = np.eye(self.n_vars)
         self.Dp = dmat(self.n_vars).A
         self.Lp = lmat(self.n_vars).A
@@ -263,10 +264,33 @@ class FactorAnalysis(object):
         """
         L, Phi, Psi = self.model_matrices_augmented(params)
         DLambda = np.dot(self.LpNp, np.kron(L.dot(Phi), self.Ip))
-        DPhi = self.Lp.dot(np.kron(L, L))[:, self.l_inds]
+        ix = vech(np.eye(L.shape[1]))!=1
+        DPhi = self.Lp.dot(np.kron(L, L)).dot(self.Dk)[:, ix]
         DPsi = np.dot(self.Lp, np.diag(vec(np.eye(self.n_vars))))[:, self.d_inds]
         G= np.block([DLambda, DPhi, DPsi])
         return G
+    
+    def d2sigma_augmented(self, params):
+        L, Phi, Psi = self.model_matrices_augmented(params)
+        Hpp = []
+        Ik, E = self.Ik, self.E
+        ix = vech(np.eye(L.shape[1]))!=1
+        Hij = np.zeros((self.nt, self.nt))
+        for i in range(self.n_vars):
+            for j in range(i, self.n_vars):
+                E[i, j] = 1.0
+                T = E + E.T
+                H11 = np.kron(Phi, T)
+                H22 = np.kron(Ik, T.dot(L)).dot(self.Dk)[:, ix]
+                Hij[self.ixl, self.ixl[:, None]] = H11
+                Hij[self.ixl, self.ixs[:, None]] = H22.T
+                Hij[self.ixs, self.ixl[:, None]] = H22
+                E[i, j] = 0.0
+                Hpp.append(Hij[None])
+                Hij = Hij*0.0
+        D2Sigma = np.concatenate(Hpp,axis=0)
+        return D2Sigma
+            
     
     def implied_cov_augmented(self, params):
         """
