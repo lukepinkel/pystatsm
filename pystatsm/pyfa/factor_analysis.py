@@ -388,7 +388,7 @@ class FactorAnalysis(object):
         W2 = np.kron(Sigma_inv, Sigma_inv.dot(Sdiff).dot(Sigma_inv))
         H1 = 0.5 * DGp.T.dot(W1).dot(DGp)
         H2 = 1.0 * DGp.T.dot(W2).dot(DGp)
-
+        ix = vech(np.eye(L.shape[1]))!=1
         Hpp = []
         Dp, Ik, E = self.Dp, self.Ik, self.E
         Hij = np.zeros((self.nt, self.nt))
@@ -397,7 +397,7 @@ class FactorAnalysis(object):
                 E[i, j] = 1.0
                 T = E + E.T
                 H11 = np.kron(Phi, T)
-                H22 = np.kron(Ik, T.dot(L))[:, self.l_inds]
+                H22 = np.kron(Ik, T.dot(L)).dot(self.Dk)[:, ix]
                 Hij[self.ixl, self.ixl[:, None]] = H11
                 Hij[self.ixl, self.ixs[:, None]] = H22.T
                 Hij[self.ixs, self.ixl[:, None]] = H22
