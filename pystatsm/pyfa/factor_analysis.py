@@ -611,7 +611,7 @@ class FactorAnalysis(object):
             
         self.ixp = ixp
         self.H_aug = H
-        self.se_params = np.sqrt(np.diag(np.linalg.inv(self.H_aug))[:nt]/self.n_obs)
+        self.se_params = np.sqrt(np.diag(np.linalg.inv(self.H_aug))[:nt]/self.n_obs * 2.0) 
         self.L_se = invec(self.se_params[self.lix], self.n_vars, self.n_facs)
         
     def fit(self, compute_factors=True, factor_method='regression', hess=True,
