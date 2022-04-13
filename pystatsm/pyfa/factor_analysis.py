@@ -567,7 +567,7 @@ class FactorAnalysis(object):
             
         self.Phi = np.dot(self.T.T, self.T)
         self._make_augmented_params(self.L, self.Phi, self.Psi)
-        self.Sigma = self.implied_cov(self.theta)
+        self.Sigma = self.implied_cov_augmented(self.params)
         self.H = so_gc_cd(self.gradient_augmented, self.params)
         if self.rotation_type == "oblique":
             nl, ns, nr, nc = self.nl, self.ns, self.nr, self.nc
