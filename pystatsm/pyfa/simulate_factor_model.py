@@ -8,8 +8,9 @@ Created on Sat Apr  9 22:04:01 2022
 
 import numpy as np
 import scipy as sp
+import scipy.linalg
 import pandas as pd
-from ..utilities.random import r_lkj
+from ..utilities.random import r_lkj, exact_rmvnorm
 
 class FactorModelSim(object):
     
@@ -69,8 +70,16 @@ class FactorModelSim(object):
         self.L = self._generate_loadings(**loadings_kws)
         self.Phi = self._generate_factor_corr(**factor_corr_kws)
         self.Psi = self._generate_residual_cov(**residual_cov_kws)
-        
+        self.C = sp.linalg.block_diag(self.Phi, self.Psi)
+
         self.Sigma = self.L.dot(self.Phi).dot(self.L.T) + self.Psi
+        
+    def simulate_data(self):
+        Z = exact_rmvnorm(self.C)
+        X = Z[:, :self.n_facs].dot(self.L.T) + Z[:, self.n_facs:]
+        return Z, X
+
+        
     
     
         

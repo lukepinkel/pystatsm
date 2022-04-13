@@ -10,6 +10,8 @@ import numpy as np
 import scipy as sp
 import scipy.stats
 import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
 from ..utilities.linalg_operations import vec, invec, vech, vecl, invecl, vecl_inds
 from ..utilities.special_mats import nmat, dmat, lmat
 from ..utilities.data_utils import _check_type, cov, eighs, flip_signs
@@ -679,7 +681,15 @@ class FactorAnalysis(object):
             factor_coefs, factors = self.compute_factors(factor_method)
             self.factor_coefs = pd.DataFrame(factor_coefs, index=self.cols, columns=fcols)
             self.factors = pd.DataFrame(factors, index=self.inds, columns=fcols)
-            
+    
+    def plot_loadings(self, plot_kws=None):
+        default_plot_kws = dict(vmin=-1, vmax=1, center=0,
+                                cmap=plt.cm.bwr)
+        plot_kws = {} if plot_kws is None else plot_kws
+        plot_kws = {**default_plot_kws, **plot_kws}
+        ax = sns.heatmap(self.L, **plot_kws)
+        return ax
+        
     def compute_factors(self, method="regression"):
         """
         
