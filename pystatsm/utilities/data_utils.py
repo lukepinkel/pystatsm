@@ -66,6 +66,10 @@ def corr(X):
     S = np.dot(X.T, X) / n
     return S
 
+def ssq(arr):
+    s = np.einsum("ij,ij->j", arr, arr, optimize=True)
+    return s
+
 def scale_diag(A, s):
     if s.ndim==1:
         s = s.reshape(-1, 1)
