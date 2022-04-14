@@ -489,15 +489,15 @@ class FactorAnalysis(object):
         if type(L) is pd.DataFrame:
             cols = L.columns
             L = L.iloc[:, order]
-            j = np.argmax(np.abs(L), axis=0)
-            s = np.sign(L[j, np.arange(L.shape[1])])
+            j = np.argmax(np.abs(L), axis=0)#np.sum(L, axis=0)
+            s = np.sign(L[j, np.arange(L.shape[1])])#np.sign(j)
             L = s * L
             L.columns = cols
             theta[self.lix] = vec(L.values)
         else:
             L = L[:, order]
-            j = np.argmax(np.abs(L), axis=0)
-            s = np.sign(L[j, np.arange(L.shape[1])])
+            j = np.argmax(np.abs(L), axis=0)#np.sum(L, axis=0)
+            s = np.sign(L[j, np.arange(L.shape[1])])#np.sign(j)
             L = s * L
             theta[self.lix] = vec(L)
         T = T[:, order] * s[:, None]
@@ -554,7 +554,7 @@ class FactorAnalysis(object):
         opt_kws = {} if opt_kws is None else opt_kws
         self.opt = sp.optimize.minimize(self.loglike, self.theta, jac=self.gradient,
                                         hess=hess, method='trust-constr', **opt_kws)
-        self.theta = self.opt.x
+        self.theta = self.opt.x.copy()
         self.A, self.Psi = self.model_matrices(self.theta)
         
         if self.rotation_method is not None:
@@ -566,7 +566,7 @@ class FactorAnalysis(object):
         else:
             self.L = self.A
             self.T = np.eye(self.n_facs)
-            
+        #self.L, self.T, self.theta = self._reorder_factors(self.L, self.T, self.theta)
         self.Phi = np.dot(self.T.T, self.T)
         self._make_augmented_params(self.L, self.Phi, self.Psi)
         self.Sigma = self.implied_cov_augmented(self.params)

@@ -74,8 +74,12 @@ class FactorModelSim(object):
 
         self.Sigma = self.L.dot(self.Phi).dot(self.L.T) + self.Psi
         
-    def simulate_data(self):
-        Z = exact_rmvnorm(self.C)
+    def simulate_data(self, n_obs=1000, exact=True):
+        if exact:
+            Z = exact_rmvnorm(n=n_obs, S=self.C)
+        else:
+            Z = self.rng.multivariate_normal(mean=np.zeros(self.n_vars+self.n_facs),
+                                             cov=self.C, size=n_obs)
         X = Z[:, :self.n_facs].dot(self.L.T) + Z[:, self.n_facs:]
         return Z, X
 
