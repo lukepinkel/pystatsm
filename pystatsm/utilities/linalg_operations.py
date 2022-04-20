@@ -254,7 +254,62 @@ def _inv_vander(a):
     return B
 
 
+def _vec(x):
+    old_shape = x.shape
+    new_shape = old_shape[:-2] + (np.prod(old_shape[-2:]),)
+    y = x.reshape(new_shape, order='F')
+    return y
 
+def _invec(x, n, m):
+    old_shape = x.shape
+    new_shape = old_shape[:-1] + (n, m)
+    y = x.reshape(new_shape, order='F')
+    return y
+
+def _vech(x):
+    m = x.shape[-1]
+    ix, jx = np.triu_indices(m, k=0)
+    res = x[...,jx, ix]
+    return res
+
+def _invech(x):
+    old_shape = x.shape
+    n = x.shape[-1]
+    m = int((np.sqrt(8 * n + 1) - 1) // 2)
+    out_shape = old_shape[:-1] + (m, m)
+    res = np.zeros(out_shape, dtype=x.dtype)
+    ix, jx = np.triu_indices(m, k=0)
+    is_diag = ix == jx
+    diag_elements = x[..., is_diag]
+    off_diag_elem = x[...,~is_diag]
+    ixo, jxo = ix[~is_diag], jx[~is_diag]
+    ixd, jxd = ix[is_diag],  jx[is_diag]
+    res[..., jxo, ixo] = off_diag_elem
+    res[..., ixo, jxo] = off_diag_elem
+    res[..., ixd, jxd] = diag_elements
+    return res
+
+def _vecl(x):
+    m = x.shape[-1]
+    ix, jx = np.triu_indices(m, k=1)
+    res = x[...,jx, ix]
+    return res
+
+def _invecl(x):
+    old_shape = x.shape
+    n = x.shape[-1]
+    m = int((np.sqrt(8 * n + 1) + 1) // 2)
+    out_shape = old_shape[:-1] + (m, m)
+    res = np.zeros(out_shape, dtype=x.dtype)
+    ix, jx = np.triu_indices(m, k=1)
+    is_diag = ix == jx
+    off_diag_elem = x[...,~is_diag]
+    ixo, jxo = ix[~is_diag], jx[~is_diag]
+    ixd = jxd = np.arange(m)
+    res[..., jxo, ixo] = off_diag_elem
+    res[..., ixo, jxo] = off_diag_elem
+    res[..., ixd, jxd] = 1
+    return res
 
 
 

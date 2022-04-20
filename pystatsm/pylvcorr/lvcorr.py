@@ -103,6 +103,7 @@ class Polychoric:
         self.a1, self.a2 = a[ixi1], a[ixi2]
         self.b1, self.b2 = b[ixj1], b[ixj2]
         self.x, self.p, self.y, self.q = x, p, y, q
+        self.rho_init = np.atleast_1d(np.corrcoef(self.x, self.y)[0, 1])
     
     def prob(self, r):
         """
@@ -211,13 +212,15 @@ class Polychoric:
         H = u * gfn - v * phi**2
         return -np.sum(H)
     
-    def fit(self, verbose=0, xtol=1e-12, gtol=1e-12):
+    def fit(self, opt_kws=None):
+        default_opt_kws = dict(method='trust-constr')
+        opt_kws = {} if opt_kws is None else opt_kws
+        opt_kws = {**default_opt_kws, **opt_kws}
         bounds =[(-1.0+1e-16, 1.0-1e-16)]
-        x0 = np.atleast_1d(np.corrcoef(self.x, self.y)[0, 1])
+        x0 = self.rho_init
         opt = sp.optimize.minimize(self.loglike, x0, jac=self.gradient,
                                    hess=self.hessian, bounds = bounds,
-                                   options=dict(verbose=verbose),
-                                   method='trust-constr')
+                                   **opt_kws)
         self.optimizer = opt
         self.rho_hat = opt.x[0]
         self.observed_information = self.hessian(self.rho_hat)
