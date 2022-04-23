@@ -393,6 +393,23 @@ class LHV(object):
             dy_dx[ii, ii[:, None]] = v1 - v2
         return dy_dx
     
+    def _hess_fwd(self, x):
+        d2y_dx2 = np.zeros((x.shape[0],)*3)
+        for ii in self.row_norm_inds:
+            x_ii = x[ii]
+            s = np.sqrt(1.0 + np.sum(x_ii**2))
+            s3 = s**3
+            s5 = s**5
+            for i in ii:
+                for j in ii:
+                    for k in ii:
+                        t1 = -1.0*(j==k) / s3 * x[i]
+                        t2 = -1.0*(j==i) / s3 * x[k]
+                        t3 = -1.0*(k==i) / s3 * x[j]
+                        t4 = 3.0 / (s5) * x[j] * x[k] * x[i]
+                        d2y_dx2[i, j, k] = t1+t2+t3+t4
+        return d2y_dx2
+                        
     def _jac_rvs(self, y):
         dx_dy = np.zeros((y.shape[0],)*2)
         for ii in self.row_norm_inds:
@@ -402,6 +419,23 @@ class LHV(object):
             v2 = 1.0 / (s**3) * yii[:, None] * yii[:,None].T
             dx_dy[ii, ii[:, None]] = v1 + v2
         return dx_dy
+    
+    def _hess_rvs(self, y):
+        d2x_dy2 = np.zeros((y.shape[0],)*3)
+        for ii in self.row_norm_inds:
+            y_ii = y[ii]
+            s = np.sqrt(1.0 - np.sum(y_ii**2))
+            s3 = s**3
+            s5 = s**5
+            for i in ii:
+                for j in ii:
+                    for k in ii:
+                        t1 = 1.0*(j==k) / s3 * y[i]
+                        t2 = 1.0*(j==i) / s3 * y[k]
+                        t3 = 1.0*(k==i) / s3 * y[j]
+                        t4 = 3.0 / s5 * y[i] * y[j] * y[k]
+                        d2x_dy2[i, j, k] = t1 + t2 + t3 + t4
+        return d2x_dy2
     
 
 
