@@ -312,7 +312,97 @@ def _invecl(x):
     return res
 
 
+def lhv_size_to_mat_size(lhv_size):
+    mat_size = int((np.sqrt(8 * lhv_size + 1) + 1) // 2)
+    return mat_size
 
+def mat_size_to_lhv_size(mat_size):
+    lhv_size = int(mat_size * (mat_size - 1) // 2)
+    return lhv_size
+
+def lower_half_vec(x):
+    mat_size = x.shape[-1]
+    i, j = np.triu_indices(mat_size, k=1)
+    y = x[...,j, i]
+    return y
+
+def inv_lower_half_vec(y):
+    old_shape = y.shape
+    lhv_size = y.shape[-1]
+    mat_size = lhv_size_to_mat_size(lhv_size)
+    out_shape = old_shape[:-1] + (mat_size, mat_size)
+    x = np.zeros(out_shape, dtype=y.dtype)
+    i, j = np.triu_indices(mat_size, k=1)
+    x[..., j, i] = y
+    return x
+
+def lhv_indices(shape):
+    arr_inds = np.indices(shape)
+    lhv_inds = [lower_half_vec(x) for x in arr_inds]
+    return lhv_inds
+
+def lhv_ind_parts(mat_size):
+    i = np.cumsum(np.arange(mat_size))
+    return list(zip(*(i[:-1], i[1:])))
+
+def lhv_row_norms(y):
+    lhv_size = y.shape[-1]
+    mat_size = lhv_size_to_mat_size(lhv_size)
+    r, c = lhv_indices((mat_size, mat_size))
+    rj = np.argsort(r)
+    ind_partitions = lhv_ind_parts(mat_size)
+    row_norms = np.zeros(mat_size)
+    row_norms[0] = 1.0
+    for i, (a, b) in enumerate(ind_partitions):
+        ii = rj[a:b]
+        row_norms[i+1] = np.sqrt(np.sum(y[ii]**2)+1)
+    return row_norms
+
+
+class LHV(object):
+    
+    def __init__(self, mat_size):
+        self.mat_size = mat_size
+        self.lhv_size = mat_size_to_lhv_size(mat_size)
+        self.row_inds, self.col_inds = lhv_indices((mat_size, mat_size))
+        self.row_sort = np.argsort(self.row_inds)
+        self.ind_parts = lhv_ind_parts(mat_size)
+        self.row_norm_inds = [self.row_sort[a:b] for a, b in self.ind_parts]
+    
+    def _fwd(self, x):
+        row_norms = np.zeros_like(x)
+        for ii in self.row_norm_inds:
+            row_norms[ii] = np.sqrt(np.sum(x[ii]**2)+1)
+        y = x / row_norms
+        return y
+    
+    def _rvs(self, y):
+        diag = np.zeros_like(y)
+        for ii in self.row_norm_inds:
+            diag[ii] = np.sqrt(1-np.sum(y[ii]**2))
+        x = y / diag
+        return x
+    
+    def _jac_fwd(self, x):
+        dy_dx = np.zeros((x.shape[0],)*2)
+        for ii in self.row_norm_inds:
+            xii = x[ii]
+            s = np.sqrt(np.sum(xii**2)+1)
+            v1 = 1.0 / s * np.eye(len(ii))
+            v2 = 1.0 / (s**3) * xii[:, None] * xii[:,None].T
+            dy_dx[ii, ii[:, None]] = v1 - v2
+        return dy_dx
+    
+    def _jac_rvs(self, y):
+        dx_dy = np.zeros((y.shape[0],)*2)
+        for ii in self.row_norm_inds:
+            yii = y[ii]
+            s = np.sqrt(1.0 - np.sum(yii**2))
+            v1 = 1.0 / s * np.eye(len(ii))
+            v2 = 1.0 / (s**3) * yii[:, None] * yii[:,None].T
+            dx_dy[ii, ii[:, None]] = v1 + v2
+        return dx_dy
+    
 
 
   
