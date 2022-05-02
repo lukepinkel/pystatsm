@@ -196,7 +196,40 @@ class UnconstrainedCholeskyCorr(object):
                         t4 = 3.0 / s5 * y[i] * y[j] * y[k]
                         d2x_dy2[i, j, k] = t1 + t2 + t3 + t4
         return d2x_dy2
+ 
     
+class LogScale(object):
+    
+    def __init__(self, mat_size):
+        self.mat_size = mat_size
+        self.hv_size = mat_size_to_hv_size(mat_size)
+        self.row_inds, self.col_inds = hv_indices((mat_size, mat_size))
+        self.diag_inds, = np.where(self.row_inds==self.col_inds)
+        self.tril_inds, = np.where(self.row_inds!=self.col_inds)
+    
+    def _fwd(self, x):
+        ix = self.diag_inds
+        y = x.copy()
+        y[ix] = np.log(x[ix])
+        return y
+    
+    def _rvs(self, y):
+        ix = self.diag_inds
+        x = y.copy()
+        x[ix] = np.exp(y[ix])
+        return x
+        
+    def _jac_fwd(self, x):
+        ix = self.diag_inds
+        dy_dx = np.eye(x.shape[-1])
+        dy_dx[ix, ix] = 1 / x[ix]
+        return dy_dx
+    
+    def _jac_rvs(self, y):
+        ix = self.diag_inds
+        dx_dy = np.eye(y.shape[-1])
+        dx_dy[ix, ix] = np.exp(y[ix])
+        return dx_dy
 
 class CovCorr(object):
     
@@ -307,17 +340,20 @@ class CholeskyCov(object):
         self.cholcorr_to_unconstrained = UnconstrainedCholeskyCorr(mat_size)
         self.corr_to_cholcorr = CholeskyCorr(mat_size)
         self.cov_to_corr = CovCorr(mat_size)
+        self.scale_to_logscale = LogScale(mat_size)
         
     def _fwd(self, x):
         ix = self.cov_to_corr.tril_inds
         y = self.cov_to_corr._fwd(x)
         y[ix] = self.corr_to_cholcorr._fwd(y[ix])
         y[ix] = self.cholcorr_to_unconstrained._fwd(y[ix])
+        y = self.scale_to_logscale._fwd(y)
         return y
         
     def _rvs(self, y):
         y = y.copy()
         ix = self.cov_to_corr.tril_inds
+        y = self.scale_to_logscale._rvs(y)
         y[ix] = self.cholcorr_to_unconstrained._rvs(y[ix])
         y[ix] = self.corr_to_cholcorr._rvs(y[ix])
         x = self.cov_to_corr._rvs(y)
@@ -334,10 +370,14 @@ class CholeskyCov(object):
         Jwy = Jwz.dot(Jzy)
         Jwx = Jyx.copy()
         Jwx[ix] = Jwy.dot(Jwx[ix])
-        return Jwx
+        Juw = self.scale_to_logscale._jac_fwd(x)
+        Jux = Juw.dot(Jwx)
+        return Jux
     
     def _jac_rvs(self, y):
         ix = self.cov_to_corr.tril_inds
+        y0 = y.copy()
+        y = self.scale_to_logscale._rvs(y)
         w, z, y = y.copy(), y.copy(), y.copy()
         z[ix] = self.cholcorr_to_unconstrained._rvs(w[ix].copy())
         y[ix] = self.corr_to_cholcorr._rvs(z[ix].copy())
@@ -346,11 +386,16 @@ class CholeskyCov(object):
         Jxy = self.cov_to_corr._jac_rvs(y.copy())
         Jyz = self.corr_to_cholcorr._jac_rvs(z[ix].copy())
         Jzw = self.cholcorr_to_unconstrained._jac_rvs(w[ix].copy())
-        
+        Jwu = self.scale_to_logscale._jac_rvs(y0.copy())
         Jyw = Jyz.dot(Jzw)
         Jxw = Jxy.copy()
         Jxw[:, ix] = Jxy[:, ix].dot(Jyw)
-        return Jxw
+        Jxu = Jxw.dot(Jwu)
+        return Jxu
+        
+    
+        
+        
         
     
     
@@ -473,5 +518,36 @@ class CholeskyCov(object):
 
 # assert(np.allclose(t._rvs( t._fwd(x)), x))
 # assert(np.allclose(t._fwd( t._rvs(y)), y))
+
+
+
+# mat_size = 6
+# lhv_size = mat_size_to_lhv_size(mat_size)
+# c = CovCorr(mat_size)
+
+# x = np.linspace(1.0, 2.0, lhv_size)
+
+# b = UnconstrainedCholeskyCorr(mat_size)
+# y = b._fwd(x)
+# L = inv_lower_half_vec(x) + np.eye(mat_size)
+# L = L / np.linalg.norm(L, axis=-1)[:, None]
+# R = L.dot(L.T)
+# S = np.sqrt(np.diag(np.arange(2, 2+mat_size)))
+# V = S.dot(R).dot(S) 
+# x = _vech(V)
+
+# t = CholeskyCov(mat_size)
+# y = t._fwd(x)
+
+# assert(np.allclose(t._rvs( t._fwd(x)), x))
+# assert(np.allclose(t._fwd( t._rvs(y)), y))
+
+# Jf1 = jac_approx(t._fwd, x)
+# Jr1 = jac_approx(t._rvs, y)
+# Jf2 = t._jac_fwd(x)
+# Jr2 = t._jac_rvs(y)
+
+# assert(np.allclose(Jf1, Jf2, atol=1e-4))
+# assert(np.allclose(Jr1, Jr2, atol=1e-4))
 
 
