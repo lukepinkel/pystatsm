@@ -323,6 +323,20 @@ class CholeskyCov(object):
         x = self.cov_to_corr._rvs(y)
         return x
     
+    def _jac_fwd(self, x):
+        ix = self.cov_to_corr.tril_inds
+        y = self.cov_to_corr._fwd(x)
+        z = self.corr_to_cholcorr._fwd(y[ix].copy())
+        
+        Jwz = self.cholcorr_to_unconstrained._jac_fwd(z)
+        Jzy = self.corr_to_cholcorr._jac_fwd(y[ix].copy())
+        Jyx = self.cov_to_corr._jac_fwd(x)
+        Jwy = Jwz.dot(Jzy)
+        Jwx = Jyx.copy()
+        Jwx[ix] = Jwy.dot(Jwx[ix])
+        return Jwx
+    
+    
     
         
 
