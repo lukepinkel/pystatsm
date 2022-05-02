@@ -8,7 +8,7 @@ Created on Tue Apr 26 13:04:05 2022
 
 
 import numpy as np
-from .utilities.special_mats import lmat, nmat, dmat, kmat
+from .special_mats import lmat, nmat, dmat, kmat
 
 
 
