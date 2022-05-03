@@ -196,40 +196,7 @@ class UnconstrainedCholeskyCorr(object):
                         t4 = 3.0 / s5 * y[i] * y[j] * y[k]
                         d2x_dy2[i, j, k] = t1 + t2 + t3 + t4
         return d2x_dy2
- 
     
-class LogScale(object):
-    
-    def __init__(self, mat_size):
-        self.mat_size = mat_size
-        self.hv_size = mat_size_to_hv_size(mat_size)
-        self.row_inds, self.col_inds = hv_indices((mat_size, mat_size))
-        self.diag_inds, = np.where(self.row_inds==self.col_inds)
-        self.tril_inds, = np.where(self.row_inds!=self.col_inds)
-    
-    def _fwd(self, x):
-        ix = self.diag_inds
-        y = x.copy()
-        y[ix] = np.log(x[ix])
-        return y
-    
-    def _rvs(self, y):
-        ix = self.diag_inds
-        x = y.copy()
-        x[ix] = np.exp(y[ix])
-        return x
-        
-    def _jac_fwd(self, x):
-        ix = self.diag_inds
-        dy_dx = np.eye(x.shape[-1])
-        dy_dx[ix, ix] = 1 / x[ix]
-        return dy_dx
-    
-    def _jac_rvs(self, y):
-        ix = self.diag_inds
-        dx_dy = np.eye(y.shape[-1])
-        dx_dy[ix, ix] = np.exp(y[ix])
-        return dx_dy
 
 class CovCorr(object):
     
@@ -287,8 +254,91 @@ class CovCorr(object):
         dx_dy[self.dc_perm, self.dr_perm] = t
         return dx_dy
     
+    def _hess_fwd(self, x):
+        rix, cix = self.row_diag_inds, self.col_diag_inds
+        d2y_dx2 = np.zeros((self.hv_size,)*3)
+        for i in range(self.hv_size):
+            j, k = rix[i], cix[i]
+            if j!=k:
+                xi, xj, xk = x[i], x[j], x[k] #w, y, z = x[i], x[j], x[k]
+                sjk =  np.sqrt(xj * xk)       #syz = np.sqrt(y * z)
+                d2yi_dxidxj = -xk / (2.0 * sjk**3) #d2y_dwdy = -z / (2.0 * syz**3)
+                d2yi_dxidxk = -xj / (2.0 * sjk**3) #d2y_dwdz = -y / (2.0 * syz**3)
+                d2yi_dxjdxj = (3.0 * xi * xk**2)   / (4.0 * sjk**5)  #d2y_dydy = (3.0 * w * z**2)  / (4.0 * syz**5)
+                d2yi_dxjdxk = (3.0 * xi * xj * xk) / (4.0 * sjk**5) - xi / (2.0 * sjk**3) #d2y_dydz = (3.0 * w * y * z) / (4.0 * syz**5) - (w) / (2.0 * syz**3)
+                d2yi_dxkdxk = (3.0 * xi * xj**2)   / (4.0 * sjk**5) #d2y_dzdz = (3.0 * w * y**2)  / (4.0 * syz**5)
+                
+                d2y_dx2[i, i, j] = d2y_dx2[i, j, i] = d2yi_dxidxj
+                d2y_dx2[i, i, k] = d2y_dx2[i, k, i] = d2yi_dxidxk
+                d2y_dx2[i, j, j] = d2yi_dxjdxj
+                d2y_dx2[i, j, k] = d2y_dx2[i, k, j] = d2yi_dxjdxk
+                d2y_dx2[i, k, k] = d2yi_dxkdxk
+        return d2y_dx2
     
-class CholeskyCorr(object):
+    def _hess_rvs(self, y):
+        rix, cix = self.row_diag_inds, self.col_diag_inds
+        d2x_dy2 = np.zeros((self.hv_size,)*3)
+        for i in range(self.hv_size):
+            j, k = rix[i], cix[i]
+            if j!=k:
+               yi, yj, yk = y[i], y[j], y[k]  
+               d2xi_dyidyj = np.sqrt(yk) / (2.0 * np.sqrt(yj))
+               d2xi_dyidyk = np.sqrt(yj) / (2.0 * np.sqrt(yk))
+               d2xi_dyjdyj = (-yi * np.sqrt(yk)) / (4.0 * np.sqrt(yj)**3)
+               d2xi_dyjdyk = yi / (4.0 * np.sqrt(yj * yk))
+               d2xi_dykdyk = (-yi * np.sqrt(yj)) / (4.0 * np.sqrt(yk)**3)
+               
+               d2x_dy2[i, i, j] = d2x_dy2[i, j, i] = d2xi_dyidyj
+               d2x_dy2[i, i, k] = d2x_dy2[i, k, i] = d2xi_dyidyk
+               d2x_dy2[i, j, j] = d2xi_dyjdyj
+               d2x_dy2[i, j, k] = d2x_dy2[i, k, j] = d2xi_dyjdyk
+               d2x_dy2[i, k, k] = d2xi_dykdyk
+        return d2x_dy2
+        
+               
+               
+               
+                
+                
+                
+    
+    
+class LogScale(object):
+    
+    def __init__(self, mat_size):
+        self.mat_size = mat_size
+        self.hv_size = mat_size_to_hv_size(mat_size)
+        self.row_inds, self.col_inds = hv_indices((mat_size, mat_size))
+        self.diag_inds, = np.where(self.row_inds==self.col_inds)
+        self.tril_inds, = np.where(self.row_inds!=self.col_inds)
+    
+    def _fwd(self, x):
+        ix = self.diag_inds
+        y = x.copy()
+        y[ix] = np.log(x[ix])
+        return y
+    
+    def _rvs(self, y):
+        ix = self.diag_inds
+        x = y.copy()
+        x[ix] = np.exp(y[ix])
+        return x
+        
+    def _jac_fwd(self, x):
+        ix = self.diag_inds
+        dy_dx = np.eye(x.shape[-1])
+        dy_dx[ix, ix] = 1 / x[ix]
+        return dy_dx
+    
+    def _jac_rvs(self, y):
+        ix = self.diag_inds
+        dx_dy = np.eye(y.shape[-1])
+        dx_dy[ix, ix] = np.exp(y[ix])
+        return dx_dy
+    
+    
+    
+class CorrCholesky(object):
     
     def __init__(self, mat_size):
         self.n = self.mat_size = mat_size
@@ -332,13 +382,59 @@ class CholeskyCorr(object):
         dx_dy = np.linalg.inv(self._jac_fwd(x))
         return dx_dy
         
+
+class OffDiagMask(object):
+    
+    def __init__(self, transform):
+        self.mat_size = transform.mat_size
+        self.hv_size = mat_size_to_hv_size(self.mat_size)
+        self.row_inds, self.col_inds = hv_indices((self.mat_size, self.mat_size))
+        self.diag_inds, = np.where(self.row_inds==self.col_inds)
+        self.tril_inds, = np.where(self.row_inds!=self.col_inds)
+        self.transform = transform
         
+    def _fwd(self, x):
+        y = x.copy()
+        y[self.tril_inds] = self.transform._fwd(y[self.tril_inds])
+        return y
+    
+    def _rvs(self, y):
+        x = y.copy()
+        x[self.tril_inds] = self.transform._rvs(x[self.tril_inds])
+        return x
+    
+    def _jac_fwd(self, x):
+        dy_dx = np.zeros((self.hv_size, self.hv_size))
+        ii, ij = self.diag_inds, self.tril_inds
+        dy_dx[np.ix_(ij, ij)] = self.transform._jac_fwd(x[ij].copy())
+        dy_dx[np.ix_(ii, ii)] = np.eye(len(ii))
+        return dy_dx
+    
+    def _jac_rvs(self, y):
+        dx_dy = np.zeros((self.hv_size, self.hv_size))
+        ii, ij = self.diag_inds, self.tril_inds
+        dx_dy[np.ix_(ij, ij)] = self.transform._jac_rvs(y[ij].copy())
+        dx_dy[np.ix_(ii, ii)] = np.eye(len(ii))
+        return dx_dy
+    
+    def _hess_fwd(self, x):
+        d2y_dx2 = np.zeros((self.hv_size, self.hv_size, self.hv_size))
+        ij = self.tril_inds
+        d2y_dx2[np.ix_(ij, ij, ij)] = self.transform._hess_fwd(x[ij].copy())
+        return d2y_dx2
+    
+    def _hess_rvs(self, y):
+        d2x_dy2 = np.zeros((self.hv_size, self.hv_size, self.hv_size))
+        ij = self.tril_inds
+        d2x_dy2[np.ix_(ij, ij, ij)] = self.transform._hess_rvs(y[ij].copy())
+        return d2x_dy2
+
     
 class CholeskyCov(object):
     
     def __init__(self, mat_size):
         self.cholcorr_to_unconstrained = UnconstrainedCholeskyCorr(mat_size)
-        self.corr_to_cholcorr = CholeskyCorr(mat_size)
+        self.corr_to_cholcorr = CorrCholesky(mat_size)
         self.cov_to_corr = CovCorr(mat_size)
         self.scale_to_logscale = LogScale(mat_size)
         
@@ -392,6 +488,8 @@ class CholeskyCov(object):
         Jxw[:, ix] = Jxy[:, ix].dot(Jyw)
         Jxu = Jxw.dot(Jwu)
         return Jxu
+        
+    
         
     
         
