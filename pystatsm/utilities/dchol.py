@@ -71,8 +71,9 @@ def dchol(M, dM, d2M, order=2):
             for x in range(m):
                 dL = d1_pivot(L, dL, k, x)
                 if order > 1:
-                    for y in range(m):
+                    for y in range(x+1):
                         d2L = d2_pivot(L, dL, d2L, k, x, y)
+                        d2L[:, :, y, x] = d2L[:, :, x, y]
         #(b) Adjust Lead Column
         for j in range(k+1, n):
             L[j, k] = L[j, k] / L[k, k]
@@ -80,8 +81,9 @@ def dchol(M, dM, d2M, order=2):
                 for x in range(m):
                     dL = d1_col(L, dL, j, k, x)
                     if order > 1:
-                        for y in range(m):
+                        for y in range(x+1):
                             d2L = d2_col(L, dL, d2L, j, k, x, y)
+                            d2L[:, :, y, x] = d2L[:, :, x, y]
         #(c) Row Operations
         for j in range(k+1, n):
             for i in range(j, n):
@@ -90,13 +92,79 @@ def dchol(M, dM, d2M, order=2):
                     for x in range(m):
                         dL = d1_row(L, dL, i, j, k, x)
                         if order > 1:
-                            for y in range(m):
+                            for y in range(x+1):
                                 d2L = d2_row(L, dL, d2L, i, j, k, x, y)
+                                d2L[:, :, y, x] = d2L[:, :, x, y]
     #TODO: Figure out why this correction is needed to equal numerical approx
-    for i in range(m):
-        for j in range(m):
-            if i<j:
-                d2L[:, :, i, j] = d2L[:, :, j, i]
+    #for i in range(m):
+    #    for j in range(m):
+    #        if i<j:
+    #            d2L[:, :, i, j] = d2L[:, :, j, i]
     return L, dL, d2L
 
+def unit_matrices(n):
+    m = int(n * (n + 1) / 2)
+    dM  = np.zeros((n, n, m))
+    d2M = np.zeros((n, n, m, m))
+    j, i = np.triu_indices(n)
+    k = np.arange(m)
+    dM[i, j, k] = 1.0
+    return dM, d2M
 
+
+
+# from pystatsm.pystatsm.utilities.random import r_lkj
+# from pystatsm.pystatsm.utilities.linalg_operations import (_vech as vech,
+#                                                            _invech as invech)
+# from pystatsm.pystatsm.utilities.numerical_derivs import jac_approx
+
+
+# def chol_vech(x):
+#     A = invech(x)
+#     L = np.linalg.cholesky(A)
+#     return L
+
+# def dchol_vech(x):
+#     M = invech(x)
+#     n = M.shape[-1]
+#     m = int(n * (n + 1) / 2)
+#     dM  = np.zeros((n, n, m))
+#     d2M = np.zeros((n, n, m, m))
+#     j, i = np.triu_indices(n)
+#     k = np.arange(m)
+#     dM[i, j, k] = 1.0
+#     _, dL, _ = dchol(M, dM, d2M, order=1)
+#     return dL
+
+
+# n = 5
+# m = int(n * (n + 1) / 2)
+
+# rng = np.random.default_rng(1234)
+# R = r_lkj(eta=1.0, n=1, dim=n, rng=rng)[0, 0]
+# V = np.diag(rng.uniform(low=0.5, high=2, size=n))
+# M = V.dot(R).dot(V)
+# dM  = np.zeros((n, n, m))
+
+# d2M = np.zeros((n, n, m, m))
+# j, i = np.triu_indices(n)
+# k = np.arange(m)
+
+# dM[i, j, k] = 1.0
+
+
+# L, dL, d2L = dchol(M, dM, d2M)
+
+# dLn = jac_approx(chol_vech, vech(M))
+# d2Ln = jac_approx(dchol_vech, vech(M), d=1e-6)
+
+# assert(np.allclose(L, np.linalg.cholesky(M)))
+# assert(np.allclose(dL, dLn, rtol=1e-2, atol=1e-2))
+# assert(np.allclose(d2L, d2Ln, rtol=1e-2, atol=1e-2))
+
+#
+
+
+
+
+    

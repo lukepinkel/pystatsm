@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Tue Apr 26 13:04:05 2022
+Created on Thu May  5 10:42:50 2022
 
 @author: lukepinkel
 """
 
 
-import numpy as np
-from .special_mats import lmat, nmat, dmat, kmat
 
+import numpy as np
+from .special_mats import lmat, nmat
+from .numerical_derivs import jac_approx
+from .dchol import dchol, unit_matrices
 
 
 def _vecl(x):
@@ -295,14 +297,7 @@ class CovCorr(object):
                d2x_dy2[i, k, k] = d2xi_dykdyk
         return d2x_dy2
         
-               
-               
-               
-                
-                
-                
-    
-    
+   
 class LogScale(object):
     
     def __init__(self, mat_size):
@@ -336,6 +331,17 @@ class LogScale(object):
         dx_dy[ix, ix] = np.exp(y[ix])
         return dx_dy
     
+    def _hess_fwd(self, x):
+        ix = self.diag_inds
+        d2y_dx2 = np.zeros((x.shape[-1],)*3)
+        d2y_dx2[ix, ix, ix] = -1 / x[ix]**2
+        return d2y_dx2
+        
+    def _hess_rvs(self, y):
+        ix = self.diag_inds
+        d2x_dy2 = np.zeros((y.shape[-1],)*3)
+        d2x_dy2[ix, ix, ix] = np.exp(y[ix])
+        return d2x_dy2
     
     
 class CorrCholesky(object):
@@ -354,6 +360,9 @@ class CorrCholesky(object):
         self.row_norm_inds = [self.row_sort[a:b] for a, b in self.ind_parts]
         j, i = np.triu_indices(self.n)
         self.non_diag, = np.where(j!=i)
+        self.dM, self.d2M = unit_matrices(mat_size)
+        row_inds, col_inds = hv_indices((self.mat_size, self.mat_size))
+        self.tril_inds, = np.where(row_inds!=col_inds)
         
     def _fwd(self, x):
         R = _invecl(x)
@@ -369,18 +378,39 @@ class CorrCholesky(object):
         return x
     
     def _jac_fwd(self, x):
-        non_diag = self.non_diag
-        R = _invecl(x)
-        L = np.linalg.cholesky(R)
-        In, Nn, Ln = self.I, self.N, self.E
-        dy_dx = np.linalg.inv(Ln.dot((Ln.dot(Nn).dot(np.kron(L, In))).T)).T
-        dy_dx = dy_dx[np.ix_(non_diag, non_diag)]
+        M = _invecl(x)
+        _, dL, _ = dchol(M, self.dM, self.d2M, order=1)
+        dL = dL.reshape(np.product(dL.shape[:2]), dL.shape[2], order='F')
+        dy_dx = self.E.dot(dL)[np.ix_(self.tril_inds, self.tril_inds)]
         return dy_dx
     
     def _jac_rvs(self, y):
         x = self._rvs(y)
         dx_dy = np.linalg.inv(self._jac_fwd(x))
         return dx_dy
+    
+    def _hess_fwd(self, x):
+        M = _invecl(x)
+        _, _, d2L = dchol(M, self.dM, self.d2M, order=2)
+        k = (np.product(d2L.shape[:2]),)
+        d2L = d2L.reshape(k+d2L.shape[2:], order='F')
+        d2L = d2L[self.E.tocoo().col]
+        d2y_dx2 = d2L[np.ix_(self.tril_inds, self.tril_inds, self.tril_inds)]
+        return d2y_dx2
+    
+    def _hess_rvs(self, y):
+        #x = self._rvs(y)
+        #M = _invecl(x)
+        #L, dL, d2L = dchol(M, self.dM, self.d2M, order=2)
+        #k = (np.product(d2L.shape[:2]),)
+        #d2L = d2L.reshape(k+d2L.shape[2:], order='F')
+        #d2L = d2L[self.E.tocoo().col]
+        #d2y_dx2 = d2L[np.ix_(self.tril_inds, self.tril_inds, self.tril_inds)]
+        #dL = dL.reshape(np.product(dL.shape[:2]), dL.shape[2], order='F')
+        #dL = self.E.dot(dL)[np.ix_(self.tril_inds, self.tril_inds)]
+        #dx_dy = np.linalg.inv(dL)
+        #d2x_dy2 = -np.einsum("ijk,kl->ijl", d2y_dx2, dx_dy)
+        return jac_approx(self._jac_rvs, y.copy())
         
 
 class OffDiagMask(object):
@@ -433,219 +463,54 @@ class OffDiagMask(object):
 class CholeskyCov(object):
     
     def __init__(self, mat_size):
-        self.cholcorr_to_unconstrained = UnconstrainedCholeskyCorr(mat_size)
-        self.corr_to_cholcorr = CorrCholesky(mat_size)
-        self.cov_to_corr = CovCorr(mat_size)
-        self.scale_to_logscale = LogScale(mat_size)
+        self.covn_to_corr = CovCorr(mat_size)
+        self.corr_to_chol = OffDiagMask(CorrCholesky(mat_size))
+        self.chol_to_real = OffDiagMask(UnconstrainedCholeskyCorr(mat_size))
+        self.vars_to_logs = LogScale(mat_size)
         
     def _fwd(self, x):
-        ix = self.cov_to_corr.tril_inds
-        y = self.cov_to_corr._fwd(x)
-        y[ix] = self.corr_to_cholcorr._fwd(y[ix])
-        y[ix] = self.cholcorr_to_unconstrained._fwd(y[ix])
-        y = self.scale_to_logscale._fwd(y)
-        return y
-        
-    def _rvs(self, y):
-        y = y.copy()
-        ix = self.cov_to_corr.tril_inds
-        y = self.scale_to_logscale._rvs(y)
-        y[ix] = self.cholcorr_to_unconstrained._rvs(y[ix])
-        y[ix] = self.corr_to_cholcorr._rvs(y[ix])
-        x = self.cov_to_corr._rvs(y)
+        y = self.covn_to_corr._fwd(x)
+        z = self.corr_to_chol._fwd(y)
+        w = self.chol_to_real._fwd(z)
+        u = self.vars_to_logs._fwd(w)
+        return u
+    
+    def _rvs(self, u):
+        w = self.vars_to_logs._rvs(u)
+        z = self.chol_to_real._rvs(w)
+        y = self.corr_to_chol._rvs(z)
+        x = self.covn_to_corr._rvs(y)
         return x
     
     def _jac_fwd(self, x):
-        ix = self.cov_to_corr.tril_inds
-        y = self.cov_to_corr._fwd(x)
-        z = self.corr_to_cholcorr._fwd(y[ix].copy())
+        y = self.covn_to_corr._fwd(x)
+        z = self.corr_to_chol._fwd(y)
+        w = self.chol_to_real._fwd(z)
+        #u = self.vars_to_logs._fwd(w)
         
-        Jwz = self.cholcorr_to_unconstrained._jac_fwd(z)
-        Jzy = self.corr_to_cholcorr._jac_fwd(y[ix].copy())
-        Jyx = self.cov_to_corr._jac_fwd(x)
-        Jwy = Jwz.dot(Jzy)
-        Jwx = Jyx.copy()
-        Jwx[ix] = Jwy.dot(Jwx[ix])
-        Juw = self.scale_to_logscale._jac_fwd(x)
-        Jux = Juw.dot(Jwx)
-        return Jux
+        dy_dx = self.covn_to_corr._jac_fwd(x)
+        dz_dy = self.corr_to_chol._jac_fwd(y)
+        dw_dz = self.chol_to_real._jac_fwd(z)
+        du_dw = self.vars_to_logs._jac_fwd(w)
+        dw_dx = dw_dz.dot(dz_dy).dot(dy_dx)
+        du_dx = du_dw.dot(dw_dx)
+        return du_dx
     
-    def _jac_rvs(self, y):
-        ix = self.cov_to_corr.tril_inds
-        y0 = y.copy()
-        y = self.scale_to_logscale._rvs(y)
-        w, z, y = y.copy(), y.copy(), y.copy()
-        z[ix] = self.cholcorr_to_unconstrained._rvs(w[ix].copy())
-        y[ix] = self.corr_to_cholcorr._rvs(z[ix].copy())
-        #x = self.cov_to_corr._rvs(y.copy())
-        
-        Jxy = self.cov_to_corr._jac_rvs(y.copy())
-        Jyz = self.corr_to_cholcorr._jac_rvs(z[ix].copy())
-        Jzw = self.cholcorr_to_unconstrained._jac_rvs(w[ix].copy())
-        Jwu = self.scale_to_logscale._jac_rvs(y0.copy())
-        Jyw = Jyz.dot(Jzw)
-        Jxw = Jxy.copy()
-        Jxw[:, ix] = Jxy[:, ix].dot(Jyw)
-        Jxu = Jxw.dot(Jwu)
-        return Jxu
-        
-    
-        
-    
+    def _jac_rvs(self, u):
+        w = self.vars_to_logs._rvs(u)
+        z = self.chol_to_real._rvs(w)
+        y = self.corr_to_chol._rvs(z)
         
         
-        
-    
-    
-    
-    
-        
-
-# from pystatsm.pystatsm.utilities.numerical_derivs import jac_approx
-
-# mat_size = 5
-# lhv_size = mat_size_to_lhv_size(mat_size)
-
-# x = np.linspace(1.0, 2.0, lhv_size)
-
-# b = UnconstrainedCholeskyCorr(mat_size)
-# y = b._fwd(x)
-# L = inv_lower_half_vec(x) + np.eye(mat_size)
-# y2 = lower_half_vec(L / np.linalg.norm(L, axis=-1)[:, None])
-# assert(np.allclose(y, y2))
-
-
-# Jf1 = jac_approx(b._fwd, x)
-# Jr1 = jac_approx(b._rvs, y)
-# Jf2 = b._jac_fwd(x)
-# Jr2 = b._jac_rvs(y)
-
-# assert(np.allclose(Jf1, Jf2))
-# assert(np.allclose(Jr1, Jr2))
-
-# Hf1 = jac_approx(b._jac_fwd, x)
-# Hr1 = jac_approx(b._jac_rvs, y)
-
-# Hf2 = b._hess_fwd(x)
-# Hr2 = b._hess_rvs(y)
-
-# assert(np.allclose(Hf1, Hf2))
-# assert(np.allclose(Hr1, Hr2))
-
-# mat_size = 5
-# lhv_size = mat_size_to_lhv_size(mat_size)
-# c = CovCorr(mat_size)
-
-# x = np.linspace(1.0, 2.0, lhv_size)
-
-# b = UnconstrainedCholeskyCorr(mat_size)
-# y = b._fwd(x)
-# L = inv_lower_half_vec(x) + np.eye(mat_size)
-# L = L / np.linalg.norm(L, axis=-1)[:, None]
-# R = L.dot(L.T)
-# S = np.sqrt(np.diag(np.arange(2, 2+mat_size)))
-# V = S.dot(R).dot(S) 
-# x = _vech(V)
-# c = CovCorr(mat_size)
-
-# y = c._fwd(x)
-# x = c._rvs(y)
-
-# assert(np.allclose(c._rvs( c._fwd(x)), x))
-# assert(np.allclose(c._fwd( c._rvs(y)), y))
+        dx_dy = self.covn_to_corr._jac_rvs(y)
+        dy_dz = self.corr_to_chol._jac_rvs(z)
+        dz_dw = self.chol_to_real._jac_rvs(w)
+        dw_du = self.vars_to_logs._jac_rvs(u)
+        dx_dw = dx_dy.dot(dy_dz).dot(dz_dw)
+        dx_du = dx_dw.dot(dw_du)
+        return dx_du
 
 
 
-
-# Jf1 = jac_approx(c._fwd, x)
-# Jr1 = jac_approx(c._rvs, y)
-
-# Jf2 = c._jac_fwd(x)
-# Jr2 = c._jac_rvs(y)
-
-# assert(np.allclose(Jf1, Jf2))
-# assert(np.allclose(Jr1, Jr2))
-
-
-
-# mat_size = 5
-# lhv_size = mat_size_to_lhv_size(mat_size)
-# x = np.linspace(1.0, 2.0, lhv_size)
-
-# b = UnconstrainedCholeskyCorr(mat_size)
-# y = b._fwd(x)
-# L = inv_lower_half_vec(x) + np.eye(mat_size)
-# L = L / np.linalg.norm(L, axis=-1)[:, None]
-# R = L.dot(L.T)
-
-
-# t1 = CholeskyCorr(mat_size)
-# x = lower_half_vec(R)
-# y = t1._fwd(x)
-
-# assert(np.allclose(t1._rvs( t1._fwd(x)), x))
-# assert(np.allclose(t1._fwd( t1._rvs(y)), y))
-
-
-# Jf1 = jac_approx(t1._fwd, x)
-# Jr1 = jac_approx(t1._rvs, y)
-# Jf2 = t1._jac_fwd(x)
-# Jr2 = t1._jac_rvs(y)
-# assert(np.allclose(Jf1, Jf2, atol=1e-4))
-# assert(np.allclose(Jr1, Jr2, atol=1e-4))
-
-
-
-# mat_size = 5
-# lhv_size = mat_size_to_lhv_size(mat_size)
-# c = CovCorr(mat_size)
-
-# x = np.linspace(1.0, 2.0, lhv_size)
-
-# b = UnconstrainedCholeskyCorr(mat_size)
-# y = b._fwd(x)
-# L = inv_lower_half_vec(x) + np.eye(mat_size)
-# L = L / np.linalg.norm(L, axis=-1)[:, None]
-# R = L.dot(L.T)
-# S = np.sqrt(np.diag(np.arange(2, 2+mat_size)))
-# V = S.dot(R).dot(S) 
-# x = _vech(V)
-
-# t = CholeskyCov(mat_size)
-# y = t._fwd(x)
-
-# assert(np.allclose(t._rvs( t._fwd(x)), x))
-# assert(np.allclose(t._fwd( t._rvs(y)), y))
-
-
-
-# mat_size = 6
-# lhv_size = mat_size_to_lhv_size(mat_size)
-# c = CovCorr(mat_size)
-
-# x = np.linspace(1.0, 2.0, lhv_size)
-
-# b = UnconstrainedCholeskyCorr(mat_size)
-# y = b._fwd(x)
-# L = inv_lower_half_vec(x) + np.eye(mat_size)
-# L = L / np.linalg.norm(L, axis=-1)[:, None]
-# R = L.dot(L.T)
-# S = np.sqrt(np.diag(np.arange(2, 2+mat_size)))
-# V = S.dot(R).dot(S) 
-# x = _vech(V)
-
-# t = CholeskyCov(mat_size)
-# y = t._fwd(x)
-
-# assert(np.allclose(t._rvs( t._fwd(x)), x))
-# assert(np.allclose(t._fwd( t._rvs(y)), y))
-
-# Jf1 = jac_approx(t._fwd, x)
-# Jr1 = jac_approx(t._rvs, y)
-# Jf2 = t._jac_fwd(x)
-# Jr2 = t._jac_rvs(y)
-
-# assert(np.allclose(Jf1, Jf2, atol=1e-4))
-# assert(np.allclose(Jr1, Jr2, atol=1e-4))
 
 

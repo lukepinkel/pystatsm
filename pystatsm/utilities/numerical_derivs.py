@@ -5,6 +5,7 @@ Created on Sat Jun  6 14:40:17 2020
 
 @author: lukepinkel
 """
+import tqdm
 import numba
 import numpy as np
 import scipy as sp
@@ -177,7 +178,7 @@ def grad_approx(f, x, eps=1e-4, tol=None, d=1e-4, nr=6, v=2):
 
 
 
-def jac_approx(F, X, eps=1e-4, tol=None, d=1e-4, args=()):
+def jac_approx(F, X, eps=1e-4, tol=None, d=1e-4, args=(), progress_bar=False):
     def Func(X, args=()):
         return np.atleast_1d(F(X, *args))
     X = np.asarray(X)
@@ -185,6 +186,8 @@ def jac_approx(F, X, eps=1e-4, tol=None, d=1e-4, args=()):
     tol = np.finfo(float).eps**(1/3) if tol is None else tol
     H = np.zeros_like(X)
     J = np.zeros(Y.shape+X.shape)
+    if progress_bar:
+        pbar = tqdm.tqdm(total=np.product(Y.shape)*np.product(X.shape))
     for ii in np.ndindex(Y.shape):
         for jj in np.ndindex(X.shape):
             H[jj] = np.abs(d * X[jj]) + eps * (np.abs(X[jj]) < tol)
@@ -192,6 +195,10 @@ def jac_approx(F, X, eps=1e-4, tol=None, d=1e-4, args=()):
             FmH = Func(X-H, *args)[ii]
             J[ii+jj] = (FpH - FmH) / (2.0 * H[jj])
             H[jj] = 0.0
+            if progress_bar:
+                pbar.update(1)
+    if progress_bar:
+        pbar.close()
     return J
 
 def jac_approx2(f, x, eps=1e-4, tol=None, d=1e-4, nr=6, v=2):
