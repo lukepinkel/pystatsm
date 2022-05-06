@@ -459,7 +459,10 @@ class OffDiagMask(object):
         d2x_dy2[np.ix_(ij, ij, ij)] = self.transform._hess_rvs(y[ij].copy())
         return d2x_dy2
 
+  
     
+
+
 class CholeskyCov(object):
     
     def __init__(self, mat_size):
@@ -509,8 +512,39 @@ class CholeskyCov(object):
         dx_dw = dx_dy.dot(dy_dz).dot(dz_dw)
         dx_du = dx_dw.dot(dw_du)
         return dx_du
-
-
-
-
+    
+    
+    def _hess_fwd(self, x):
+        y = self.covn_to_corr._fwd(x)
+        z = self.corr_to_chol._fwd(y)
+        w = self.chol_to_real._fwd(z)
+        dy_dx = self.covn_to_corr._jac_fwd(x)
+        dz_dy = self.corr_to_chol._jac_fwd(y)
+        dw_dz = self.chol_to_real._jac_fwd(z)
+        du_dw = self.vars_to_logs._jac_fwd(w)
+        
+        dz_dx = dz_dy.dot(dy_dx)
+        dw_dx = dw_dz.dot(dz_dy.dot(dy_dx))
+        d2y_dx2 = self.covn_to_corr._hess_fwd(x)
+        d2z_dy2 = self.corr_to_chol._hess_fwd(y)
+        d2w_dz2 = self.chol_to_real._hess_fwd(z)
+        d2u_dw2 = self.vars_to_logs._hess_fwd(w)
+        
+        m = x.shape[-1]
+        d2z_dx2 = np.zeros((m,)*3)
+        for i in range(m):
+            d2z_dx2[i] += dy_dx.T.dot(d2z_dy2[i]).dot(dy_dx)
+            for j in range(m):
+                d2z_dx2[i] += dz_dy[i, j] * d2y_dx2[j]
+        d2w_dx2 = np.zeros((m,)*3)
+        for i in range(m):
+            d2w_dx2[i] += dz_dx.T.dot(d2w_dz2[i]).dot(dz_dx)
+            for j in range(m):
+                d2w_dx2[i] += dw_dz[i, j] * d2z_dx2[j]
+        d2u_dx2 = np.zeros((m,)*3)
+        for i in range(m):
+            d2u_dx2[i] += dw_dx.T.dot(d2u_dw2[i]).dot(dw_dx)
+            for j in range(m):
+                d2u_dx2[i] += du_dw[i, j] * d2w_dx2[j]
+        return d2u_dx2
 
