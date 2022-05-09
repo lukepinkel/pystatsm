@@ -14,6 +14,13 @@ from .numerical_derivs import jac_approx
 from .dchol import dchol, unit_matrices
 
 
+def _hess_chain_rule(d2z_dy2, dy_dx, dz_dy, d2y_dx2):
+    H1 = np.einsum("ijk,kl->ijl", d2z_dy2, dy_dx, optimize=True)
+    H1 = np.einsum("ijk,jl->ilk", H1, dy_dx, optimize=True)
+    H2 = np.einsum("ij,jkl->ikl", dz_dy, d2y_dx2, optimize=True)
+    d2z_dx2 = H1 + H2
+    return d2z_dx2
+
 def _vecl(x):
     m = x.shape[-1]
     ix, jx = np.triu_indices(m, k=1)
@@ -530,21 +537,25 @@ class CholeskyCov(object):
         d2w_dz2 = self.chol_to_real._hess_fwd(z)
         d2u_dw2 = self.vars_to_logs._hess_fwd(w)
         
-        m = x.shape[-1]
-        d2z_dx2 = np.zeros((m,)*3)
-        for i in range(m):
-            d2z_dx2[i] += dy_dx.T.dot(d2z_dy2[i]).dot(dy_dx)
-            for j in range(m):
-                d2z_dx2[i] += dz_dy[i, j] * d2y_dx2[j]
-        d2w_dx2 = np.zeros((m,)*3)
-        for i in range(m):
-            d2w_dx2[i] += dz_dx.T.dot(d2w_dz2[i]).dot(dz_dx)
-            for j in range(m):
-                d2w_dx2[i] += dw_dz[i, j] * d2z_dx2[j]
-        d2u_dx2 = np.zeros((m,)*3)
-        for i in range(m):
-            d2u_dx2[i] += dw_dx.T.dot(d2u_dw2[i]).dot(dw_dx)
-            for j in range(m):
-                d2u_dx2[i] += du_dw[i, j] * d2w_dx2[j]
+        d2z_dx2 = _hess_chain_rule(d2z_dy2, dy_dx, dz_dy, d2y_dx2)
+        d2w_dx2 = _hess_chain_rule(d2w_dz2, dz_dx, dw_dz, d2z_dx2)
+        d2u_dx2 = _hess_chain_rule(d2u_dw2, dw_dx, du_dw, d2w_dx2)
+        
+        # m = x.shape[-1]
+        # d2z_dx2 = np.zeros((m,)*3)
+        # for i in range(m):
+        #     d2z_dx2[i] += dy_dx.T.dot(d2z_dy2[i]).dot(dy_dx)
+        #     for j in range(m):
+        #         d2z_dx2[i] += dz_dy[i, j] * d2y_dx2[j]
+        # d2w_dx2 = np.zeros((m,)*3)
+        # for i in range(m):
+        #     d2w_dx2[i] += dz_dx.T.dot(d2w_dz2[i]).dot(dz_dx)
+        #     for j in range(m):
+        #         d2w_dx2[i] += dw_dz[i, j] * d2z_dx2[j]
+        # d2u_dx2 = np.zeros((m,)*3)
+        # for i in range(m):
+        #     d2u_dx2[i] += dw_dx.T.dot(d2u_dw2[i]).dot(dw_dx)
+        #     for j in range(m):
+        #         d2u_dx2[i] += du_dw[i, j] * d2w_dx2[j]
         return d2u_dx2
 
