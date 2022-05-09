@@ -142,23 +142,29 @@ def fd_coefs(x, x0=0, n=1, last_col=True):
     return res
           
 
-def _finite_diff(y, x, n=1, m=2):
-    num_x = len(x)
-    du = np.zeros_like(y)
-    mm = n // 2 + m
-    size = 2 * mm + 2  
-    x1, x2 = x[:size], x[-size:]
-    y1, y2 = y[:size], y[-size:]
-    for i in range(mm):
-        du[i] = np.dot(fd_coefs(x1, x0=x[i], n=n),y1)
-        du[-i - 1] = np.dot(fd_coefs(x2, x0=x[-i - 1], n=n), y2)
-    for i in range(mm, num_x - mm):
-        j, k = i - mm, i + mm + 1
-        du[i] = np.dot(fd_coefs(x[j:k], x0=x[i], n=n), y[j:k])
-    return du
+# def _finite_diff(y, x, n=1, m=2):
+#     num_x = len(x)
+#     du = np.zeros_like(y)
+#     mm = n // 2 + m
+#     size = 2 * mm + 2  
+#     x1, x2 = x[:size], x[-size:]
+#     y1, y2 = y[:size], y[-size:]
+#     for i in range(mm):
+#         du[i] = np.dot(fd_coefs(x1, x0=x[i], n=n),y1)
+#         du[-i - 1] = np.dot(fd_coefs(x2, x0=x[-i - 1], n=n), y2)
+#     for i in range(mm, num_x - mm):
+#         j, k = i - mm, i + mm + 1
+#         du[i] = np.dot(fd_coefs(x[j:k], x0=x[i], n=n), y[j:k])
+#     return du
 
-def finite_diff(f, x, order=1, m=4):
-    return _finite_diff(f(x), x, order, m)
+
+def finite_diff(f, x, order=1, m=2, h=0.001):
+    du = np.zeros_like(f(x))
+    stencil_points = np.arange(-m, m+1)
+    coefs = fd_coefs(stencil_points, x0=0, n=order)
+    for i in range(len(stencil_points)):
+        du += coefs[i]*f(x + h * stencil_points[i]) / h**order
+    return du
 
 
 def grad_approx(f, x, eps=1e-4, tol=None, d=1e-4, nr=6, v=2):
