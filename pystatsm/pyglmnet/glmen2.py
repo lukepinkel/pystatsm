@@ -93,6 +93,7 @@ class ElasticNetGLM(object):
         self.alpha = alpha
         self.Xsq = X**2
         self.halc = (1.0 - alpha) / 2.0
+        self._categorical = isinstance(family, Binomial)
         
     def _dev_mu(self, mu, y=None, wobs=None):
         y = self.y if y is None else y
@@ -294,7 +295,7 @@ class ElasticNetGLM(object):
         for j in range(n_rep):
             if j>0:
                 randomize = True
-            kfix = kfold_indices(self.n_obs, cv, y, categorical=True, randomize=randomize, 
+            kfix = kfold_indices(self.n_obs, cv, y, categorical=self._categorical, randomize=randomize, 
                                  random_state=rng)
             for k, (f_ix, v_ix) in enumerate(kfix):
                 Xf, Xsqf, yf, wf = X[f_ix], Xsq[f_ix], y[f_ix], wobs[f_ix]
