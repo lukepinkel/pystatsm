@@ -10,7 +10,7 @@ Created on Mon May  9 14:09:39 2022
 import numpy as np
 from pystatsm.pylvcorr.sim_lvcorr import LVCorrSim
 from pystatsm.pylvcorr.lvcorr import Polychoric, Polyserial
-from pystatsm.pystatsm.utilities.numerical_derivs import fo_fc_cd, so_gc_cd
+from pystatsm.utilities.numerical_derivs import fo_fc_cd, so_gc_cd
 
 def test_polychoric():
     rng = np.random.default_rng(1234)
