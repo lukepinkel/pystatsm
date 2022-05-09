@@ -142,7 +142,7 @@ def fd_coefs(x, x0=0, n=1, last_col=True):
     return res
           
 
-def finite_diff(y, x, n=1, m=2):
+def _finite_diff(y, x, n=1, m=2):
     num_x = len(x)
     du = np.zeros_like(y)
     mm = n // 2 + m
@@ -156,6 +156,9 @@ def finite_diff(y, x, n=1, m=2):
         j, k = i - mm, i + mm + 1
         du[i] = np.dot(fd_coefs(x[j:k], x0=x[i], n=n), y[j:k])
     return du
+
+def finite_diff(f, x, order=1, m=4):
+    return _finite_diff(f(x), x, order, m)
 
 
 def grad_approx(f, x, eps=1e-4, tol=None, d=1e-4, nr=6, v=2):
