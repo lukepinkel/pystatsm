@@ -159,9 +159,10 @@ def fd_coefs(x, x0=0, n=1, last_col=True):
 
 
 
-def finite_diff(f, x, order=1, m=6, h=0.001):
+def finite_diff(f, x, order=1, m=6, n=16):
     du = np.zeros_like(f(x))
-    stencil_points = np.linspace(-3, 3, 2*m+1)
+    stencil_points = np.linspace(-n, n, 2*m+2*order+1)
+    h = 1 / n
     coefs = fd_coefs(stencil_points, x0=0, n=order)
     for i in range(len(stencil_points)):
         du += coefs[i]*f(x + h * stencil_points[i]) / h**order
