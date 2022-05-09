@@ -292,26 +292,26 @@ def hess_approx(f, x, a_eps=1e-4, r_eps=1e-4, xtol=None, nr=6, s=2):
     return H
     
 
- #def fd_coefficients(points, order):
- #    A = np.zeros((len(points), len(points)))
- #    A[0] = 1
- #    for i in range(len(points)):
- #        A[i] = np.asarray(points)**(i)
- #    b = np.zeros(len(points))
- #    b[order] = sp.special.factorial(order)
- #    c = np.linalg.inv(A).dot(b)
- #    return c
-         
-     
- #def finite_diff(f, x, epsilon=None, order=1, points=None):
- #    if points is None:
- #        points = np.arange(-4, 5)
- #    if epsilon is None:
- #        epsilon = (np.finfo(float).eps)**(1./3.)
- #    coefs = fd_coefficients(points, order)
- #    df = 0.0
- #    for c, p in list(zip(coefs, points)):
- #        df+=c*f(x+epsilon*p)
- #    df = df / (epsilon**order)
- #    return df
+def fd_coefficients(points, order):
+    A = np.zeros((len(points), len(points)))
+    A[0] = 1
+    for i in range(len(points)):
+        A[i] = np.asarray(points)**(i)
+    b = np.zeros(len(points))
+    b[order] = sp.special.factorial(order)
+    c = np.linalg.inv(A).dot(b)
+    return c
+        
     
+def fd_derivative(f, x, epsilon=None, order=1, points=None):
+    if points is None:
+        points = np.arange(-4, 5)
+    if epsilon is None:
+        epsilon = (np.finfo(float).eps)**(1./3.)
+    coefs = fd_coefficients(points, order)
+    df = 0.0
+    for c, p in list(zip(coefs, points)):
+        df+=c*f(x+epsilon*p)
+    df = df / (epsilon**order)
+    return df
+   
