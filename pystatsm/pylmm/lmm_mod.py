@@ -11,7 +11,7 @@ import numpy as np
 import scipy as sp
 import scipy.sparse as sps
 from ..utilities.linalg_operations import invech_chol, invech, vech
-from sksparse.cholmod import cholesky
+from sksparse.cholmod import cholesky, cholesky_AAt
 
 
 def _dummy_encode(x, categories=None):
@@ -124,10 +124,8 @@ class RandomEffects(object):
             g_offset = g_offset + ranef.p * ranef.p * ranef.q
             l_offset = l_offset + ranef.n_param * ranef.q
             cov_offset = cov_offset + ranef.g_size
-            
-
-
-    
+        theta.append(np.ones(1))
+        t_inds.append(np.arange(t_offset, t_offset+1))
         theta = np.concatenate(theta)  
         n_rows = terms[0].Xi.shape[0]
         n_cols = z_offset
@@ -201,7 +199,7 @@ class LMM(object):
         zero_mat1 = sp.sparse.eye(X.shape[1])*0.0
         zero_mat2 = sp.sparse.eye(1)*0.0
         C = sp.sparse.block_diag([zero_mat1, L, zero_mat2])
-        
+        self.n = X.shape[0]
         self.X, self.Z, self.y = X, Z, y
         self.random_effects = random_effects
         self.fe_vars, self.y_vars = fe_vars, y_vars
@@ -221,6 +219,13 @@ class LMM(object):
         self.Zty = ytZ.T
         self.ZtX = ZtX
         self.Xty = ytX.T
+        self.W = sps.diags([np.ones((self.n,))], [0])
+        self.dR = sps.eye(self.n)
+        self.jac_inds = random_effects.jac_inds
+        self.theta = random_effects.theta
+        self.n_par = len(self.theta)
+        self.H = np.zeros((self.n_par, self.n_par))
+        self.transforms = random_effects.transforms
         
     def update_gmat(self, theta, inverse=False):
         G = self.G
@@ -281,6 +286,171 @@ class LMM(object):
             _, logdetV = cholesky(Q).slogdet()
             ll = logdetR + logdetV + logdetG + ytPy
         return ll
+    
+    def pls(self, theta, w=None):
+        W = self.W if w is None else sps.diags([w], [0])
+        L = self.update_lmat(theta)
+        X, Z, y = self.X, self.Z, self.y
+        ZtW, WX, Wy = Z.T.dot(W), W.dot(X), W.dot(y)
+        XtWX = WX.T.dot(WX)
+        XtWy = WX.T.dot(Wy)
+        ZtWX = ZtW.dot(WX)
+        ZtWy = ZtW.dot(Wy)
+        LtZtW = (L.T.dot(ZtW)).tocsc()
+        Lfactor = cholesky_AAt(LtZtW, beta=1)
+        cu    = Lfactor.solve_L(L.T.dot(ZtWy), use_LDLt_decomposition=False)
+        RZX   = Lfactor.solve_L(L.T.dot(ZtWX), use_LDLt_decomposition=False)
+        RXtRX = XtWX - RZX.T.dot(RZX)
+        b = np.linalg.solve(RXtRX, XtWy - RZX.T.dot(cu))
+        v = Lfactor.solve_Lt(cu - RZX.dot(b), use_LDLt_decomposition=False)
+        u = L.dot(v)
+        mu = X.dot(b) + Z.dot(u)
+        wtres = W.dot(y - mu)
+        pwrss = np.sum(wtres**2) + np.sum(v**2)
+        ld = Lfactor.slogdet()[1] + np.linalg.slogdet(RXtRX)[1]
+        n, p = X.shape
+        dev = (n - p) * np.log(2 * np.pi * theta[-1]) + ld + pwrss / theta[-1]        
+        return dev, b, u
+    
+    def gradient(self, theta, reml=True, use_sw=False):
+        s = theta[-1]
+        W = self.W / s
+        Ginv = self.update_gmat(theta, inverse=True)
+        X, Z, y = self.X, self.Z, self.y
+        RZ, RX, Ry = W.dot(Z), W.dot(X), W.dot(y)
+        ZtRZ, XtRX, ZtRX, ZtRy = RZ.T.dot(Z), X.T.dot(RX), RZ.T.dot(X), RZ.T.dot(y)
+    
+        Q = Ginv + ZtRZ
+        M = cholesky(Q).inv()
+        
+        ZtWZ = ZtRZ - ZtRZ.dot(M).dot(ZtRZ)
+        
+        MZtRX = M.dot(ZtRX)
+        
+        XtWX = XtRX - ZtRX.T.dot(MZtRX)
+        XtWX_inv = np.linalg.inv(XtWX)
+        ZtWX = ZtRX - ZtRZ.dot(MZtRX)
+        WX = RX - RZ.dot(MZtRX)
+        U = XtWX_inv.dot(WX.T)
+        Vy = Ry - RZ.dot(M.dot(ZtRy))
+        Py = Vy - WX.dot(U.dot(y))
+        ZtPy = Z.T.dot(Py)
+        grad = []
+        for i in range(self.levels):
+            ind = self.jac_inds[i]
+            ZtWZi = ZtWZ[ind][:, ind]
+            ZtWXi = ZtWX[ind]
+            ZtPyi = ZtPy[ind]
+            for dGdi in self.random_effects.terms[i].G_deriv:
+                g1 = dGdi.dot(ZtWZi).diagonal().sum() 
+                g2 = ZtPyi.T.dot(dGdi.dot(ZtPyi))
+                if reml:
+                    g3 = np.trace(XtWX_inv.dot(ZtWXi.T.dot(dGdi.dot(ZtWXi))))
+                else:
+                    g3 = 0
+                gi = g1 - g2 - g3
+                grad.append(gi)
+
+        for dR in [self.dR]:
+            g1 = W.diagonal().sum() - (M.dot((RZ.T).dot(dR).dot(RZ))).diagonal().sum()
+            g2 = Py.T.dot(Py)
+            if reml:
+                g3 = np.trace(XtWX_inv.dot(WX.T.dot(WX)))
+            else:
+                g3 = 0
+            gi = g1 - g2 - g3
+            grad.append(gi)
+        grad = np.concatenate(grad)
+        grad = _check_shape(np.array(grad))
+        return grad
+    
+    def hessian(self, theta, reml=True, use_sw=False):
+        s = theta[-1]
+        R = self.W / s
+        Ginv = self.update_gmat(theta, inverse=True)
+        X, Z, y = self.X, self.Z, self.y
+        RZ = R.dot(Z)
+        ZtRZ = RZ.T.dot(Z)
+    
+        Q = ZtRZ + Ginv
+        M = cholesky(Q).inv()
+        W = R - RZ.dot(M).dot(RZ.T)
+        WZ = W.dot(Z)
+        WX = W.dot(X)
+        XtWX = WX.T.dot(X)
+        ZtWX = Z.T.dot(WX)
+        U = np.linalg.solve(XtWX, WX.T)
+        ZtP = WZ.T - ZtWX.dot(np.linalg.solve(XtWX, WX.T))
+        ZtPZ = Z.T.dot(ZtP.T)
+        Py = W.dot(y) - WX.dot(U.dot(y))
+        ZtPy = Z.T.dot(Py)
+        PPy = W.dot(Py) - WX.dot(U.dot(Py))
+        ZtPPy =  Z.T.dot(PPy)
+        H = self.H * 0.0
+        PJ, yPZJ, ZPJ = [], [], []
+        ix = []
+        for i in range(self.levels):
+            ind = self.jac_inds[i]
+            ZtPZi = ZtPZ[ind]
+            ZtPyi = ZtPy[ind]
+            ZtPi = ZtP[ind]
+            for dGdi in self.random_effects.terms[i].G_deriv:
+                PJ.append(dGdi.dot(ZtPZi))
+                yPZJ.append(dGdi.dot(ZtPyi))
+                ZPJ.append((dGdi.dot(ZtPi)).T)
+                ix.append(ind)
+            
+        t_indices = list(zip(*np.triu_indices(len(self.theta)-1)))
+        for i, j in t_indices:
+            ZtPZij = ZtPZ[ix[i]][:, ix[j]]
+            PJi, PJj = PJ[i][:, ix[j]], PJ[j][:, ix[i]]
+            yPZJi, JjZPy = yPZJ[i], yPZJ[j]
+            Hij = -np.einsum('ij,ji->', PJi, PJj)\
+                    + (2 * (yPZJi.T.dot(ZtPZij)).dot(JjZPy))[0]
+            H[i, j] = H[j, i] = Hij
+        dR = self.dR
+        dRZtP = (dR.dot(ZtP.T))
+        for i in range(len(self.theta)-1):
+            yPZJi = yPZJ[i]
+            ZPJi = ZPJ[i]
+            ZtPPyi = ZtPPy[ix[i]]
+            H[i, -1] = H[-1, i] = 2*yPZJi.T.dot(ZtPPyi) - np.einsum('ij,ji->', ZPJi.T, dRZtP[:, ix[i]])
+        P = W - WX.dot(U)
+        H[-1, -1] = Py.T.dot(PPy)*2 - np.einsum("ij,ji->", P, P)
+        return H
+    
+    def loglike_grad(self, x):
+        theta = np.zeros_like(x)
+        theta[-1] = np.exp(x[-1])
+        dtheta_dx = []
+        for i in range(self.levels):
+            ix = self.t_inds[i]
+            transform = self.transforms[i]
+            theta[ix] = transform._rvs(x[ix])
+            dtheta_dx.append(transform._jac_rvs(x[ix]))
+        dtheta_dx.append(np.atleast_2d(np.exp(x[-1])))
+        df_dtheta = self.gradient(theta)
+        dtheta_dx = sp.linalg.block_diag(*dtheta_dx)
+        df_dx = df_dtheta.dot(dtheta_dx)
+        f = self.loglike(theta)
+        return f, df_dx
+    
+    def _fwd_transform(self, theta):
+        x = np.zeros_like(theta)
+        x[-1] = np.log(theta[-1])
+        for i in range(self.levels):
+            ix = self.t_inds[i]
+            transform = self.transforms[i]
+            x[ix] = transform._fwd(theta[ix])
+        return x
+    
+    def _optimize(self):
+        x = self._fwd_transform(self.theta)
+        opt = sp.optimize.minimize(self.loglike_grad, x, jac=True, method="trust-constr",
+                                   options=dict(verbose=3, gtol=1e-6, xtol=1e-6))
+        self.opt=opt
+    
+        
     
     
 
