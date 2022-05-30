@@ -27,6 +27,7 @@ def _dummy_encode(x, categories=None):
     col_inds = np.concatenate(cols)
     return row_inds, col_inds, n_cols
 
+
 def dummy_encode(x, categories=None):
     categories = np.unique(x) if categories is None else categories
     n_rows = x.shape[0]
@@ -78,8 +79,6 @@ class RandomEffectTerm(object):
         self.n_param = m
         self.g_size = p * q
 
-        
-   
 
 class RandomEffects(object):
     
@@ -153,9 +152,6 @@ class RandomEffects(object):
         self.group_sizes = [term.n_group for term in terms]
 
         
-        
-        
-
 def replace_duplicate_operators(match):
     return match.group()[-1:]
 
@@ -247,8 +243,7 @@ class LMM(object):
                 theta_i = vech(np.linalg.inv(invech_chol(theta_i)))
             L.data[self.l_inds[i]] = np.tile(theta_i, self.ng[i])
         return L
-    
-    
+     
     def update_cmat(self, theta):
         G = self.update_gmat(theta, inverse=True)
         C = sp.sparse.block_diag([self.zero_mat1, G, self.zero_mat2])
@@ -267,7 +262,6 @@ class LMM(object):
             lnd += self.ng[i]*np.linalg.slogdet(Sigma_i)[1]
         return lnd
         
-    
     def loglike(self, theta, reml=True, use_sw=False, use_sparse=True):
         Ginv = self.update_gmat(theta, inverse=True)
         M = self.update_mme(Ginv, theta)
@@ -309,7 +303,7 @@ class LMM(object):
         pwrss = np.sum(wtres**2) + np.sum(v**2)
         ld = Lfactor.slogdet()[1] + np.linalg.slogdet(RXtRX)[1]
         n, p = X.shape
-        dev = (n - p) * np.log(2 * np.pi * theta[-1]) + ld + pwrss / theta[-1]        
+        dev = self.n * np.log(2 * np.pi * theta[-1]) + ld + pwrss / theta[-1]        
         return dev, b, u
     
     def gradient(self, theta, reml=True, use_sw=False):
@@ -361,7 +355,7 @@ class LMM(object):
             gi = g1 - g2 - g3
             grad.append(gi)
         grad = np.concatenate(grad)
-        grad = _check_shape(np.array(grad))
+        grad = np.asarray(grad).reshape(-1)
         return grad
     
     def hessian(self, theta, reml=True, use_sw=False):
