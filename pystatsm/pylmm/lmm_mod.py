@@ -11,8 +11,42 @@ import numpy as np
 import scipy as sp
 import scipy.sparse as sps
 from ..utilities.linalg_operations import invech_chol, invech, vech
+from ..utilities.numerical_derivs import fo_fc_cd, so_fc_cd, so_gc_cd
+from ..utilities.special_mats import nmat, lmat, kmat
 from sksparse.cholmod import cholesky, cholesky_AAt
+import pandas as pd
 
+
+def transform_theta(theta, levels, t_inds):
+    for i in range(levels):
+        G = invech(theta[t_inds[i]])
+        L = np.linalg.cholesky(G)
+        theta[t_inds[i]] = vech(L)
+    theta[-1] = np.log(theta[-1])
+    return theta
+        
+    
+def inverse_transform_theta(theta, levels, t_inds):
+    for i in range(levels): 
+        L = invech_chol(theta[t_inds[i]])
+        G = L.dot(L.T)
+        theta[t_inds[i]] = vech(G)
+    theta[-1] = np.exp(theta[-1])
+    return theta
+        
+
+def get_d2_chol(p):
+    Lp = lmat(p).A
+    T = np.zeros((p, p))
+    H = []
+    Ip = np.eye(p)
+    for j, i in list(zip(*np.triu_indices(p))):
+        T[i, j] = 1
+        Hij = (Lp.dot(np.kron(Ip, T+T.T)).dot(Lp.T))[np.newaxis]
+        H.append(Hij)
+        T[i, j] = 0
+    H = np.concatenate(H, axis=0)
+    return H
 
 def _dummy_encode(x, categories=None):
     categories = np.unique(x) if categories is None else categories
@@ -150,6 +184,7 @@ class RandomEffects(object):
         self.g_data = g_data
         self.l_data = l_data
         self.group_sizes = [term.n_group for term in terms]
+        self.n_pars = [term.n_param for term in terms]
 
         
 def replace_duplicate_operators(match):
@@ -221,7 +256,15 @@ class LMM(object):
         self.theta = random_effects.theta
         self.n_par = len(self.theta)
         self.H = np.zeros((self.n_par, self.n_par))
-        self.transforms = random_effects.transforms
+        self.elim_mats, self.symm_mats, self.iden_mats = {}, {}, {}
+        self.d2g_dchol = {}
+        for i in range(self.levels):
+            p = self.random_effects.n_pars[i]
+            self.elim_mats[i] = lmat(p).A
+            self.symm_mats[i] = nmat(p).A
+            self.iden_mats[i] = np.eye(p)
+            self.d2g_dchol[i] = get_d2_chol(self.random_effects.terms[i].n_rvars)
+        self.bounds = [(0, None) if x==1 else (None, None) for x in self.theta[:-1]]+[(None, None)]
         
     def update_gmat(self, theta, inverse=False):
         G = self.G
@@ -305,6 +348,61 @@ class LMM(object):
         n, p = X.shape
         dev = self.n * np.log(2 * np.pi * theta[-1]) + ld + pwrss / theta[-1]        
         return dev, b, u
+    
+    def dg_dchol(self, L_dict):
+        Jf = {}
+        for i in range(self.levels):
+            L = L_dict[i]
+            E = self.elim_mats[i]
+            N = self.symm_mats[i]
+            I = self.iden_mats[i]
+            Jf[i] = E.dot(N.dot(np.kron(L, I))).dot(E.T)
+        return Jf
+    
+    def loglike_c(self, theta_chol, reml=True, use_sw=False):
+        theta = inverse_transform_theta(theta_chol.copy(), self.levels, self.t_inds)
+        return self.loglike(theta, reml, use_sw)
+    
+    def gradient_c(self, theta_chol, reml=True, use_sw=False):
+        theta = inverse_transform_theta(theta_chol.copy(), self.levels, self.t_inds)
+        return self.gradient(theta, reml, use_sw)
+    
+    
+    def hessian_c(self, theta_chol, reml=True):
+        theta = inverse_transform_theta(theta_chol.copy(), self.levels, self.t_inds)
+        return self.hessian(theta, reml)
+    
+    def gradient_chol(self, theta_chol, reml=True, use_sw=False):
+        L_dict = self.update_chol(theta_chol)
+        Jf_dict = self.dg_dchol(L_dict)
+        Jg = self.gradient_c(theta_chol, reml, use_sw)
+        Jf = sp.linalg.block_diag(*Jf_dict.values()) 
+        Jf = np.pad(Jf, [[0, 1]])
+        Jf[-1, -1] =  np.exp(theta_chol[-1])
+        return Jg.dot(Jf)
+    
+    def hessian_chol(self, theta_chol, reml=True):
+        L_dict = self.update_chol(theta_chol)
+        Jf_dict = self.dg_dchol(L_dict)
+        Hq = self.hessian_c(theta_chol, reml)
+        Jg = self.gradient_c(theta_chol, reml)
+        Hf = self.d2g_dchol
+        Jf = sp.linalg.block_diag(*Jf_dict.values()) 
+        Jf = np.pad(Jf, [[0, 1]])
+        Jf[-1, -1] = np.exp(theta_chol[-1])
+        A = Jf.T.dot(Hq).dot(Jf)  
+        B = np.zeros_like(Hq)
+        
+        for i in range(self.levels):
+            ix = self.t_inds[i]
+            Jg_i = Jg[ix]
+            Hf_i = Hf[i]
+            C = np.einsum('i,ijk->jk', Jg_i, Hf_i)  
+            B[ix, ix[:, None]] += C
+        B[-1, -1] = Jg[-1] * np.exp(theta_chol[-1])
+        H = A + B
+        return H
+    
     
     def gradient(self, theta, reml=True, use_sw=False):
         s = theta[-1]
@@ -413,39 +511,202 @@ class LMM(object):
         H[-1, -1] = Py.T.dot(PPy)*2 - np.einsum("ij,ji->", P, P)
         return H
     
-    def loglike_grad(self, x):
-        theta = np.zeros_like(x)
-        theta[-1] = np.exp(x[-1])
-        dtheta_dx = []
-        for i in range(self.levels):
-            ix = self.t_inds[i]
-            transform = self.transforms[i]
-            theta[ix] = transform._rvs(x[ix])
-            dtheta_dx.append(transform._jac_rvs(x[ix]))
-        dtheta_dx.append(np.atleast_2d(np.exp(x[-1])))
-        df_dtheta = self.gradient(theta)
-        dtheta_dx = sp.linalg.block_diag(*dtheta_dx)
-        df_dx = df_dtheta.dot(dtheta_dx)
-        f = self.loglike(theta)
-        return f, df_dx
     
-    def _fwd_transform(self, theta):
-        x = np.zeros_like(theta)
-        x[-1] = np.log(theta[-1])
-        for i in range(self.levels):
-            ix = self.t_inds[i]
-            transform = self.transforms[i]
-            x[ix] = transform._fwd(theta[ix])
-        return x
-    
-    def _optimize(self):
-        x = self._fwd_transform(self.theta)
-        opt = sp.optimize.minimize(self.loglike_grad, x, jac=True, method="trust-constr",
-                                   options=dict(verbose=3, gtol=1e-6, xtol=1e-6))
-        self.opt=opt
-    
+    def vinvcrossprod(self, A, B, theta):
+        Rinv = self.W / theta[-1]
+        Ginv = self.update_gmat(theta, inverse=True)
+        RZ = Rinv.dot(self.Z)
+        Q = Ginv + self.Z.T.dot(RZ)
+        M = cholesky(Q).inv()
+        AtRB = ((Rinv.dot(B)).T.dot(A)).T 
+        AtRZ = (RZ.T.dot(A)).T
+        ZtRB = RZ.T.dot(B)
+        AtVB = AtRB - (M.dot(ZtRB)).T.dot(AtRZ.T).T
+        return AtVB
         
+    def _compute_effects(self, theta=None):
+        theta = self.theta if theta is None else theta
+        Ginv = self.update_gmat(theta, inverse=True)
+        M = self.update_mme(Ginv, theta)
+        XZy = np.r_[self.Xty.A, self.Zty.A].flatten() / theta[-1]
+        chol_fac = cholesky(M[:-1, :-1].tocsc())
+        betau = chol_fac.solve_A(XZy)
+        u = betau[self.X.shape[1]:].reshape(-1)
+        beta = betau[:self.X.shape[1]].reshape(-1)
+        
+        Rinv = self.W / theta[-1]
+        RZ = Rinv.dot(self.Z)
+        Q = Ginv + self.Z.T.dot(RZ)
+        M = cholesky(Q).inv()
+        XtRinvX = self.X.T.dot(Rinv.dot(self.X)) 
+        XtRinvZ = (RZ.T.dot(self.X)).T
+        XtVinvX = XtRinvX - XtRinvZ.dot(M.dot(XtRinvZ.T))
+        XtVinvX_inv = np.linalg.inv(XtVinvX)
+        return beta, XtVinvX_inv, u
+     
+    def update_chol(self, theta, inverse=False):
+        L_dict = {}
+        for i in range(self.levels):
+            theta_i = theta[self.t_inds[i]]
+            L_i = invech_chol(theta_i)
+            L_dict[i] = L_i
+        return L_dict
     
+    def _optimize(self, reml=True, use_grad=True, use_hess=False, approx_hess=False,
+                  opt_kws={}):
+      
+        default_opt_kws = dict(verbose=0, gtol=1e-6, xtol=1e-6)
+        for key, value in default_opt_kws.items():
+                if key not in opt_kws.keys():
+                    opt_kws[key] = value
+        if use_grad:
+
+            if use_hess:
+               hess = self.hessian_chol
+            elif approx_hess:
+                hess = lambda x, reml: so_gc_cd(self.gradient_chol, x, args=(reml,))
+            else:
+                hess = None
+            optimizer = sp.optimize.minimize(self.loglike_c, self.theta, args=(reml,),
+                                             jac=self.gradient_chol, hess=hess, 
+                                             options=opt_kws, bounds=self.bounds,
+                                             method='trust-constr')
+        else:
+            jac = lambda x, reml: fo_fc_cd(self.loglike_c, x, args=(reml,))
+            hess = lambda x, reml: so_fc_cd(self.loglike_c, x, args=(reml,))
+            optimizer = sp.optimize.minimize(self.loglike_c, self.theta, args=(reml,),
+                                             jac=jac, hess=hess, bounds=self.bounds,
+                                             method='trust-constr', options=opt_kws)
+        theta_chol = optimizer.x
+        theta = inverse_transform_theta(theta_chol.copy(), self.levels, self.t_inds)
+        return theta, theta_chol, optimizer
+        
+    def _post_fit(self, theta, theta_chol, optimizer, reml=True,
+                  use_grad=True, analytic_se=False):
+
+        beta, XtWX_inv, u = self._compute_effects(theta)
+        params = np.concatenate([beta, theta])
+        re_covs, re_corrs = {}, {}
+        for i in range(self.levels):
+            re_covs[i] = invech(theta[self.t_inds[i]].copy())
+            C = re_covs[i]
+            v = np.diag(np.sqrt(1/np.diag(C)))
+            re_corrs[i] = v.dot(C).dot(v)
+        
+        if analytic_se:
+            Htheta = self.hessian(theta)
+        elif use_grad:
+            Htheta = so_gc_cd(self.gradient, theta)
+        else:
+            Htheta = so_fc_cd(self.loglike, theta)
+        
+        self.theta, self.beta, self.u, self.params = theta, beta, u, params
+        self.Hinv_beta = XtWX_inv
+        self.Hinv_theta = np.linalg.pinv(Htheta/2.0)
+        self.se_beta = np.sqrt(np.diag(XtWX_inv))
+        self.se_theta = np.sqrt(np.diag(self.Hinv_theta))
+        self.se_params = np.concatenate([self.se_beta, self.se_theta])  
+        self.optimizer = optimizer
+        self.theta_chol = theta_chol
+        if reml:
+            self.llconst = (self.X.shape[0] - self.X.shape[1])*np.log(2*np.pi)
+        else:
+            self.llconst = self.X.shape[0] * np.log(2*np.pi)
+        self.lltheta = self.optimizer.fun
+        self.ll = (self.llconst + self.lltheta)
+        self.llf = self.ll / -2.0
+        self.re_covs = re_covs
+        self.re_corrs = re_corrs
+        if reml:
+            n = self.X.shape[0] - self.X.shape[1]
+            d = len(self.theta)
+        else:
+            n = self.X.shape[0]
+            d = self.X.shape[1] + len(self.theta)
+        self.AIC = self.ll + 2.0 * d
+        self.AICC = self.ll + 2 * d * n / (n-d-1)
+        self.BIC = self.ll + d * np.log(n)
+        self.CAIC = self.ll + d * (np.log(n) + 1)
+        sumstats = np.array([self.ll, self.llf, self.AIC, self.AICC,
+                             self.BIC, self.CAIC])
+        self.sumstats = pd.DataFrame(sumstats, index=['ll', 'llf', 'AIC', 'AICC',
+                                                      'BIC', 'CAIC'], columns=['value'])
+    
+    def predict(self, X=None, Z=None):
+
+        if X is None:
+            X = self.X
+        if Z is None:
+            Z = self.Z
+        yhat = X.dot(self.beta)+Z.dot(self.u)
+        return yhat
+    
+    def fit(self, reml=True, use_grad=True, use_hess=False, approx_hess=False,
+            analytic_se=False, adjusted_pvals=True, opt_kws={}):
+    
+        theta, theta_chol, optimizer = self._optimize(reml, use_grad, use_hess, 
+                                                      approx_hess, opt_kws)
+        self._post_fit(theta, theta_chol, optimizer, reml, use_grad, 
+                       analytic_se)
+        param_names = list(self.fe_vars)
+        for k in range(self.levels):
+            group = self.random_effects.terms[k].gr_form
+            p = self.random_effects.terms[k].n_rvars
+            for i, j in list(zip(*np.triu_indices(p))):
+                param_names.append(f"{group}:G[{i}][{j}]")
+        param_names.append("resid_cov")
+        self.param_names = param_names
+        res = np.vstack((self.params, self.se_params)).T
+        res = pd.DataFrame(res, index=param_names, columns=['estimate', 'SE'])
+        res['t'] = res['estimate'] / res['SE']
+        res['p'] = sp.stats.t(self.X.shape[0]-self.X.shape[1]).sf(np.abs(res['t']))
+        res['degfree'] = self.X.shape[0] - self.X.shape[1]
+        if adjusted_pvals:
+            L = np.eye(self.X.shape[1])
+            L_list = [L[[i]] for i in range(self.X.shape[1])]
+            adj_table = pd.DataFrame(self.approx_degfree(L_list), index=self.fe_vars)
+            res.loc[self.fe_vars, 't'] = adj_table['F']**0.5
+            res.loc[self.fe_vars, 'degfree'] = adj_table['df2']
+            res.loc[self.fe_vars, 'p'] = adj_table['p']
+        self.res = res
+        
+    def approx_degfree(self, L_list=None, theta=None, beta=None, method='satterthwaite'):
+        L_list = [np.eye(self.X.shape[1])] if L_list is None else L_list
+        theta = self.theta if theta is None else theta
+        beta = self.beta if beta is None else beta
+        C = np.linalg.inv(self.vinvcrossprod(self.X, self.X, theta))
+        Vtheta = np.linalg.inv(so_gc_cd(self.gradient, theta))
+        J = []
+        for i in range(self.levels):
+            ind = self.jac_inds[i]
+            XtVZ = self.vinvcrossprod(self.X, self.Z[:, ind], theta)
+            CXtVZ = C.dot(XtVZ)
+            for dGdi in self.random_effects.terms[i].G_deriv:
+                dC = CXtVZ.dot(dGdi.dot(CXtVZ.T))
+                J.append(dC)
+        XtVi = self.vinvcrossprod(self.X, self.W.copy(), theta)
+        CXtVi = C.dot(XtVi)
+        J.append(CXtVi.dot(CXtVi.T))
+        res = []
+        for L in L_list:
+            u, Q = np.linalg.eigh(L.dot(C).dot(L.T))
+            order = np.argsort(u)[::-1]
+            u, Q = u[order], Q[:, order]
+            q = np.linalg.matrix_rank(L)
+            P = Q.T.dot(L)
+            t2 = (P.dot(beta))**2 / u
+            f = np.sum(t2) / q
+            D = []
+            for i in range(q):
+                x = P[i]
+                D.append([np.dot(x, Ji).dot(x) for Ji in J])
+            D = np.asarray(D)
+            nu_d = np.array([D[i].T.dot(Vtheta).dot(D[i]) for  i in range(q)])
+            nu_m = u**2 / nu_d
+            E = np.sum(nu_m[nu_m>2] / (nu_m[nu_m>2] - 2.0))
+            nu = 2.0 * E / (E - q)
+            res.append(dict(F=f, df1=q, df2=nu, p=sp.stats.f(q, nu).sf(f)))
+        return res
     
 
 
