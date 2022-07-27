@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+Created on Tue Jul 26 20:58:05 2022
+
+@author: lukepinkel
+"""
+
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
 Created on Mon Jul 27 20:00:38 2020
 
 @author: lukepinkel
@@ -11,52 +19,20 @@ import numpy as np
 import scipy as sp
 import scipy.stats
 import matplotlib.pyplot as plt
-from .lmm import LMM, make_theta
+from .lmm import LMM
 from ..utilities.data_utils import _check_shape, sign_change
 from ..utilities.linalg_operations import vech
 from sksparse.cholmod import cholesky
 from ..utilities.random import trnorm, r_invwishart, r_invgamma
 from ..utilities.func_utils import poisson_logp, log1p, norm_cdf
- 
+from .ranef_terms import RandomEffects, RandomEffectTerm
+from ..utilities.linalg_operations import invech_chol, invech, vech
+from ..utilities.numerical_derivs import fo_fc_cd, so_fc_cd, so_gc_cd
+from ..utilities.special_mats import lmat
+from ..utilities.formula import parse_random_effects
 
 
-def get_u_indices(dims): 
-    u_indices = {}
-    start=0
-    for key, val in dims.items():
-        q = val['n_groups']*val['n_vars']
-        u_indices[key] = np.arange(start, start+q)
-        start+=q
-    return u_indices
 
-def wishart_info(dims):
-    ws = {}
-    for key in dims.keys():
-        ws[key] = {}
-        q = dims[key]['n_groups']
-        k = dims[key]['n_vars']
-        nu = q-(k+1)
-        ws[key]['q'] = q
-        ws[key]['k'] = k
-        ws[key]['nu'] = nu
-    return ws
-
-def sample_gcov(theta, u, wsinfo, indices, key, priors):
-    u_i = u[indices['u'][key]]
-    U_i = u_i.reshape(-1, wsinfo[key]['k'], order='C')
-    Sg_i =  U_i.T.dot(U_i)
-    Gs = r_invwishart(wsinfo[key]['nu']+priors[key]['n'], 
-                             Sg_i+priors[key]['V'])
-    theta[indices['theta'][key]] = vech(Gs)
-    return theta
-
-def sample_rcov(theta, y, yhat, wsinfo, priors):
-    resid = y - yhat
-    sse = resid.T.dot(resid)
-    nu = wsinfo['r']['nu'] 
-    ss = r_invgamma((nu+priors['R']['n'])/2, scale=(sse+priors['R']['V'])/2)
-    theta[-1] = ss 
-    return theta
 
 
 def to_arviz_dict(samples, var_dict, burnin=0):
@@ -189,12 +165,13 @@ class MixedMCMC(LMM):
         super().__init__(formula, data) 
         
         #Initialize parameters, get misc information for sampling
-        self.t_init, _ = make_theta(self.dims)
-        self.W = sp.sparse.csc_matrix(self.XZ)
+        self.t_init = self.theta.copy()
+        self.t_init[-1] = 1.0
+        self.W = sp.sparse.hstack([self.X, self.Z]).tocsc()
         self.WtW = self.W.T.dot(self.W)
-        self.wsinfo = wishart_info(self.dims)
+        self.wsinfo = self.random_effects.wishart_info()
         self.y = _check_shape(self.y, 1)
-        self.indices['u'] = get_u_indices(self.dims)
+        self.u_indices = self.random_effects.get_u_indices()
         
         if weights is None:
             self.weights = np.ones_like(self.y)
@@ -214,9 +191,9 @@ class MixedMCMC(LMM):
                 priors = dict(R=dict(V=0, n=-2))
             else:
                 priors = dict(R=dict(V=0.500*self.n_ob, n=self.n_ob))
-            for level in self.levels:
-                Vi = np.eye(self.dims[level]['n_vars'])*0.001
-                priors[level] = dict(V=Vi, n=4)
+            for i in range(self.levels):
+                Vi = np.eye(self.random_effects.n_rvars[i])*0.001
+                priors[i] = dict(V=Vi, n=4)
         self.priors = priors
         self.wsinfo['r'] = dict(nu=self.n_ob-2)
         
@@ -263,9 +240,10 @@ class MixedMCMC(LMM):
         self.vnames = vnames
 
         param_names = list(self.fe_vars)
-        for level in self.levels:
-            for i, j in list(zip(*np.triu_indices(self.dims[level]['n_vars']))):
-                param_names.append(f"{level}:G[{i}][{j}]")
+        for i in range(self.levels):
+            group = self.random_effects.terms[i].gr_form
+            for i, j in list(zip(*np.triu_indices(self.random_effects.n_rvars[i]))):
+                param_names.append(f"{group}:G[{i}][{j}]")
         
         if self.freeR:
             param_names.append("resid_cov")
@@ -304,7 +282,7 @@ class MixedMCMC(LMM):
         M+=Omega
         chol_fac = cholesky(Ginv, ordering_method='natural')
         a_star = chol_fac.solve_Lt(x1, use_LDLt_decomposition=False)
-        y_z = y - (self.Zs.dot(a_star) + x2 * s)
+        y_z = y - (self.Z.dot(a_star) + x2 * s)
         ofs = self.offset.copy()
         ofs[-self.n_re:] = a_star
         m_chol = cholesky(M.tocsc())
@@ -350,14 +328,31 @@ class MixedMCMC(LMM):
             ub = j*tau[i]
             v[ix] = trnorm(mu, sd, lb, ub)
         return v
-    
-    def sample_theta(self, theta, u, z, pred, freeR=True):
-        for key in self.levels:
-            theta = sample_gcov(theta.copy(), u, self.wsinfo, self.indices,
-                                key, self.priors)
-        if freeR:
-            theta = sample_rcov(theta, z, pred, self.wsinfo, self.priors)
+        
+        
+    def sample_gcov(self, theta, u, i):
+        u_i = u[self.u_indices[i]]
+        U_i = u_i.reshape(-1, self.wsinfo[i]['k'], order='C')
+        Sg_i =  U_i.T.dot(U_i)
+        Gs = r_invwishart(self.wsinfo[i]['nu']+self.priors[i]['n'], Sg_i+self.priors[i]['V'])
+        theta[self.t_inds[i]] = vech(Gs)
         return theta
+    
+    def sample_rcov(self, theta, y, yhat):
+        resid = y - yhat
+        sse = resid.T.dot(resid)
+        nu = self.wsinfo['r']['nu'] 
+        ss = r_invgamma((nu + self.priors['R']['n'])/2, scale=(sse + self.priors['R']['V'])/2)
+        theta[-1] = ss 
+        return theta
+
+    def sample_theta(self, theta, u, z, pred, freeR=True):
+        for i in range(self.levels):
+            theta = self.sample_gcov(theta.copy(), u, i)
+        if freeR:
+            theta = self.sample_rcov(theta, z, pred)
+        return theta
+    
     
     def slice_sample_lvar(self, rexpon, v, z, theta, pred):
         v[self.ix1] = z[self.ix1] - log1p(np.exp(z[self.ix1]))

@@ -607,8 +607,10 @@ class FactorAnalysis(object):
                        np.arange(self.nl+self.ns, self.nl+self.ns+self.nr)]
             lix = vec(np.tril(np.ones((self.m, self.m)), -1)!=0)
             H[:nt, :nt] = self.H[ixp, ixp[:, None]] 
-            H[nt:, :-nc] = dCdL[lix]
-            H[:-nc, nt:] = dCdL[lix].T 
+            if self.nc > 0:
+                H[nt:, :-nc] = dCdL[lix]
+                H[:-nc, nt:] = dCdL[lix].T 
+
             
             
         self.ixp = ixp

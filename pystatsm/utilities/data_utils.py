@@ -7,6 +7,8 @@ Created on Tue May 19 21:28:03 2020
 """
 import numba
 import numpy as np
+import scipy as sp
+import scipy.sparse as sps
 import pandas as pd
 
 @numba.jit(nopython=True, parallel=True)
@@ -164,6 +166,27 @@ def dummy(x, fullrank=True, categories=None):
     return _dummy(x, fullrank, categories)
 
 
+def _dummy_encode(x, categories=None):
+    categories = np.unique(x) if categories is None else categories
+    n_cols = len(categories)
+    rows, cols = [], []
+    for i, c in enumerate(categories):
+        rows_c, = np.where(x==c)
+        cols_c = np.repeat(i, len(rows_c))
+        rows.append(rows_c)
+        cols.append(cols_c)
+    row_inds = np.concatenate(rows)
+    col_inds = np.concatenate(cols)
+    return row_inds, col_inds, n_cols
+
+
+def dummy_encode(x, categories=None):
+    categories = np.unique(x) if categories is None else categories
+    n_rows = x.shape[0]
+    row_inds, col_inds, n_cols = _dummy_encode(x, categories)
+    data = np.ones(n_rows)
+    X = sps.csc_matrix((data, (row_inds, col_inds)), shape=(n_rows, n_cols))
+    return X
 
 @numba.jit(nopython=True)
 def _sign_change_1d(arr, b):

@@ -64,3 +64,46 @@ def expit(x):
     y = u / (1.0 + u)
     return y
 
+
+
+def sum_preserving_round(arr):
+    arr_floor = np.floor(arr)
+    arr_fract = arr - arr_floor
+    arr_fract_sort = np.argsort(arr_fract)
+    sum_diff = int(np.round(np.sum(arr) -  np.sum(arr_floor)))
+    ind = arr_fract_sort[-sum_diff:]
+    arr_floor[ind] = arr_floor[ind] + 1
+    return arr_floor
+
+
+def sum_preserving_min(arr, min_):
+    arr_ind = arr < min_
+    arr_diff= arr - min_
+    n_lt = np.sum(arr_ind)
+    if n_lt > 0:
+        arr_sort = np.argsort(arr)[-n_lt:]
+        arr[arr_ind] = arr[arr_ind] - arr_diff[arr_ind]
+        arr[arr_sort] = arr[arr_sort] + arr_diff[arr_ind]
+    return arr
+    
+    
+
+def sizes_to_inds(sizes):
+    return np.r_[0, np.cumsum(sizes)]
+    
+def sizes_to_slice_vals(sizes):
+    inds = sizes_to_inds(sizes)
+    return list(zip(inds[:-1], inds[1:]))
+
+
+
+def allocate_from_proportions(n, proportions):
+    if np.abs(1.0 - np.sum(proportions)) > 1e-12:
+        raise ValueError("Proportions Don't Sum to One")
+    k = proportions * n
+    k = sum_preserving_min(k, 1)
+    k = sum_preserving_round(k).astype(int)
+    slice_vals = sizes_to_slice_vals(k)
+    return k, slice_vals
+
+
