@@ -68,6 +68,19 @@ def corr(X):
     S = np.dot(X.T, X) / n
     return S
 
+def _csd(arr, return_stats=False):
+    arr_mean = np.mean(arr, axis=0)
+    arr_centered = arr - arr_mean
+    arr_var = np.sum(arr_centered*arr_centered, axis=0) / arr.shape[0]
+    arr_std = np.sqrt(arr_var)
+    arr_csd = arr_centered / arr_std
+    if return_stats:
+        return arr_csd, arr_mean, arr_std
+    else:
+        return arr_csd
+
+
+
 def ssq(arr, axis=0):
     if axis == 0:
         s = np.einsum("ij,ij->j", arr, arr, optimize=True)
@@ -85,11 +98,7 @@ def norm_diag(A):
     s = np.sqrt(1.0 / np.diag(A)).reshape(-1, 1)
     A = s.T * A * s
     return A
-
-def eighs(A):
-    u, V = np.linalg.eigh(A)
-    u, V = u[::-1], V[:, ::-1]
-    return u, V    
+ 
 
 def flip_signs(V):
     j = np.argmax(np.abs(V), axis=0)
@@ -147,6 +156,24 @@ def _check_np(x):
     if type(x) is not np.ndarray:
         x = x.values
     return x
+
+def _handle_pandas(data, col_prefix="x"):
+    if type(data) not in [pd.DataFrame, pd.Series]:
+        n, p = data.shape
+        cols, inds = [f'{col_prefix}{i}' for i in range(1, p+1)], np.arange(n)
+        arr = np.asarray(data)
+    else:
+        arr, cols, inds = data.values, data.columns, data.index
+    return arr, cols, inds
+
+def is_iterable(obj):
+    try:
+        _ = iter(obj)
+    except TypeError:
+        iterable = False
+    else:
+        iterable = True
+    return iterable
 
 @numba.jit(nopython=True)
 def _dummy(x, fullrank=True, categories=None):

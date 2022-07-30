@@ -226,7 +226,24 @@ def diag_outer_prod(A, B):
 def wdiag_outer_prod(X, W, Y):
     v = np.einsum("ij,jk,ik->i", X, W, Y, optimize=True)
     return v
-    
+
+def cproject(A):
+    "project onto column space"
+    #U, _, _ = np.linalg.svd(A, full_matrices=False)
+    #P = U.dot(U.T)
+    P = A.dot(np.linalg.pinv(A))
+    return P
+
+def eighs(A):
+    u, V = np.linalg.eigh(A)
+    u, V = u[::-1], V[:, ::-1]
+    return u, V    
+
+def inv_sqrt(arr):
+    u, V  = eighs(arr)
+    u[u>1e-12] = 1.0 / np.sqrt(u[u>1e-12])
+    arr = (V * u).dot(V.T)
+    return arr
 
 
 

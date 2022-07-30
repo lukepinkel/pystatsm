@@ -8,17 +8,12 @@ Created on Fri Jul 29 15:25:10 2022
 
 import numpy as np
 from ..utilities.random import r_lkj, exact_rmvnorm
-from ..utilities.data_utils import eighs
+from ..utilities.linalg_operations import cproject, inv_sqrt, eighs
 
-
-def inv_sqrt(arr):
-    u, V  = eighs(arr)
-    u[u>1e-12] = 1.0 / np.sqrt(u[u>1e-12])
-    arr = (V * u).dot(V.T)
-    return arr
-
-
-
+def normalize_wrt_corr(X, S):
+    w = np.einsum("ij,ik,kj->j", X, S, X, optimize=True)
+    X = X / np.sqrt(w)
+    return X
 
 def _cca(X, Y, n_comps=None, center=False, standardize=False):
     if center:
@@ -46,7 +41,7 @@ def _cca(X, Y, n_comps=None, center=False, standardize=False):
 class SimCCA(object):
     
     def __init__(self,  n_xvars, n_yvars, rhos=None, x_corr=None, y_corr=None, 
-                 rng=None, seed=None):
+                 x_coefs=None, y_coefs=None, rng=None, seed=None):
         rng = np.random.default_rng(seed) if rng is None else rng
         self.seed, self.rng = seed, rng
         self.n_xvars = self.p = n_xvars
@@ -54,10 +49,29 @@ class SimCCA(object):
         rhos = 1/(np.linspace(1, n_xvars, n_xvars)+1/19) if rhos is None else rhos
         Sxx = r_lkj(eta=1.0, n=1, dim=n_xvars, rng=rng)[0, 0] if x_corr is None else x_corr
         Syy = r_lkj(eta=1.0, n=1, dim=n_yvars, rng=rng)[0, 0] if y_corr is None else y_corr
-        self._set_corrmats(Sxx, Syy, rhos)
+        if x_coefs is None or y_coefs is None:
+            self._set_corrmats_from_rho(Sxx, Syy, rhos)
+        else:
+            self._set_corrmats_from_coefs(Sxx, Syy, x_coefs, y_coefs, rhos)
+    
+    def _set_corrmats_from_coefs(self, Sxx, Syy, x_coefs, y_coefs, rhos):
+        Wx, Wy = normalize_wrt_corr(x_coefs, Sxx), normalize_wrt_corr(y_coefs, Syy)
+        C = np.einsum("ij,j,kj->ik", Wx, rhos, Wy) 
+        Sxy = Sxx.dot(C).dot(Syy)
+        S = np.block([[Sxx, Sxy], [Sxy.T, Syy]])
+        self._C = C
+        self.corr = self.S = S
+        self.x_corr = self.Sxx = Sxx
+        self.y_corr = self.Syy = Syy
+        self.xy_corr = self.Sxy = Sxy
+        self.rhos = rhos
+        self.x_coefs = self.Wx = Wx
+        self.y_coefs = self.Wy = Wy
+        self.Lx, self.Ly = self.Sxx.dot(self.Wx), self.Syy.dot(self.Wy)
+        self.Px, self.Py = cproject(self.Wx), cproject(self.Wy)
+
         
-        
-    def _set_corrmats(self, Sxx, Syy, rhos):
+    def _set_corrmats_from_rho(self, Sxx, Syy, rhos):
         x_eig, A0 = eighs(Sxx)
         y_eig, B0 = eighs(Syy)
         
@@ -79,6 +93,7 @@ class SimCCA(object):
         self.y_coefs = self.Wy = B
         self.y_coefs_inv = self.Wy_inv = B_inv
         self.Lx, self.Ly = self.Sxx.dot(self.Wx), self.Syy.dot(self.Wy)
+        self.Px, self.Py = cproject(self.Wx), cproject(self.Wy)
     
     def simulate_data(self, n_obs=1000, exact=False):
         if exact:
