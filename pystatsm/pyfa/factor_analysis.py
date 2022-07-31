@@ -12,10 +12,10 @@ import scipy.stats
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-from ..utilities.linalg_operations import vec, invec, vech, vecl, invecl
+from ..utilities.linalg_operations import vec, invec, vech, vecl, invecl, eighs
 from ..utilities.indexing_utils import vecl_inds
 from ..utilities.special_mats import nmat, dmat, lmat
-from ..utilities.data_utils import _check_type, cov, eighs, flip_signs
+from ..utilities.data_utils import _check_type, cov, flip_signs
 from .fit_measures import srmr, lr_test, gfi, agfi
 from .rotation import GeneralizedCrawfordFerguson, get_gcf_constants
 from ..utilities.numerical_derivs import so_gc_cd
