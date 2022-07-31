@@ -21,9 +21,9 @@ def align_model_matrices(L_target, L, Phi, L_se, Phi_se, permutation=None):
     else:
         j, s = permutation
     L_aligned = L[:, j] * s
-    L_se_aligned = L_se[:, j] * s
+    L_se_aligned = L_se[:, j]# * s
     Phi_aligned = s * Phi[:, j][j] * s[:,None]
-    Phi_se_aligned = s * Phi_se[:, j][j] * s
+    Phi_se_aligned = Phi_se[:, j][j]
     return L_aligned, L_se_aligned, Phi_aligned, Phi_se_aligned, j, s
         
 
