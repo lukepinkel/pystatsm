@@ -618,18 +618,19 @@ class FactorAnalysis(object):
         self.H_aug = H
         self.se_params = np.sqrt(np.diag(np.linalg.inv(self.H_aug))[:nt]/self.n_obs * 2.0) 
         self.L_se = invec(self.se_params[self.lix], self.n_vars, self.n_facs)
-    
+            
     def constraint_jac(self, params):
+        L, Phi, Psi = self.model_matrices_augmented(params)
         if self.rotation_type == "oblique":
-            dCdL = self._rotate.dC_dL_Obl(self.L, self.Phi)
-            dCdP = self._rotate.dC_dP_Obl(self.L, self.Phi)
+            dCdL = self._rotate.dC_dL_Obl(L, Phi)
+            dCdP = self._rotate.dC_dP_Obl(L, Phi)
             dCdL = dCdL.reshape(self.m * self.m, self.p * self.m, order='F')
             dCdP = dCdP.reshape(self.m**2, self.m**2, order='F')
             lix = vec(np.eye(self.m)!=1)
             cix = vec(np.tril(np.ones(self.m), -1)!=0)
             dC = np.concatenate([dCdL[lix], dCdP[lix][:, cix]], axis=1)
         elif self.rotation_type == "ortho":
-            dCdL = self._rotate.dC_dL_Ortho(self.L, self.Phi)
+            dCdL = self._rotate.dC_dL_Ortho(L, Phi)
             lix = vec(np.tril(np.ones((self.m, self.m)), -1)!=0)
             dC = dCdL[lix]
         else:

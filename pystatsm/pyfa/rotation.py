@@ -139,6 +139,7 @@ class RotationMethod(object):
         C = np.dot(L.T, dQ) - np.dot(dQ.T, L)
         return C
     
+    
     def unrotated_constraints(self, L, Phi, Psi):
         Lm = lmat(self.m)
         Nm = nmat(self.m)

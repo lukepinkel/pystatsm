@@ -180,7 +180,7 @@ def get_antedependence1_corr(rho):
     R[np.triu_indices(n, 1)[::-1]] = R[np.tril_indices(n, -1)[::-1]] = r
     return R
 
-def get_factor_cov(A, Psi):
+def get_factor_cov(A, Psi, Phi=None):
     """
 
     Parameters
@@ -196,9 +196,10 @@ def get_factor_cov(A, Psi):
         Factor structure covariance matrix.
 
     """
+    Phi = np.eye(A.shape[1]) if Phi is None else Phi
     if Psi.ndim==2:
         Psi = np.diag(Psi)
-    S = np.dot(A, A.T)
+    S = np.dot(A.dot(Phi), A.T)
     S[np.diag_indices_from(S)] += Psi
     return S
 
