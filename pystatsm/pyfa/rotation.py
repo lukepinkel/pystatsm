@@ -288,7 +288,24 @@ class GeneralizedCrawfordFerguson(RotationMethod):
         return J
     
     
-
+class TargetRotation(RotationMethod):
+    def __init__(self, A, H, W=None, rotation_type="ortho"):
+        W = np.ones_like(A) if W is None else W
+        super().__init__(A, rotation_type)
+        self.W, self.H = W, H
+    
+    def Q(self, L):
+        f = np.sum((self.W * (L - self.H))**2) / 2
+        return f
+    
+    def dQ(self, L):
+        dQ = self.W * (L - self.H)
+        return dQ
+    
+    def vgQ(self, L):
+        Gq = self.W * (L - self.H)
+        fq = np.sum(Gq**2) / 2
+        return fq, Gq
                    
 
 

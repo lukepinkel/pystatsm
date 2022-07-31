@@ -571,5 +571,17 @@ class SCCA:
            
         progress_bar.close()
         return Wx, Wy, res
-              
+    
+    def fit(self, ncv, n_comps=None, cv_kws=None, fit_kws=None):
+        cv_kws = {} if cv_kws is None else cv_kws
+        fit_kws = {} if fit_kws is None else fit_kws
+
+        self.Wxcv, self.Wycv, self.rf, self.rt, self.lambdas, optinfo = self.crossval(ncv,
+                                                                                      n_comps,
+                                                                                      **cv_kws)
+        self.lmax = np.argmax(self.rt.mean(axis=1)[:, [0, 2]].mean(axis=1))
+        self.lam = self.lambdas[self.lmax]
+        self.Wx, self.Wy, self.rho, self.optinfo = self._fit(self.lam, self.lam,
+                                                             n_comps,
+                                                             **fit_kws)
         

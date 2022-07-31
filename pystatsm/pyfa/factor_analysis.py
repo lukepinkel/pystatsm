@@ -12,7 +12,8 @@ import scipy.stats
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-from ..utilities.linalg_operations import vec, invec, vech, vecl, invecl, vecl_inds
+from ..utilities.linalg_operations import vec, invec, vech, vecl, invecl
+from ..utilities.indexing_utils import vecl_inds
 from ..utilities.special_mats import nmat, dmat, lmat
 from ..utilities.data_utils import _check_type, cov, eighs, flip_signs
 from .fit_measures import srmr, lr_test, gfi, agfi

@@ -8,36 +8,12 @@ Created on Fri Jul 29 15:25:10 2022
 
 import numpy as np
 from ..utilities.random import r_lkj, exact_rmvnorm
-from ..utilities.linalg_operations import cproject, inv_sqrt, eighs
+from ..utilities.linalg_operations import cproject, eighs
 
 def normalize_wrt_corr(X, S):
     w = np.einsum("ij,ik,kj->j", X, S, X, optimize=True)
     X = X / np.sqrt(w)
     return X
-
-def _cca(X, Y, n_comps=None, center=False, standardize=False):
-    if center:
-        X = X - np.mean(X, axis=0)
-        Y = Y - np.mean(Y, axis=0)
-    if standardize:
-        X = X / np.std(X, axis=0)
-        Y = Y / np.std(Y, axis=0)
-    n_obs = X.shape[0]
-    Sxy = np.dot(X.T, Y) / n_obs
-    Sxx = np.dot(X.T, X) / n_obs
-    Syy = np.dot(Y.T, Y) / n_obs
-   
-    Sxx_isq, Syy_isq = inv_sqrt(Sxx), inv_sqrt(Syy)
-    U, s, Vt = np.linalg.svd(Sxx_isq.dot(Sxy).dot(Syy_isq))
-    V = Vt.T
-    Wx = Sxx_isq.dot(U)
-    Wy = Syy_isq.dot(V)
-    rhos = s
-    if n_comps is not None:
-        Wx, Wy, rhos = Wx[:, :n_comps], Wy[:, :n_comps], rhos[:n_comps]
-    Lx, Ly = Sxx.dot(Wx), Syy.dot(Wy)
-    return Lx, Ly, Wx, Wy, rhos
-
 class SimCCA(object):
     
     def __init__(self,  n_xvars, n_yvars, rhos=None, x_corr=None, y_corr=None, 

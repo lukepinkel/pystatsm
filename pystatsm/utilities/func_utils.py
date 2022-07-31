@@ -65,7 +65,6 @@ def expit(x):
     return y
 
 
-
 def sum_preserving_round(arr):
     arr_floor = np.floor(arr)
     arr_fract = arr - arr_floor
@@ -86,15 +85,12 @@ def sum_preserving_min(arr, min_):
         arr[arr_sort] = arr[arr_sort] + arr_diff[arr_ind]
     return arr
     
-    
-
 def sizes_to_inds(sizes):
     return np.r_[0, np.cumsum(sizes)]
     
 def sizes_to_slice_vals(sizes):
     inds = sizes_to_inds(sizes)
     return list(zip(inds[:-1], inds[1:]))
-
 
 
 def allocate_from_proportions(n, proportions):
@@ -105,5 +101,12 @@ def allocate_from_proportions(n, proportions):
     k = sum_preserving_round(k).astype(int)
     slice_vals = sizes_to_slice_vals(k)
     return k, slice_vals
+
+
+def handle_default_kws(kws, default_kws):
+    kws = {} if kws is None else kws
+    kws = {**default_kws, **kws}
+    return kws
+    
 
 

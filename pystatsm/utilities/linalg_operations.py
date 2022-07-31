@@ -161,12 +161,6 @@ def invech_chol(lvec):
     return L
 
 
-def vecl_inds(n):
-    i, j = np.indices((n, n))
-    i, j = i.flatten(), j.flatten()
-    ix = j>i
-    return ix
-
 
 def vdg(X):
     V = np.diag(vec(X))

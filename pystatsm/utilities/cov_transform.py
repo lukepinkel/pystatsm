@@ -13,7 +13,6 @@ from .special_mats import lmat, nmat
 from .numerical_derivs import jac_approx
 from .dchol import dchol, unit_matrices
 
-
 def _hess_chain_rule(d2z_dy2, dy_dx, dz_dy, d2y_dx2):
     H1 = np.einsum("ijk,kl->ijl", d2z_dy2, dy_dx, optimize=True)
     H1 = np.einsum("ijk,jl->ilk", H1, dy_dx, optimize=True)

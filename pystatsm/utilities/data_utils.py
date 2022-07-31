@@ -80,6 +80,22 @@ def _csd(arr, return_stats=False):
         return arr_csd
 
 
+def normalize_xtrx(X, R):
+    """
+
+    Parameters
+    ----------
+    X : array
+    R : array
+    Returns
+    -------
+    X : array
+        X normalized such that diag(X'RX)=1.
+
+    """
+    w = np.einsum("ij,ik,kj->j", X, R, X, optimize=True)
+    X = X / np.sqrt(w)
+    return X
 
 def ssq(arr, axis=0):
     if axis == 0:
@@ -98,7 +114,7 @@ def norm_diag(A):
     s = np.sqrt(1.0 / np.diag(A)).reshape(-1, 1)
     A = s.T * A * s
     return A
- 
+
 
 def flip_signs(V):
     j = np.argmax(np.abs(V), axis=0)
