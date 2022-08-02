@@ -695,7 +695,7 @@ class FactorAnalysis(object):
         return ax
     
         
-    def compute_factors(self, method="regression"):
+    def compute_factors(self, method="tenberge"):
         """
         
 
