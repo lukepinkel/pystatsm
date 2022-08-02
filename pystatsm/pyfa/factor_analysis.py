@@ -12,10 +12,10 @@ import scipy.stats
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-from ..utilities.linalg_operations import vec, invec, vech, vecl, invecl, eighs
+from ..utilities.linalg_operations import vec, invec, vech, vecl, invecl, eighs, mat_sqrt, inv_sqrt
 from ..utilities.indexing_utils import vecl_inds
 from ..utilities.special_mats import nmat, dmat, lmat
-from ..utilities.data_utils import _check_type, cov, flip_signs
+from ..utilities.data_utils import _check_type, cov, flip_signs, corr
 from .fit_measures import srmr, lr_test, gfi, agfi
 from .rotation import GeneralizedCrawfordFerguson, get_gcf_constants
 from ..utilities.numerical_derivs import so_gc_cd
@@ -693,6 +693,7 @@ class FactorAnalysis(object):
         plot_kws = {**default_plot_kws, **plot_kws}
         ax = sns.heatmap(self.L, **plot_kws)
         return ax
+    
         
     def compute_factors(self, method="regression"):
         """
@@ -712,13 +713,18 @@ class FactorAnalysis(object):
 
         """
         X = self.X - np.mean(self.X, axis=0)
-        if method=='regression':
-            factor_coefs = np.linalg.inv(self.S).dot(self.L)
-            factors = X.dot(factor_coefs)
-        elif method=='bartlett':
-            A = self.L.T.dot(np.diag(1/np.diag(self.Psi)))
-            factor_coefs = (np.linalg.inv(A.dot(self.L.values)).dot(A)).T
-            factors =  X.dot(factor_coefs)
+        R = corr(X)
+        L, Phi = self.L, self.Phi
+        A = L.dot(Phi)
+        if method == "thurstone":
+            factor_coefs = np.linalg.solve(R, A)
+        elif method == "tenberge":
+            Phi_sq = mat_sqrt(Phi)
+            R_isq = inv_sqrt(R)
+            P = L.dot(Phi_sq)
+            C = R_isq.dot(P).dot(inv_sqrt(P.T.dot(np.linalg.solve(R, P))))
+            factor_coefs = R_isq.dot(C).dot(Phi_sq)
+        factors = X.dot(factor_coefs)
         return factor_coefs, factors
 
 

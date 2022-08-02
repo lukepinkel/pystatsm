@@ -239,6 +239,12 @@ def inv_sqrt(arr):
     arr = (V * u).dot(V.T)
     return arr
 
+def mat_sqrt(arr):
+    u, V  = eighs(arr)
+    u[u>1e-12] = np.sqrt(u[u>1e-12])
+    arr = (V * u).dot(V.T)
+    return arr
+
 
 
 @numba.jit(nopython=True)
