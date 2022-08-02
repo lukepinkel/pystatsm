@@ -639,7 +639,7 @@ class FactorAnalysis(object):
             dC = dCdL[lix]
         return dC
         
-    def fit(self, compute_factors=True, factor_method='regression', hess=True,
+    def fit(self, compute_factors=True, factor_method='tenberge', hess=True,
             opt_kws=None):
         """
         
