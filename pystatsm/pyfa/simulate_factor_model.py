@@ -67,9 +67,9 @@ class FactorModelSim(object):
         factor_corr_kws = {} if factor_corr_kws is None else factor_corr_kws
         residual_cov_kws = {} if residual_cov_kws is None else residual_cov_kws
         
-        self.L = self._generate_loadings(**loadings_kws)
-        self.Phi = self._generate_factor_corr(**factor_corr_kws)
-        self.Psi = self._generate_residual_cov(**residual_cov_kws)
+        self.L = self._generate_loadings(**loadings_kws) if self.L is None else self.L
+        self.Phi = self._generate_factor_corr(**factor_corr_kws) if self.Phi is None else self.Phi
+        self.Psi = self._generate_residual_cov(**residual_cov_kws) if self.Psi is None else self.Psi
         self.C = sp.linalg.block_diag(self.Phi, self.Psi)
 
         self.Sigma = self.L.dot(self.Phi).dot(self.L.T) + self.Psi

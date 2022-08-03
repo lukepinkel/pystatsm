@@ -414,6 +414,36 @@ class FactorAnalysis(object):
         H = (H1 + H2 - H3 / 2.0)*2.0
         return H
     
+    def loglike_canonical(self, psi):
+        S, q = self.S, self.n_vars - self.n_facs
+        s = 1.0 / np.sqrt(psi[:, None])
+        u = np.linalg.eigvalsh(s.T * S * s)[:q]
+        f = np.sum(u - np.log(u) - 1)
+        return f
+    
+    def gradient_canonical(self, psi):
+        S, q = self.S,  self.n_vars - self.n_facs
+        s = 1.0 / np.sqrt(psi[:, None])
+        u, V = np.linalg.eigh(s.T * S * s)
+        g = ((1-u[:q]) * V[:, :q]**2).sum(axis=1)/psi
+        return g
+    
+    def hessian_canonical(self, psi):
+        S, q, p= self.S, self.n_vars - self.n_facs, self.n_vars
+        s = 1.0 / np.sqrt(psi[:, None])
+        Psi_inv = np.diag(1 / psi)
+        W = s.T * S * s
+        u, V = np.linalg.eigh(W)
+        B = np.zeros((p, p))
+        Ip = np.eye(p)
+        for i in range(q):
+            A = np.outer(V[:, i], V[:, i])
+            b1 = (2 * u[i] - 1) * A
+            b2 = 2 * u[i] * (u[i] - 1) * np.linalg.pinv(u[i] * Ip - W)
+            B+= (b1 + b2) * A
+        H = -Psi_inv.dot(B).dot(Psi_inv)
+        return H
+        
     def _unrotated_constraint_dervs(self, L, Psi):
         """
         
@@ -571,7 +601,8 @@ class FactorAnalysis(object):
         self.Phi = np.dot(self.T.T, self.T)
         self._make_augmented_params(self.L, self.Phi, self.Psi)
         self.Sigma = self.implied_cov_augmented(self.params)
-        self.H = so_gc_cd(self.gradient_augmented, self.params)
+        #self.H = so_gc_cd(self.gradient_augmented, self.params)
+        self.H = self.hessian_augmented(self.params)
         if self.rotation_type == "oblique":
             nl, ns, nr, nc = self.nl, self.ns, self.nr, self.nc
             nt = nl + ns + nr
@@ -618,7 +649,14 @@ class FactorAnalysis(object):
         self.H_aug = H
         self.se_params = np.sqrt(np.diag(np.linalg.inv(self.H_aug))[:nt]/self.n_obs * 2.0) 
         self.L_se = invec(self.se_params[self.lix], self.n_vars, self.n_facs)
+        if self.rotation_type == "oblique":
+            self.Phi_se = invecl(self.se_params[self.ixs])
+            self.psi_se = self.se_params[self.ixr]
+        else:
+            self.Phi_se = invecl(np.ones(self.nc))
+            self.psi_se = self.se_params[nl:]
             
+                        
     def constraint_jac(self, params):
         L, Phi, Psi = self.model_matrices_augmented(params)
         if self.rotation_type == "oblique":
