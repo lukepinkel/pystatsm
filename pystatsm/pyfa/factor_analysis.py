@@ -443,6 +443,14 @@ class FactorAnalysis(object):
             B+= (b1 + b2) * A
         H = -Psi_inv.dot(B).dot(Psi_inv)
         return H
+    
+    def loadings_from_psi(self, psi):
+        S, m = self.S,  self.n_facs
+        s = 1.0 / np.sqrt(psi[:, None])
+        u, V = np.linalg.eigh(s.T * S * s)
+        w = np.sqrt(u[-m:] - 1)
+        A = np.sqrt(psi[:,None]) * V[:, -m:] * w
+        return A
         
     def _unrotated_constraint_dervs(self, L, Psi):
         """
