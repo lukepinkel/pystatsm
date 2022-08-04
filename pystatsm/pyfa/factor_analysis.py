@@ -51,7 +51,9 @@ class FactorAnalysis(object):
         else:
             self._rotate = None
         self.rotation_method, self.rotation_type = rotation_method, rotation_type
-
+        rc = np.arange(self.p)*self.p+np.arange(self.p), np.arange(self.p)
+        self.Dpsi = sp.sparse.csc_matrix((np.arange(self.p), rc), shape=(self.p**2, self.p))
+        
     def _process_data(self, X, S, n_obs):
         given_x = X is not None
         given_s = S is not None
@@ -451,8 +453,16 @@ class FactorAnalysis(object):
         w = np.sqrt(u[-m:] - 1)
         A = np.sqrt(psi[:,None]) * V[:, -m:] * w
         return A
+    
+    def _canonical_constraint(self, L, Psi):
+        C = vecl(np.dot(L.T, np.diag(1/np.diag(Psi))).dot(L))
+        return C
+    
+    def canonical_constraint(self, theta):
+        L, Psi = self.model_matrices(theta)    
+        return self._canonical_constraint(L, Psi)
         
-    def _unrotated_constraint_dervs(self, L, Psi):
+    def _unrotated_constraint_derivs(self, L, Psi):
         """
         
 
@@ -472,9 +482,12 @@ class FactorAnalysis(object):
         """
         Psi_inv = np.diag(1.0 / np.diag(Psi))
         A = L.T.dot(Psi_inv)
+        Dpsi = self.Dpsi
+        Dpsi.data = np.diag(Psi)
         J1 = self.Nk.dot(np.kron(self.Ik, A))
-        J2 =-np.kron(A, A)[:, self.d_inds]
-        J = np.concatenate([J1, J2], axis=1)
+        J2 =-np.kron(A, A)
+        J2 = (Dpsi.T.dot(J2.T)).T
+        J = np.concatenate([J1, J2], axis=1)[self.l_inds]
         return J
         
     def constraint_derivs(self, theta):
@@ -494,7 +507,7 @@ class FactorAnalysis(object):
 
         """
         L, Psi = self.model_matrices(theta)            
-        J = self._unrotated_constraint_dervs(L, Psi)
+        J = self._unrotated_constraint_derivs(L, Psi)
         return J
     
     def _reorder_factors(self, L, T, theta):
@@ -627,7 +640,6 @@ class FactorAnalysis(object):
             H[nt:, nl:nl+ns] = dCdP[lix][:, cix]
             H[nl:nl+ns, nt:] = dCdP[lix][:, cix].T
             ixp = np.arange(nt)
-            
         elif self.rotation_type == "ortho":
             dCdL = self._rotate.dC_dL_Ortho(self.L, self.Phi)
             nl, nr, nc = self.nl, self.nr, self.nc
@@ -648,11 +660,8 @@ class FactorAnalysis(object):
             lix = vec(np.tril(np.ones((self.m, self.m)), -1)!=0)
             H[:nt, :nt] = self.H[ixp, ixp[:, None]] 
             if self.nc > 0:
-                H[nt:, :-nc] = dCdL[lix]
-                H[:-nc, nt:] = dCdL[lix].T 
-
-            
-            
+                H[nt:, :-nc] = dCdL
+                H[:-nc, nt:] = dCdL.T 
         self.ixp = ixp
         self.H_aug = H
         self.se_params = np.sqrt(np.diag(np.linalg.inv(self.H_aug))[:nt]/self.n_obs * 2.0) 

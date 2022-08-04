@@ -19,6 +19,11 @@ class RotationMethod(object):
         self.A = A
         self.rotation_type = rotation_type
         self.Kmp = kmat(self.m, self.p)
+        if self.rotation_type == "oblique":
+            self.lix = vec(np.eye(self.m)!=1)
+            self.cix = vec(np.tril(np.ones(self.m), -1)!=0)
+        elif self.rotation_type == "ortho":
+            self.lix = vec(np.tril(np.ones((self.m, self.m)), -1)!=0)
     
     def rotate(self, T):
         if self.rotation_type == "ortho":
@@ -139,6 +144,12 @@ class RotationMethod(object):
         C = np.dot(L.T, dQ) - np.dot(dQ.T, L)
         return C
     
+    def constraints(self, L, Phi):
+        if self.rotation_type == "ortho":
+            C = vecl(self.ortho_constraints(L, Phi))
+        elif self.rotation_type == "oblique":
+            C = vec(self.oblique_constraints(L, Phi))[self.lix]
+        return C
     
     def unrotated_constraints(self, L, Phi, Psi):
         Lm = lmat(self.m)
