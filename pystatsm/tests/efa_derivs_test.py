@@ -85,6 +85,8 @@ class FactorModelTest(object):
         self._test_deriv(jac_approx, model.implied_cov_params, model.dsigma_params, x2, "dsigma", self._reshape_dsigma)
         if test_d2sigma:
             self._test_d2sigma()
+        self._test_deriv(jac_approx, model.constraints, model.constraint_derivs, x2, "constraints")
+
            
 def test_efaderivs():
     rotation_methods = ["varimax", "quartimax", "equamax", "parsimax"]

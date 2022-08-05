@@ -9,7 +9,7 @@ Created on Sun Jul 31 14:03:53 2022
 import numpy as np
 import pandas as pd
 from pystatsm.pyfa import rotation 
-from pystatsm.pyfa.factor_analysis import FactorAnalysis 
+from pystatsm.pyfa.efa import FactorAnalysis 
 from pystatsm.utilities.data_utils import _csd
 from pystatsm.utilities import cov_utils
 from pystatsm.utilities.numerical_derivs import jac_approx
