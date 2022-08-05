@@ -9,11 +9,11 @@ Created on Thu Aug  4 21:21:09 2022
 import tqdm
 import numpy as np
 import pandas as pd
-from pystatsm.pystatsm.pyfa.efa import FactorAnalysis 
-from pystatsm.pystatsm.pyfa.simulate_factor_model import FactorModelSim 
-from pystatsm.pystatsm.utilities.linalg_operations import vec
-from pystatsm.pystatsm.utilities.func_utils import handle_default_kws
-from pystatsm.pystatsm.utilities.numerical_derivs import jac_approx, fo_fc_cd, so_gc_cd
+from pystatsm.pyfa.efa import FactorAnalysis 
+from pystatsm.pyfa.simulate_factor_model import FactorModelSim 
+from pystatsm.utilities.linalg_operations import vec
+from pystatsm.utilities.func_utils import handle_default_kws
+from pystatsm.utilities.numerical_derivs import jac_approx, fo_fc_cd, so_gc_cd
 
 rng = np.random.default_rng(123)
 
