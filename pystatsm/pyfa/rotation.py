@@ -62,7 +62,7 @@ class RotationMethod(object):
         J = invec(vec(Gq).dot(dR), *T.shape)
         return J
     
-    def _rotate_ortho(self, A, vgq, T=None, alpha=1.0, tol=1e-6, n_iters=1000):
+    def _rotate_ortho(self, A, vgq, T=None, alpha=1.0, tol=1e-5, n_iters=1000):
         if T is None:
             T = np.eye(A.shape[1])
         L = np.dot(A, T)
@@ -93,7 +93,7 @@ class RotationMethod(object):
             G = np.dot(A.T, Gq)
         return T, G, Gq, opt_hist
     
-    def _rotate_obli(self,  A, vgq, T=None, alpha=1.0, tol=1e-7, n_iters=500):
+    def _rotate_obli(self,  A, vgq, T=None, alpha=1.0, tol=1e-5, n_iters=500):
         if T is None:
             T = np.eye(A.shape[1])
         Tinv = np.linalg.inv(T)
