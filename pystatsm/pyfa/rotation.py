@@ -62,7 +62,7 @@ class RotationMethod(object):
         J = invec(vec(Gq).dot(dR), *T.shape)
         return J
     
-    def _rotate_ortho(self, A, vgq, T=None, alpha=1.0, tol=1e-7, n_iters=1000):
+    def _rotate_ortho(self, A, vgq, T=None, alpha=1.0, tol=1e-9, n_iters=1000):
         if T is None:
             T = np.eye(A.shape[1])
         L = np.dot(A, T)
@@ -89,13 +89,13 @@ class RotationMethod(object):
                     break
                 else:
                     alpha = alpha * 0.5
-            if abs(ft - ft_new) < 1e-16:
-                break
+            #if abs(ft - ft_new) < 1e-16:
+            #    break
             ft, T =ft_new, Tt
             G = np.dot(A.T, Gq)
         return T, G, Gq, opt_hist
     
-    def _rotate_obli(self,  A, vgq, T=None, alpha=1.0, tol=1e-7, n_iters=500):
+    def _rotate_obli(self,  A, vgq, T=None, alpha=1.0, tol=1e-9, n_iters=500):
         if T is None:
             T = np.eye(A.shape[1])
         Tinv = np.linalg.inv(T)

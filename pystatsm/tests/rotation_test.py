@@ -138,7 +138,7 @@ class OrthoRotationTest(RotationTest):
         dL_dA = self.r.dL_dA_Ortho(self.L, self.Phi)
         dL_dA_approx = jac_approx(self.L_A, self.A)
         dL_dA_approx = dL_dA_approx.reshape(self.p*self.m, self.p*self.m, order='F')
-        self._make_test_results(dL_dA, dL_dA_approx, "dL_dA", rtol=1e-4, atol=1e-4)
+        self._make_test_results(dL_dA, dL_dA_approx, "dL_dA", rtol=1e-2, atol=1e-2)
     
     def _test(self):
         self.test_dC_dL()
