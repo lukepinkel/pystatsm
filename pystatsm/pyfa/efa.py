@@ -13,6 +13,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from ..utilities.linalg_operations import vec, invec, vech, vecl, invecl, eighs, mat_sqrt, inv_sqrt
 from ..utilities.indexing_utils import vecl_inds
+from ..utilities.func_utils import handle_default_kws
 from ..utilities.special_mats import nmat, dmat, lmat
 from ..utilities.data_utils import _check_type, cov, flip_signs, corr
 from .fit_measures import srmr, lr_test, gfi, agfi
@@ -26,7 +27,7 @@ class FactorAnalysis(object):
                  rotation_method=None, rotation_type=None, **n_factor_kws):
         self._process_data(X, S, n_obs)
         self._get_n_factors(n_factors, **n_factor_kws)
-        self._init_params()
+        self._init_psi()
         self.p, self.m = self.n_vars, self.n_facs
         self.E = np.eye(self.n_vars)
         self.Im = np.eye(self.n_facs)
@@ -40,6 +41,7 @@ class FactorAnalysis(object):
         self.LpNp = np.dot(self.Lp, self.Np)
         self.d_inds = vec(self.Ip)==1
         self.l_inds = vecl_inds(self.n_facs)
+        self.ndg_inds = vech(np.eye(self.m))!=1
         if rotation_method is not None:
             rotation_type = 'ortho' if rotation_type is None else rotation_type
             consts = get_gcf_constants(rotation_method, self.p, self.m)
@@ -51,7 +53,7 @@ class FactorAnalysis(object):
         self.rotation_method, self.rotation_type = rotation_method, rotation_type
         rc = np.arange(self.p)*self.p+np.arange(self.p), np.arange(self.p)
         self.Dpsi = sp.sparse.csc_matrix((np.ones(self.p), rc), shape=(self.p**2, self.p))
-
+        self._make_param_indices()
         
     def _process_data(self, X, S, n_obs):
         given_x = X is not None
@@ -82,12 +84,41 @@ class FactorAnalysis(object):
             n_factors = int(n_factors)
         self.n_facs = self.n_factors = n_factors
         
-    def _init_params(self):
+    def _init_psi(self):
         self.pix = np.arange(self.n_vars*self.n_facs, self.n_vars*self.n_facs+self.n_vars)
         L = self.V[:, :self.n_facs]
         psi = np.diag(self.S - np.dot(L, L.T))
         self.psi_init = psi
         self.rho_init = np.log(psi)
+
+    def _make_param_indices(self):
+        p, m = self.p, self.m
+        nl = p * m
+        ns = m * (m - 1) // 2
+        nr = p
+        if self.rotation_type == "oblique":
+            nc = m * (m - 1) 
+            ixa = np.arange(nl+ns+nr+nc)
+        else:
+            nc = m * (m - 1) //2
+            ixa = np.r_[np.arange(nl), np.arange(nl+ns, nl+ns+nr+nc)]
+        nt = nl + ns + nr
+        ixl = np.arange(nl)
+        ixs = np.arange(nl, nl + ns)
+        ixr = np.arange(nl + ns, nl + ns + nr)
+        self.ixa, self.ixl, self.ixs, self.ixr = ixa, ixl, ixs, ixr
+        self.nl, self.ns, self.nr, self.nc, self.nt = nl, ns, nr, nc, nt
+        
+    def model_matrices_to_params(self, L, Phi, Psi):
+        if Psi.ndim==2:
+            psi = np.diag(Psi)
+        else:
+            psi = Psi
+        params = np.zeros(self.nt)
+        params[self.ixl] = vec(L.copy())
+        params[self.ixs] = vecl(Phi.copy())
+        params[self.ixr] = psi.copy()
+        return params
 
     def loglike(self, psi):
         S, q = self.S, self.n_vars - self.n_facs
@@ -145,26 +176,28 @@ class FactorAnalysis(object):
         A = np.sqrt(psi[:,None]) * V[:, -m:] * w
         return A
     
-    def _optimize_psi(self):
+    def _optimize_psi(self, opt_kws=None):
+        opt_kws = handle_default_kws(opt_kws, {"method":"trust-constr"})
         opt = sp.optimize.minimize(self.loglike_exp, self.rho_init, jac=self.gradient_exp,
-                                   hess=self.hessian_exp, method='trust-constr')
-        self.opt, self.rho = opt, opt.x
-        self.psi = np.exp(self.rho)
-        self.A = self.loadings_from_psi(self.psi)
+                                   hess=self.hessian_exp, **opt_kws)
+        rho, psi = opt.x, np.exp(opt.x)
+        A = self.loadings_from_psi(psi)
+        return opt, rho, psi, A
         
-    def _rotate_loadings(self):
+    def _rotate_loadings(self, A=None, opt_kws=None):
+        A = self.A.copy() if A is None else A
+        opt_kws = handle_default_kws(opt_kws, {})
         if self._rotate is not None:
-            self._rotate.A = self.A
-            self._rotate.fit()
-            self.T = self._rotate.T
-            self.L = self._rotate.rotate(self.T)
+            self._rotate.A = A
+            self._rotate.fit(opt_kws=opt_kws)
+            T = self._rotate.T
+            L = self._rotate.rotate(T)
         else:
-            self.L = self.A
-            self.T = np.eye(self.m)
-        self.Phi = np.dot(self.T.T, self.T)
-        self.Psi = np.diag(self.psi)
-        self._make_params(self.L, self.Phi, self.Psi)
-    
+            L = A
+            T = np.eye(self.m)
+        Phi = np.dot(T.T, T)
+        return L, T, Phi
+
     def hessian_aug(self, params):
         H_aug = np.zeros((self.nt+self.nc, self.nt+self.nc))
         H = self.hessian_params(params)
@@ -175,19 +208,28 @@ class FactorAnalysis(object):
         H_aug  = H_aug[self.ixa][:, self.ixa]
         return H_aug
     
-    def _fit(self):
-        self._optimize_psi()
-        self._rotate_loadings()
-        self.H = self.hessian_aug(self.params)
-        self.acov = np.linalg.inv(self.H)
-        self.se_params = np.sqrt(np.diag(self.acov)[:-self.nc]/self.n_obs * 2.0) 
-        self.L_se = invec(self.se_params[self.ixl], self.n_vars, self.n_facs)
+    def _fit(self, loglike_opt_kws=None, rotation_opt_kws=None):
+        opt, rho, psi, A = self._optimize_psi(opt_kws=loglike_opt_kws)
+        L, T, Phi = self._rotate_loadings(A.copy(), opt_kws=rotation_opt_kws)
+        params = self.model_matrices_to_params(L, Phi, psi)
+        H = self.hessian_aug(params)
+        Acov = np.linalg.inv(H)
+        se_params = np.sqrt(np.diag(Acov)[:-self.nc]/self.n_obs * 2.0) 
+        L_se = invec(se_params[self.ixl], self.n_vars, self.n_facs)
         if self.rotation_type == "oblique":
-            self.Phi_se = invecl(self.se_params[self.ixs])
-            self.psi_se = self.se_params[self.ixr]
+            Phi_se = invecl(se_params[self.ixs])
+            psi_se = se_params[self.ixr]
         else:
-            self.Phi_se = invecl(np.ones(self.nc))
-            self.psi_se = self.se_params[self.nl:]
+            Phi_se = invecl(np.ones(self.nc))
+            psi_se = se_params[self.nl:]
+        self.opt, self.rho, self.psi, self.A = opt, rho, psi, A
+        self.L, self.T, self.Phi, self.Psi = L, T, Phi, np.diag(psi)
+        self.H_aug = H
+        self.Acov = Acov
+        self.se_params = se_params
+        self.params = params
+        self.L_se, self.Phi_se, self.psi_se = L_se, Phi_se, psi_se
+        
             
     def fit(self):
         self._fit()
@@ -208,65 +250,43 @@ class FactorAnalysis(object):
         fcols = [f"Factor{i}" for i in range(self.n_facs)]
         self.res = pd.DataFrame(np.vstack((self.params[self.ixa[:-self.nc]], self.se_params, z, p)).T,
                                 columns=res_cols, index=param_labels)
+        self.Loadings = pd.DataFrame(self.L, index=self.cols, columns=fcols)
+        self.FactorCorr = pd.DataFrame(self.Phi, index=fcols, columns=fcols)
+        self.ResidualCov = pd.DataFrame(self.Psi, index=self.cols, columns=self.cols)
         
-    def _make_params(self, L, Phi, Psi):
-        p, m = self.p, self.m
-        nl = p * m
-        ns = m * (m - 1) // 2
-        nr = p
-        if self.rotation_type == "oblique":
-            nc = m * (m - 1) 
-            ixa = np.arange(nl+ns+nr+nc)
-        else:
-            nc = m * (m - 1) //2
-            ixa = np.r_[np.arange(nl), np.arange(nl+ns, nl+ns+nr+nc)]
-
-        nt = nl + ns + nr
-        params = np.zeros(nt)
-        ixl = np.arange(nl)
-        ixs = np.arange(nl, nl + ns)
-        ixr = np.arange(nl + ns, nl + ns + nr)
-        params[ixl] = vec(L)
-        params[ixs] = vecl(Phi)
-        params[ixr] = np.diag(Psi)
-        self.ixl, self.ixs, self.ixr = ixl, ixs, ixr
-        self.nl, self.ns, self.nr, self.nc = nl, ns, nr, nc
-        self.nt = nl + ns + nr
-        self.params = params
-        self.ixa = ixa
         
-    def model_matrices_params(self, params):
+        
+        
+    def params_to_model_matrices(self, params):
         L = invec(params[self.ixl], self.n_vars, self.n_facs)
         Phi = invecl(params[self.ixs])            
         Psi = np.diag(params[self.ixr])
         return L, Phi, Psi
     
     def sigma_params(self, params):
-        L, Phi, Psi = self.model_matrices_params(params)
+        L, Phi, Psi = self.params_to_model_matrices(params)
         Sigma = L.dot(Phi).dot(L.T)+Psi
         return Sigma
     
     def dsigma_params(self, params):
-        L, Phi, Psi = self.model_matrices_params(params)
+        L, Phi, Psi = self.params_to_model_matrices(params)
         DLambda = np.dot(self.LpNp, np.kron(L.dot(Phi), self.Ip))
-        ix = vech(np.eye(L.shape[1]))!=1
-        DPhi = self.Lp.dot(np.kron(L, L)).dot(self.Dm)[:, ix]
+        DPhi = self.Lp.dot(np.kron(L, L)).dot(self.Dm)[:, self.ndg_inds]
         DPsi = np.dot(self.Lp, np.diag(vec(np.eye(self.n_vars))))[:, self.d_inds]
         G= np.block([DLambda, DPhi, DPsi])
         return G
     
     def d2sigma_params(self, params):
-        L, Phi, Psi = self.model_matrices_params(params)
+        L, Phi, Psi = self.params_to_model_matrices(params)
         Hpp = []
-        Im, E = self.Im, self.E
-        ix = vech(np.eye(L.shape[1]))!=1
+        Im, E = self.Im, self.E*0.0
         Hij = np.zeros((self.nt, self.nt))
         for i in range(self.n_vars):
             for j in range(i, self.n_vars):
                 E[i, j] = 1.0
                 T = E + E.T
                 H11 = np.kron(Phi, T)
-                H22 = np.kron(Im, T.dot(L)).dot(self.Dm)[:, ix]
+                H22 = np.kron(Im, T.dot(L)).dot(self.Dm)[:, self.ndg_inds]
                 Hij[self.ixl, self.ixl[:, None]] = H11
                 Hij[self.ixl, self.ixs[:, None]] = H22.T
                 Hij[self.ixs, self.ixl[:, None]] = H22
@@ -277,27 +297,45 @@ class FactorAnalysis(object):
         return D2Sigma
     
     def hessian_params(self, params):
-        L, Phi, Psi = self.model_matrices_params(params)
+        L, Phi, Psi = self.params_to_model_matrices(params)
         Sigma = L.dot(Phi).dot(L.T) + Psi
         Sigma_inv = np.linalg.inv(Sigma)
         Sdiff = self.S - Sigma
         d = vech(Sdiff)
+        DLambda = np.dot(self.LpNp, np.kron(L.dot(Phi), self.Ip))
+        DPhi = self.Lp.dot(np.kron(L, L)).dot(self.Dm)[:, self.ndg_inds]
+        DPsi = np.dot(self.Lp, np.diag(vec(np.eye(self.n_vars))))[:, self.d_inds]
+        G= np.block([DLambda, DPhi, DPsi])
         G = self.dsigma_params(params)
         DGp = self.Dp.dot(G)
         W1 = np.kron(Sigma_inv, Sigma_inv)
         W2 = np.kron(Sigma_inv, Sigma_inv.dot(Sdiff).dot(Sigma_inv))
         H1 = 0.5 * DGp.T.dot(W1).dot(DGp)
         H2 = 1.0 * DGp.T.dot(W2).dot(DGp)
-        ix = vech(np.eye(L.shape[1]))!=1
-        Hp = self.d2sigma_params(params)
-        W = np.linalg.multi_dot([self.Dp.T, W1, self.Dp])
+        Hpp = []
+        Dp, Im, E = self.Dp, self.Im, self.E*0.0
+        Hij = np.zeros((self.nt, self.nt))
+        for i in range(self.n_vars):
+            for j in range(i, self.n_vars):
+                E[i, j] = 1.0
+                T = E + E.T
+                H11 = np.kron(Phi, T)
+                H22 = np.kron(Im, T.dot(L)).dot(self.Dm)[:, self.ndg_inds]
+                Hij[self.ixl, self.ixl[:, None]] = H11
+                Hij[self.ixl, self.ixs[:, None]] = H22.T
+                Hij[self.ixs, self.ixl[:, None]] = H22
+                E[i, j] = 0.0
+                Hpp.append(Hij[:, :, None])
+                Hij = Hij*0.0
+        W = np.linalg.multi_dot([Dp.T, W1, Dp])
         dW = np.dot(d, W)
-        H3 = np.einsum('i,ijk ->jk', dW, Hp)      
-        H = (H1 + H2 - H3 / 2.0)*2.0
+        Hp = np.concatenate(Hpp, axis=2) 
+        H3 = np.einsum('k,ijk ->ij', dW, Hp)      
+        H = (H1 + H2 - H3 / 2.0)*2.0 
         return H     
     
     def implied_cov_params(self, params):
-        L, Phi, Psi = self.model_matrices_params(params)
+        L, Phi, Psi = self.params_to_model_matrices(params)
         Sigma = L.dot(Phi).dot(L.T) + Psi
         return Sigma
     
@@ -309,7 +347,7 @@ class FactorAnalysis(object):
         return ll
     
     def gradient_params(self, params):
-        L, Phi, Psi = self.model_matrices_params(params)
+        L, Phi, Psi = self.params_to_model_matrices(params)
         Sigma = L.dot(Phi).dot(L.T) + Psi
         V = np.linalg.pinv(Sigma)
         VRV = V.dot(Sigma - self.S).dot(V)
@@ -327,11 +365,11 @@ class FactorAnalysis(object):
         return C
     
     def canonical_constraint(self, params):
-        L, Phi, Psi = self.model_matrices_params(params)    
+        L, Phi, Psi = self.params_to_model_matrices(params)    
         return self._canonical_constraint(L, Psi)
     
     def constraints(self, params):
-        L, Phi, Psi = self.model_matrices_params(params)  
+        L, Phi, Psi = self.params_to_model_matrices(params)  
         if self._rotate is not None:
             C = self._rotate.constraints(L, Phi)
         else:
@@ -340,7 +378,7 @@ class FactorAnalysis(object):
 
     
     def constraint_derivs(self, params):
-        L, Phi, Psi = self.model_matrices_params(params)
+        L, Phi, Psi = self.params_to_model_matrices(params)
         if self.rotation_type == "ortho":
             dCdL = self._rotate.dC_dL_Ortho(L, Phi)[self._rotate.lix]
             dCdP = np.zeros((dCdL.shape[0], self.ns))

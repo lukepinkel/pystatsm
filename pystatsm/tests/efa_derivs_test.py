@@ -77,7 +77,7 @@ class FactorModelTest(object):
         model = self.model
         x1 = np.log(model.psi.copy()) + 0.05
         x2 = model.params.copy() + 0.01
-        
+        x3 = model.params.copy()
         self._test_deriv(fo_fc_cd, model.loglike_exp, model.gradient_exp, x1, "grad")
         self._test_deriv(fo_fc_cd, model.loglike_params, model.gradient_params, x2, "grad_par")
         self._test_deriv(so_gc_cd, model.gradient_exp, model.hessian_exp, x1, "hess")
@@ -85,7 +85,7 @@ class FactorModelTest(object):
         self._test_deriv(jac_approx, model.implied_cov_params, model.dsigma_params, x2, "dsigma", self._reshape_dsigma)
         if test_d2sigma:
             self._test_d2sigma()
-        self._test_deriv(jac_approx, model.constraints, model.constraint_derivs, x2, "constraints")
+        self._test_deriv(jac_approx, model.constraints, model.constraint_derivs, x3, "constraints")
 
            
 def test_efaderivs():
