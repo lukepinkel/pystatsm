@@ -258,6 +258,7 @@ class FactorAnalysis(object):
         self.Loadings = pd.DataFrame(self.L, index=self.cols, columns=fcols)
         self.FactorCorr = pd.DataFrame(self.Phi, index=fcols, columns=fcols)
         self.ResidualCov = pd.DataFrame(self.Psi, index=self.cols, columns=self.cols)
+        self.Sigma = self.sigma_params(self.params)
         
     def order_loadings(self, L, T, Phi):
         order = np.argsort(np.sum(L**2, axis=0))
@@ -415,6 +416,41 @@ class FactorAnalysis(object):
             dCdPsi = (Dpsi.T.dot(dCdPsi.T)).T[self.l_inds]
         dC = np.concatenate([dCdL, dCdP, dCdPsi], axis=1)
         return dC
+    
+    def estimate_factors(self,  X=None, method="tenBerge", L=None,
+                         Phi=None, Psi=None, S=None):
+        X = self.X if X is None else X
+        L = self.L if L is None else L
+        Phi = self.Phi if Phi is None else Phi
+        Psi = self.Psi if Psi is None else Psi
+        S = self.S if S is None else S
+        Psiinv = np.diag(1.0/np.diag(Psi))
+        LPhi = L.dot(Phi)
+        LtPsi_inv = L.T.dot(Psiinv)
+        Gamma = LtPsi_inv.dot(L)
+        if method == "thurstone":
+            B = np.linalg.solve(S, LPhi)
+        elif method == "bartlett":
+            B = np.linalg.solve(Gamma, LtPsi_inv).T
+        elif method == "mcdonald":
+            Phi_sq = mat_sqrt(Phi)
+            temp = mat_sqrt(S).dot(LtPsi_inv.T.dot(Phi_sq))
+            G, Delta, Mt = np.linalg.svd(temp, full_matrices=False)
+            C = G.dot(Mt)
+            B = inv_sqrt(S).dot(C).dot(Phi_sq)
+        elif method == "tenBerge":
+            Phi_sq = mat_sqrt(Phi)
+            S_isq = inv_sqrt(S)
+            R = S_isq.dot(L.dot(Phi_sq))
+            C = R.dot(inv_sqrt(np.dot(R.T, R)))
+            B = S_isq.dot(C).dot(Phi_sq)
+        Z = (X - np.mean(X, axis=0)).dot(B)
+        return Z, B 
+            
+            
+            
+        
+        
 
         
         
