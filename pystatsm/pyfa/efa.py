@@ -208,9 +208,13 @@ class FactorAnalysis(object):
         H_aug  = H_aug[self.ixa][:, self.ixa]
         return H_aug
     
-    def _fit(self, loglike_opt_kws=None, rotation_opt_kws=None):
+    def _fit(self, sort_factors=True, loglike_opt_kws=None, rotation_opt_kws=None):
         opt, rho, psi, A = self._optimize_psi(opt_kws=loglike_opt_kws)
         L, T, Phi = self._rotate_loadings(A.copy(), opt_kws=rotation_opt_kws)
+        if sort_factors:
+            L, T, Phi, factor_perm = self.order_loadings(L, T, Phi)
+        else:
+            factor_perm = np.eye(self.m)
         params = self.model_matrices_to_params(L, Phi, psi)
         H = self.hessian_aug(params)
         Acov = np.linalg.inv(H)
@@ -229,6 +233,7 @@ class FactorAnalysis(object):
         self.se_params = se_params
         self.params = params
         self.L_se, self.Phi_se, self.psi_se = L_se, Phi_se, psi_se
+        self.factor_perm = factor_perm
         
             
     def fit(self):
@@ -254,8 +259,15 @@ class FactorAnalysis(object):
         self.FactorCorr = pd.DataFrame(self.Phi, index=fcols, columns=fcols)
         self.ResidualCov = pd.DataFrame(self.Psi, index=self.cols, columns=self.cols)
         
-        
-        
+    def order_loadings(self, L, T, Phi):
+        order = np.argsort(np.sum(L**2, axis=0))
+        sign = np.sign(np.sum(L, axis=0))
+        perm_mat = np.diag(sign)[:, order]
+        L = L[:, order] * sign
+        T = T[:, order] * sign
+        Phi = Phi[order, order[None].T]
+        Phi = sign[:,None] * Phi * sign[: None].T
+        return L, T, Phi, perm_mat
         
     def params_to_model_matrices(self, params):
         L = invec(params[self.ixl], self.n_vars, self.n_facs)
