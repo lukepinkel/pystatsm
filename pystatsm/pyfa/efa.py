@@ -208,7 +208,7 @@ class FactorAnalysis(object):
         H_aug  = H_aug[self.ixa][:, self.ixa]
         return H_aug
     
-    def _fit(self, sort_factors=True, loglike_opt_kws=None, rotation_opt_kws=None):
+    def _fit(self, sort_factors=False, loglike_opt_kws=None, rotation_opt_kws=None):
         opt, rho, psi, A = self._optimize_psi(opt_kws=loglike_opt_kws)
         L, T, Phi = self._rotate_loadings(A.copy(), opt_kws=rotation_opt_kws)
         if sort_factors:
