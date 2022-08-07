@@ -123,8 +123,8 @@ class OrthoRotationTest(RotationTest):
         
     def L_A(self, A):
         consts = rotation.get_gcf_constants(self.rotation_method, self.p, self.m)
-        r = rotation.GeneralizedCrawfordFerguson(A=A, rotation_type="ortho", 
-                                                 **consts)
+        r = rotation.GeneralizedCrawfordFerguson(A=A, rotation_method=self.rotation_method,
+                                                 rotation_type="ortho")
         r.fit()
         L = r.rotate(r.T)
         return L

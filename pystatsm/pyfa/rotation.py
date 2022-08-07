@@ -182,10 +182,35 @@ def get_gcf_constants(method, p, m):
     return consts
 
 class GeneralizedCrawfordFerguson(RotationMethod):
-    def __init__(self, A, k1, k2, k3, k4, rotation_type="ortho"):
+    def __init__(self, A, rotation_method, rotation_type="ortho"):
+        k1, k2, k3, k4 = self.get_gcf_constants(rotation_method, A.shape[0], A.shape[1])
         super().__init__(A, rotation_type)
         self.k1, self.k2, self.k3, self.k4 = k1, k2, k3, k4
-        
+    
+    def get_gcf_constants(self, method, p, m):
+        if method == 'varimax':
+            k1 = 0.0
+            k2 = (p - 1) / p
+            k3 = 1 / p
+            k4 = -1
+        elif method == 'quartimax':
+            k1 = 0.0
+            k2 = 1.0
+            k3 = 1.0
+            k4 = -1.0
+        elif method == 'equamax':
+            k1 = 0.0
+            k2 = 1 - m / (2.0 * p)
+            k3 = m / (2.0 * p)
+            k4 = -1.0
+        elif method == 'parsimax':
+            k1 = 0.0
+            k2 = 1-(m-1)/(p+m-2)
+            k3 = (m-1)/(p+m-2)
+            k4 = -1.0
+        return k1, k2, k3, k4
+
+    
     def Q(self, L):
         B = L**2
         f1 = self.k1 * np.sum(B)**2 

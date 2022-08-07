@@ -46,8 +46,8 @@ class FactorAnalysis(object):
             rotation_type = 'ortho' if rotation_type is None else rotation_type
             consts = get_gcf_constants(rotation_method, self.p, self.m)
             self._rotate = GeneralizedCrawfordFerguson(A=np.zeros((self.p, self.m)),
-                                                       rotation_type=rotation_type, 
-                                                       **consts)
+                                                       rotation_method=rotation_method,
+                                                       rotation_type=rotation_type)
         else:
             self._rotate = None
         self.rotation_method, self.rotation_type = rotation_method, rotation_type
