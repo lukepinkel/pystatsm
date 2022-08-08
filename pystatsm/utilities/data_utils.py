@@ -55,14 +55,14 @@ def csd(X):
     return center(standardize(X))
 
 @numba.jit(nopython=True)
-def cov(X):
+def cov_nb(X):
     X = center(X)
     n = X.shape[0]
     S = np.dot(X.T, X) / n
     return S
 
 @numba.jit(nopython=True)
-def corr(X):
+def corr_nb(X):
     X = csd(X)
     n = X.shape[0]
     S = np.dot(X.T, X) / n
@@ -79,7 +79,26 @@ def _csd(arr, return_stats=False):
     else:
         return arr_csd
 
+def cov(X, Y=None):
+    X = X - np.mean(X, axis=0)
+    if Y is not None:
+        Y = Y - np.mean(Y, axis=0)
+    else:
+        Y = X
+    S = np.dot(X.T, Y) / len(X)
+    return S
 
+def corr(X, Y=None):
+    X = X - np.mean(X, axis=0)
+    X = X / np.std(X, axis=0)
+    if Y is not None:
+        Y = Y - np.mean(Y, axis=0)
+        Y = Y / np.std(Y, axis=0)
+    else:
+        Y = X
+    R = np.dot(X.T, Y) / len(X)
+    return R
+        
 def normalize_xtrx(X, R):
     """
 
