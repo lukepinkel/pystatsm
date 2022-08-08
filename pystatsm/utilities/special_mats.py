@@ -83,6 +83,12 @@ def nmat(n):
     N = K + I
     return N
 
+def dpmat(n):
+    (data, indices), shape = _dmat(n)
+    data = data * 0.5
+    data[np.arange(0, n**2, n+1)] = 1.0
+    Dp = sp.sparse.csc_matrix((data, indices), shape=shape).T
+    return Dp
 
 def kronvec_mat(A_dims, B_dims):
   n, p = A_dims

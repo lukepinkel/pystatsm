@@ -12,7 +12,8 @@ import scipy.stats
 from .data_utils import cov as _cov, scale_diag, normalize_xtrx
 from .func_utils import handle_default_kws
 from .indexing_utils import diag_indices
-from .linalg_operations import eighs
+from .special_mats import dmat, dpmat
+from .linalg_operations import eighs, vech
 from .random import r_lkj
 
 def project_psd(A, tol_e=1e-9, use_transpose=True):
@@ -323,3 +324,37 @@ def get_eig_corr(u, rng=None):
     return R
 
         
+
+def multivar_marginal_kurtosis(X):
+    k = sp.stats.moment(X, 4)/(sp.stats.moment(X, 2)**2)/3.0
+    return k
+
+
+
+def cov_sample_cov(X=None, S=None, excess_kurt=None, kurt=None):
+    if S is None:
+        m = np.mean(X, axis=0)
+        N = X.shape[0]
+        n = N - 1.0
+        Z = X - m
+        S = Z.T.dot(Z) / n
+    if kurt is None:
+        if excess_kurt is None:
+            if X is None:
+                kurt = np.ones(S.shape[1])
+            else:
+                kurt = multivar_marginal_kurtosis(X)
+        else:
+            kurt = (excess_kurt + 3.0) / 3.0
+    D = dpmat(S.shape[0])
+    u = np.atleast_2d(np.sqrt(kurt))
+    A = 0.5 * (u + u.T)
+    C = A*S
+    v = np.vstack([vech(C), vech(S)]).T
+    M = np.eye(2)
+    M[1, 1] = -1
+    CoC = np.kron(C, C)
+    tmp = D.dot(CoC)
+    (D.dot(tmp.T)).T
+    V = 2*(D.dot(tmp.T)).T + v.dot(M).dot(v.T)
+    return V      
