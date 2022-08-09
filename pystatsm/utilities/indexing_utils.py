@@ -39,5 +39,21 @@ def vecl_inds(n):
     ix = j>i
     return ix
 
+def tril_indices(n, k=0, m=None, order='F'):
+    if order == 'F':
+        inds = np.triu_indices(n=n, k=k, m=m)[::-1]
+    elif order == 'C':
+        inds = np.tril_indices(n=n, k=k, m=m)
+    return inds
+
+def triu_indices(n, k=0, m=None, order='F'):
+    if order == 'F':
+        inds = np.tril_indices(n=n, k=k, m=m)[::-1]
+    elif order == 'C':
+        inds = np.triu_indices(n=n, k=k, m=m)
+    return inds
+    
+    
+
 
  
