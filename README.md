@@ -1,7 +1,7 @@
 # pystats
 This project is recreational and consists of unfinished and unpolished programs to fit statistical models. Currently includes rough implementations of 
 - Exploratory Factor Analysis
-	- The FactorAnalysis class in factor_analysis.py under pyfa supports exploratory factor analysis with both orthogonal and oblique rotation.  Standard errors based on the augmented information matrix are available for the unrotated and oblique case
+	- The FactorAnalysis class in efa.py under pyfa supports exploratory factor analysis with both orthogonal and oblique rotation.  Standard errors based on the augmented information matrix are available for the unrotated and oblique case
 - Generalized Additive Models.  Supported smooths include cubic regression splines, cyclic cubic splines, and b-splines
 	- The GAM class in gam.py under pygam supports Gaussian, Inverse Gaussian, and Gamma distributions
 	- The GauLS class in gauls.py under pygam supports gaussian additive models for location and scale 
