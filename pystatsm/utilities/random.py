@@ -7,7 +7,7 @@ Created on Mon Sep 20 17:08:22 2021
 import numba
 import numpy as np
 from math import erf
-from .data_utils import corr as _corr, csd as _csd
+from .data_utils import corr_nb as _corr, csd as _csd
 from .tf_utils import spherical_uniform, clockwise_spiral_fill_triangular
 SQRT2 = np.sqrt(2.0)
 
