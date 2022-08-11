@@ -107,6 +107,7 @@ class FactorAnalysis(object):
         ixr = np.arange(nl + ns, nl + ns + nr)
         self.ixa, self.ixl, self.ixs, self.ixr = ixa, ixl, ixs, ixr
         self.nl, self.ns, self.nr, self.nc, self.nt = nl, ns, nr, nc, nt
+        self.n_params = len(ixa) - nc
         
     def model_matrices_to_params(self, L, Phi, Psi):
         if Psi.ndim==2:
@@ -445,7 +446,73 @@ class FactorAnalysis(object):
             B = S_isq.dot(C).dot(Phi_sq)
         Z = (X - np.mean(X, axis=0)).dot(B)
         return Z, B 
-            
+    
+    def _full_loglike(self, params=None, Sigma=None, nscale=True):
+        n, p, S = self.n_obs, self.p, self.S
+        if Sigma is None and params is not None:
+            Sigma = self.sigma_params(params)
+        else:
+            Sigma = Sigma
+        trSigmaInvS = np.trace(np.linalg.solve(Sigma, S))
+        _, lndSigma = np.linalg.slogdet(Sigma)
+        _, lndS = np.linalg.slogdet(S)
+        s = -n / 2 if nscale else 1.0
+        ll = s * (lndSigma + trSigmaInvS - lndS - p)
+        return ll
+    
+    def fit_indices(self, Sigma_null=None, df_null=None):
+        Sigma = self.sigma_params(self.params)
+        Sigma_null = np.diag(np.diag(self.S)) if Sigma_null is None else Sigma_null
+        df_null = int(self.p * (self.p - 1) // 2) if df_null is None else df_null
+        df_full = int(self.p * (self.p + 1) // 2) - self.n_params
+        
+        f_null = self._full_loglike(Sigma=Sigma_null, nscale=False)
+        f_full = self._full_loglike(Sigma=Sigma, nscale=False)
+        ll_full = -f_full * self.n_obs / 2
+        chi2_null = self.n_obs * f_null
+        chi2_full = self.n_obs * f_full
+        chi2_full_pval = sp.stats.chi2(df=df_full).sf(chi2_full)
+        chi2_null_pval = sp.stats.chi2(df=df_null).sf(chi2_null)
+
+        tli = ((chi2_null / df_null) - (chi2_full / df_full)) / ((chi2_null / df_null) - 1)
+        nfi = (chi2_null - chi2_full) / chi2_null
+        ifi = (chi2_null - chi2_full) / (chi2_null - df_full)
+        rni = ((chi2_null - df_null) - (chi2_full - df_full)) / (chi2_null - df_null) 
+        cfi = (np.maximum(chi2_null - df_null, 0) - np.maximum(chi2_full - df_full, 0))\
+             /np.maximum(chi2_null - df_null, 0) 
+        rmsea = np.sqrt(np.max(chi2_full - df_full, 0) / (df_null * (self.n_obs - 1)))
+        gfi_ = gfi(Sigma, self.S)
+        agfi_ = agfi(Sigma, self.S, df_full)
+        srmr_ = srmr(Sigma, self.S, df_full)
+        BIC = self.n_params * np.log(self.n_obs) -2 * ll_full
+        AIC = 2 * self.n_params - 2*ll_full
+
+        chi2_table = pd.DataFrame([[chi2_full, df_full, chi2_full_pval],
+                                   [chi2_null, df_null, chi2_null_pval]],
+                                  index=["Full", "Null"],
+                                  columns=["Chi2", "df", "pval"])
+        incrimental_fit_indices = pd.DataFrame(dict(TLI=tli, 
+                                                    NFI=nfi,
+                                                    IFI=ifi,
+                                                    RNI=rni, 
+                                                    CFI=cfi),
+                                               index=["Value"]).T
+        misc_fit_indices = pd.DataFrame(dict(GFI=gfi_, 
+                                             AGFI=agfi_, 
+                                             RMSEA=rmsea,
+                                             SRMR=srmr_,
+                                             loglikelihood=ll_full,
+                                             AIC=AIC,
+                                             BIC=BIC,
+                        ),
+                                        index=["Value"]).T
+        return chi2_table, incrimental_fit_indices, misc_fit_indices
+        
+        
+    
+    
+    
+        
             
             
         
