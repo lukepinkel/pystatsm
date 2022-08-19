@@ -110,6 +110,22 @@ class FactorAnalysis(object):
         self.n_params = len(ixa) - nc
         
     def model_matrices_to_params(self, L, Phi, Psi):
+        """
+        Parameters
+        ----------
+        L : (p, m) array
+            Loadings matrix.
+        Phi : (m, m) array
+            Factor correlation matrix.
+        Psi : (p, p) array
+            Diagonal matrix of unique variances.
+
+        Returns
+        -------
+        params : (nt, ) array 
+            Vector of parameters.
+
+        """
         if Psi.ndim==2:
             psi = np.diag(Psi)
         else:
@@ -121,6 +137,19 @@ class FactorAnalysis(object):
         return params
 
     def loglike(self, psi):
+        """
+
+        Parameters
+        ----------
+        psi : (p,) array
+            Vector of unique variances.
+
+        Returns
+        -------
+        f : float
+            -2 times log likelihood minus constants.
+
+        """
         S, q = self.S, self.n_vars - self.n_facs
         s = 1.0 / np.sqrt(psi[:, None])
         u = np.linalg.eigvalsh(s.T * S * s)[:q]
@@ -128,10 +157,36 @@ class FactorAnalysis(object):
         return f
     
     def loglike_exp(self, rho):
+        """
+
+        Parameters
+        ----------
+        rho : (p,) array
+            Vector of log unique variances.
+
+        Returns
+        -------
+        f : float
+            -2 times log likelihood minus constants.
+
+        """
         psi = np.exp(rho)
-        return self.loglike(psi)
+        f = self.loglike(psi)
+        return f
     
     def gradient(self, psi):
+        """
+        Parameters
+        ----------
+        psi : (p,) array
+            Vector of unique variances.
+
+        Returns
+        -------
+        g : (p,) array
+            Derivative of -2 times log likelihood with respect to unique variances.
+
+        """
         S, q = self.S,  self.n_vars - self.n_facs
         s = 1.0 / np.sqrt(psi[:, None])
         u, V = np.linalg.eigh(s.T * S * s)
@@ -139,12 +194,36 @@ class FactorAnalysis(object):
         return g
     
     def gradient_exp(self, rho):
+        """
+        Parameters
+        ----------
+        rho : (p,) array
+            Vector of log unique variances.
+
+        Returns
+        -------
+        dF_dRho : (p,) array
+            Derivative of -2 times log likelihood with respect to log unique variances.
+
+        """
         psi = np.exp(rho)
         dF_dPsi = self.gradient(psi)
         dF_dRho = psi * dF_dPsi
         return dF_dRho
     
     def hessian(self, psi):
+        """
+
+        Parameters
+        ----------
+        psi : (p,) array
+            Vector of unique variances.
+        Returns
+        -------
+        H : (p, p) array
+            Hessian of -2 log likelihood with respect to unique variances.
+
+        """
         S, q, p= self.S, self.n_vars - self.n_facs, self.n_vars
         s = 1.0 / np.sqrt(psi[:, None])
         Psi_inv = np.diag(1 / psi)
@@ -161,6 +240,18 @@ class FactorAnalysis(object):
         return H
     
     def hessian_exp(self, rho):
+        """
+
+        Parameters
+        ----------
+        rho : (p,) array
+            Vector of unique variances.
+        Returns
+        -------
+        H : (p, p) array
+            Hessian of -2 log likelihood with respect to log unique variances.
+
+        """
         psi = np.exp(rho)
         dF_dPsi = self.gradient(psi)
         d2F_dPsi2 = self.hessian(psi)
@@ -169,6 +260,19 @@ class FactorAnalysis(object):
         return H
     
     def loadings_from_psi(self, psi):
+        """
+
+        Parameters
+        ----------
+        psi : (p,) array
+            Vector of unique variances.
+
+        Returns
+        -------
+        A : (p, m) array
+            Canonical loadings with respect to psi.
+
+        """
         S, m = self.S,  self.n_facs
         s = 1.0 / np.sqrt(psi[:, None])
         u, V = np.linalg.eigh(s.T * S * s)
@@ -259,6 +363,11 @@ class FactorAnalysis(object):
         self.FactorCorr = pd.DataFrame(self.Phi, index=fcols, columns=fcols)
         self.ResidualCov = pd.DataFrame(self.Psi, index=self.cols, columns=self.cols)
         self.Sigma = self.sigma_params(self.params)
+        chi2_table, incrimental_fit_indices, misc_fit_indices = self.fit_indices()
+        self.chi2_table = chi2_table 
+        self.incrimental_fit_indices = incrimental_fit_indices
+        self.misc_fit_indices=  misc_fit_indices
+        
         
     def order_loadings(self, L, T, Phi):
         order = np.argsort(np.sum(L**2, axis=0))

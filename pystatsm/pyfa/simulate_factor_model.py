@@ -132,15 +132,20 @@ class FactorEstimateSim(object):
         model.fit()
         model.rho_init = np.log(np.diag(self.model_sim.Psi))
         params = np.zeros((n, len(model.res)))
+        chi2_table = np.zeros((n, 2, 3))
+        ifi = np.zeros((n, 5, 1))
+        mfi = np.zeros((n, 7, 1))
         params_se = np.zeros_like(params)
         cov_mats = np.zeros((n, self.p, self.p))
         for i in range(n):
             Z, X = self.model_sim.simulate_data(n_obs=n_obs, exact=False)
             model.S = cov(X)#model._process_data(X, None, X.shape[0])
             cov_mats[i] = model.S.copy()
-            #model._init_psi()
             model.fit()
             params[i], params_se[i] = self.align_model(model)
+            chi2_table[i] = model.chi2_table
+            ifi[i] = model.incrimental_fit_indices
+            mfi[i] = model.misc_fit_indices
             pbar.update(1)
         pbar.close()
         if model.rotation_type == "oblique":
@@ -156,6 +161,9 @@ class FactorEstimateSim(object):
         self.res = pd.DataFrame(res, index=model.res.index, columns=["Mean", "Generative Values", "SE", "SEM"])
         self.res["ratio"] = self.res["SE"] / self.res["SEM"]
         self.cov_mats = cov_mats
+        self.chi2_table = chi2_table
+        self.ifi = ifi
+        self.mfi = mfi
 
             
         
