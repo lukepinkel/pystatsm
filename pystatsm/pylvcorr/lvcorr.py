@@ -19,7 +19,7 @@ from .statfuncs import (norm_qtf, polychor_thresh,  binorm_pdf,
 
  
 
-class Polychoric:
+class Polychoric(object):
     """
     Class that computes the MLE of a polychoric correlation
     

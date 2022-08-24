@@ -10,7 +10,7 @@ import numba # analysis:ignore
 import numpy as np # analysis:ignore
 import scipy as sp # analysis:ignore
 import scipy.sparse as sps # analysis:ignore
-
+from .indexing_utils import flat_mgrid
 
 def difference_mat(k, order=2):
     Dk = np.diff(np.eye(k), order, axis=0)
@@ -97,5 +97,53 @@ def kronvec_mat(A_dims, B_dims):
   Kv = sp.sparse.kron(sp.sparse.eye(p), kmat(r, n))
   Kv = sp.sparse.kron(Kv, sp.sparse.eye(q))
   return Kv
+
+def pattern_mat_c(p):
+    n = np.arange(p)
+    i, j, g, h = flat_mgrid(n, n, n, n)
+    ix = (((i == g) & (h==j)) | ( (i == h) & (j == g))) & (i!=j)  & (g!=h)
+    
+    rc = i[ix] + j[ix] * p, g[ix] + h[ix] * p
+    vals = np.repeat(0.5, len(rc[0]))
+    data = (vals, rc)
+    shape = (p**2 , p**2)
+    Mc = sp.sparse.csc_matrix(data, shape=shape)
+    return Mc
+
+
+def pattern_mat_d(p):
+    n = np.arange(p)
+    i, j, g, h = flat_mgrid(n, n, n, n)
+    ix = (i==j) & (j==g) & (g==h)
+    
+    rc = i[ix] + j[ix] * p, g[ix] + h[ix] * p
+    vals = np.repeat(1.0, len(rc[0]))
+    data = (vals, rc)
+    shape = (p**2 , p**2)
+    Md = sp.sparse.csc_matrix(data, shape=shape)
+    return Md
+
+def pattern_mat_s(p):
+    n = np.arange(p)
+    i, j, g, h = flat_mgrid(n, n, n, n)
+    ix1 = (i==j) & (j==g) & (g==h)
+    ix2 = (((i == g) & (h==j)) | ( (i == h) & (j == g))) & (~ix1)
+    
+    r1, c1 = i[ix1] + j[ix1] * p, g[ix1] + h[ix1] * p
+    r2, c2 = i[ix2] + j[ix2] * p, g[ix2] + h[ix2] * p
+    rc = np.concatenate((r1, r2)), np.concatenate((c1, c2))
+    vals = np.r_[np.repeat(1., len(r1)), np.repeat(0.5, len(r2))]
+    data = (vals, rc)
+    shape = (p**2 , p**2)
+    Ms = sp.sparse.csc_matrix(data, shape=shape)
+    return Ms
+
+def pattern_mat_k(p):
+    n = np.arange(p)
+    r = n * (p+1)
+    data = (np.ones(p), (r, n))
+    shape = p**2, p
+    Kd = sp.sparse.csc_matrix(data, shape=shape)
+    return Kd
 
 

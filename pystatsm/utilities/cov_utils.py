@@ -12,8 +12,8 @@ import scipy.stats
 from .data_utils import cov as _cov, scale_diag, normalize_xtrx
 from .func_utils import handle_default_kws
 from .indexing_utils import diag_indices
-from .special_mats import dmat, dpmat
-from .linalg_operations import eighs, vech
+from .special_mats import dmat, dpmat, nmat, pattern_mat_d, pattern_mat_s, pattern_mat_k
+from .linalg_operations import eighs, vech, vec
 from .random import r_lkj
 
 def project_psd(A, tol_e=1e-9, use_transpose=True):
@@ -358,3 +358,40 @@ def cov_sample_cov(X=None, S=None, excess_kurt=None, kurt=None):
     (D.dot(tmp.T)).T
     V = 2*(D.dot(tmp.T)).T + v.dot(M).dot(v.T)
     return V      
+
+    
+
+def corr_acov_neudecker(S):
+    p = S.shape[0]
+    s = np.sqrt(np.diag(S))
+    vS = vec(S)
+    w = 1 / s
+    ww = np.kron(w, w)
+    R = scale_diag(S, w)
+    Ms = nmat(p) / 2.0
+    Md = pattern_mat_d(p)
+    IoR = np.kron(np.eye(p), R)
+    MsIoR = Ms.dot(IoR)
+    A = (np.eye(p**2) -  (Md.T.dot(MsIoR.T)).T) *  ww
+    V = 2 * Ms.dot(np.kron(S, S)) + np.outer(vS, vS)
+    Acov = A.dot(V).dot(A.T)
+    return Acov
+
+def corr_acov_browne(S, kurt=1.0):
+    p = S.shape[0]
+    s = np.sqrt(np.diag(S))
+    w = 1 / s
+    #vS = vec(S)
+    R = scale_diag(S, w)
+    vS = vec(R)
+    Ms = pattern_mat_s(p)
+    Kd = pattern_mat_k(p)
+    A = Ms.dot(np.kron(R, np.eye(p)))
+    A = (Kd.T.dot(A.T)).T
+    G = 2.0 * Ms.dot(np.kron(R, R))
+    G = kurt * G + (kurt - 1) * np.outer(vS, vS)
+    B = (Kd.T.dot(G.T)).T
+    C = Kd.T.dot(B)
+    ABt = np.dot(A, B.T)
+    Acov = G - ABt - ABt.T + A.dot(C).dot(A.T)
+    return Acov

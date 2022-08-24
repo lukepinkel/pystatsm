@@ -108,7 +108,27 @@ def triu_indices(n, k=0, m=None, order='F'):
     return inds
  
    
-    
+def flat_mgrid(*xi, **kwargs):
+    g = np.meshgrid(*xi, **kwargs)
+    f = [i.flatten() for i in g]
+    return f
 
 
- 
+class ndindex:
+
+    def __init__(self, *shape, order='F'):
+        if len(shape) == 1 and isinstance(shape[0], tuple):
+            shape = shape[0]
+        x = np.lib.stride_tricks.as_strided(np.core.numeric.zeros(1), 
+                                            shape=shape,
+                                            strides=np.core.numeric.zeros_like(shape))
+        self._it = np.core.numeric.nditer(x, flags=['multi_index', 'zerosize_ok'],
+                              order=order)
+
+    def __iter__(self):
+        return self
+
+
+    def __next__(self):
+        next(self._it)
+        return self._it.multi_index
