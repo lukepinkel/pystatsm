@@ -80,6 +80,13 @@ def tril_indices(n, k=0, m=None, order='F'):
         inds = np.tril_indices(n=n, k=k, m=m)
     return inds
 
+def inv_tril_indices(n, k=0, m=None, order='F', indexing=0):
+    arr = np.zeros((n, n), dtype=int)
+    ij = tril_indices(n, k, m, order)
+    arr[ij] = np.arange(indexing, indexing+len(ij[0]))
+    arr = arr + arr.T
+    return arr
+
 def triu_indices(n, k=0, m=None, order='F'):
     """
 
