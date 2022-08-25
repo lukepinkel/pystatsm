@@ -564,13 +564,18 @@ class Polychoric(object):
     def fit(self, verbose=False, opt_kws=None):
         if verbose:
             pbar = tqdm.tqdm(total=self.p_star, smoothing=1e-3)
+        R = np.eye(self.p)
+        R_se = np.zeros((self.p, self.p))
         for ii in range(self.p_star):
             i, j = self.IJ_ind[ii]
             self.rhos[ii], self.rhos_se[ii], self.opts[ii] = self._fit(i, j, opt_kws)
+            R[i, j] = R[j, i] = self.rhos[ii]
+            R_se[i, j] = R_se[j, i] = self.rhos_se[ii]
             if verbose:
                 pbar.update(1)
         if verbose:
             pbar.close()
+        self.R, self.R_se = R, R_se
         
         
 
