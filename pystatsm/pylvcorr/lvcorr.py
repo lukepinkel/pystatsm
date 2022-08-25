@@ -578,8 +578,167 @@ class Polychoric(object):
         self.R, self.R_se = R, R_se
         
         
+class PolychoricCorr(object):
 
+    def __init__(self, data):
+        X = data.values
+        n, p = X.shape
+        xthresh= {i:{} for i in range(p)}
+        xcounts = {i:{} for i in range(p)}
+        rho_inits = {i:{} for i in range(p)}
+        for i, j in np.ndindex(p, p):
+            xthresh[i][j], xcounts[i][j] = self._init_crosstab(X[:, i], X[:, j])
+            rho_inits[i][j] = np.atleast_1d(np.corrcoef(X[:, i], X[:, j])[0, 1])
         
+        self.data = data
+        self.X = X
+        self.nobs = self.n = n
+        self.nvar = self.p = p
+        self.xthresh = xthresh
+        self.xcounts = xcounts
+        self.rho_inits =rho_inits
+        self.cats = {i:np.unique(X[:, i]) for i in range(self.p)}
+        self.ncats = {i:len(self.cats[i]) for i in range(self.p)}
+        self.taus = {i:self._get_threshold(X[:, i]) for i in range(self.p)}
+        self.opts = {i:{} for i in range(self.p)}
+        self.R = np.eye(self.p)
+        self.R_se = np.zeros((self.p, self.p))
+    
+    def _get_threshold(self, x):
+        vals, counts = np.unique(x, return_counts=True)
+        t_inner = sp.special.ndtri(np.cumsum(counts)[:-1] / np.sum(counts))
+        t = np.r_[-1e6, t_inner, 1e6]
+        return t
+    
+    def _init_crosstab(self, x, y):
+        _, xtab = sp.stats.contingency.crosstab(x, y)
+        p, q = xtab.shape
+        vecx = xtab.flatten()
+        a = self._get_threshold(y)
+        b = self._get_threshold(x)
+        ixi, ixj = np.meshgrid(np.arange(1, q+1), np.arange(1, p+1))
+        ixi1, ixj1 = ixi.flatten(), ixj.flatten()
+        ixi2, ixj2 = ixi1 - 1, ixj1 - 1
+        a1, a2 = a[ixi1], a[ixi2]
+        b1, b2 = b[ixj1], b[ixj2]
+        t = dict(a1=a1, a2=a2, b1=b1, b2=b2)
+        return t, vecx
+        
+    
+    def prob(self, r, i, j):
+        xthresh = self.xthresh[i][j]
+        a1, a2, b1, b2 = xthresh["a1"], xthresh["a2"], xthresh["b1"], xthresh["b2"]
+        p =  binorm_cdf(a1, b1, r) \
+            - binorm_cdf(a2, b1, r)\
+            - binorm_cdf(a1, b2, r)\
+            + binorm_cdf(a2, b2, r)
+        return p
+    
+    def dprob(self, r, i, j):
+        xthresh = self.xthresh[i][j]
+        a1, a2, b1, b2 = xthresh["a1"], xthresh["a2"], xthresh["b1"], xthresh["b2"]
+        p =   binorm_pdf(a1, b1, r) \
+            - binorm_pdf(a2, b1, r)\
+            - binorm_pdf(a1, b2, r)\
+            + binorm_pdf(a2, b2, r)
+        return p
+    
+    def _dphi(self, a, b, r):
+        xy, x2, y2 = a * b, a**2, b**2
+        r2 = r**2
+        s = (1 - r2)
+        
+        u1 = x2 / (2 * s)
+        u2 = r*xy / s
+        u3 = y2 / (2 * s)
+        
+        num1 = np.exp(-u1 + u2 - u3)
+        num2 = r**3 - r2*xy + r*x2 + r*y2 - r - xy
+        num = num1 * num2
+        den = 2*np.pi*(r-1)*(r+1)*np.sqrt(s**3)
+        g = num / den
+        return g
+     
+    def gfunc(self, r, i, j):
+        xthresh = self.xthresh[i][j]
+        a1, a2, b1, b2 = xthresh["a1"], xthresh["a2"], xthresh["b1"], xthresh["b2"]
+        g =  self._dphi(a1, b1, r)\
+            -self._dphi(a2, b1, r)\
+            -self._dphi(a1, b2, r)\
+            +self._dphi(a2, b2, r)
+        return g
+    
+    def loglike(self, r, i, j):
+        p = self.prob(r, i, j)
+        p = np.maximum(p, 1e-16)
+        return -np.sum(self.xcounts[i][j] * np.log(p))
+  
+    def loglike_tanh(self, atanh_r, i, j):
+        r = np.tanh(atanh_r)
+        ll = self.loglike(r, i, j)
+        return ll
+    
+    def gradient(self, r, i, j):
+        p = self.prob(r, i, j)
+        dp = self.dprob(r, i, j)
+        p = np.maximum(p, 1e-16)
+        ll = -np.sum(self.xcounts[i][j] / p * dp)
+        return ll
+    
+        
+    def gradient_tanh(self, atanh_r, i, j):
+        r = np.tanh(atanh_r)
+        g = self.gradient(r, i, j)
+        g = g * (1.0 - r**2)
+        return g
+    
+    def hessian(self, r, i, j):
+        prb = np.maximum(self.prob(r, i, j), 1e-16)
+        phi = self.dprob(r, i, j)
+        gfn = self.gfunc(r, i, j)
+        
+        u = self.xcounts[i][j] / prb
+        v = self.xcounts[i][j] / np.maximum(prb**2, 1e-16)
+        H = u * gfn - v * phi**2
+        H = -np.sum(H)
+        return H
+    
+    def hessian_tanh(self, atanh_r, i, j):
+        r = np.tanh(atanh_r)
+        g = self.gradient_tanh(atanh_r, i, j)
+        H = self.hessian(r, i, j)
+        H = 1 / np.cosh(atanh_r)**4 * H - 2.0 * r * g
+        return H
+    
+
+    def _fit(self, i, j, opt_kws=None):
+        opt_kws = handle_default_kws(opt_kws, dict(method='trust-constr'))
+        func = lambda x: self.loglike_tanh(x, i, j)
+        grad = lambda x: self.gradient_tanh(x, i, j)
+        hess = lambda x: self.hessian_tanh(x, i, j)
+        
+        x0 = np.arctanh(self.rho_inits[i][j])
+        opt = sp.optimize.minimize(func, x0, jac=grad, hess=hess, **opt_kws)
+        
+        r = np.tanh(opt.x)
+        r_se = np.sqrt(1.0 / self.hessian(r, i, j))
+        self.R[i][j] = self.R[j][i] = r
+        self.R_se[i][j] = self.R_se[j][i] = r_se
+        self.opts[i][j] = self.opts[j][i] = opt
+    
+    def fit(self, verbose=False, opt_kws=None):
+        inds = list(zip(*tril_indices(self.p, -1)))
+        if verbose:
+            pbar = tqdm.tqdm(total=len(inds), smoothing=1e-3)
+        for i, j in inds:
+            self._fit(i, j, opt_kws)
+            if verbose:
+                pbar.update(1)
+        if verbose:
+            pbar.close()
+        
+        
+
     
                 
         
