@@ -113,6 +113,19 @@ class ExponentialFamily(object):
         res = (Psc - Psb)*self.weights
         return -res/phi
     
+    def get_ghw(self, y, mu, phi=1.0):
+        y, mu = self.cshape(y, mu)
+        V0, V1 = self.var_func(mu=mu), self.dvar_dmu(mu)
+        g1, g2 = self.dlink(mu), self.d2link(mu)
+        g1V0 = g1 * V0 * phi
+        r = y - mu
+        a = 1.0 + r * (V1 / V0 + g2 / g1)
+        rw = self.weights * r
+        gw = -rw / g1V0 
+        hw = self.weights * a / (g1 * g1V0)
+        return gw, hw
+        
+    
     def get_a(self, y, mu, phi=1.0):
         y, mu = self.cshape(y, mu)
         V0, V1 = self.var_func(mu=mu), self.dvar_dmu(mu)
