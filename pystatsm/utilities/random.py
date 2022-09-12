@@ -252,5 +252,28 @@ def r_lkj(eta=1.0, n=1, dim=1, rng=None, seed=None):
 
 
 
+def _special_ortho(dim, rng=None, seed=None):
+    rng = np.random.default_rng(seed) if rng is None else rng
+    H = np.eye(dim)
+    D = np.ones((dim,))
+    for n in range(1, dim):
+        x = rng.normal(size=(dim-n+1,))
+        D[n-1] = np.sign(x[0])
+        x[0] -= D[n-1] * np.sqrt((x * x).sum())
+        Hx = (np.eye(dim - n + 1) - 2.*np.outer(x, x) / (x * x).sum())
+        mat = np.eye(dim)
+        mat[n-1:, n-1:] = Hx
+        H = np.dot(H, mat)
+    D[-1] = (-1)**(1 - (dim % 2)) * D.prod()
+    H = (D * H.T).T
+    return H
+
+def _ortho_norm(n, p=None, rng=None, seed=None):
+    p = n if p is None else p
+    rng = np.random.default_rng(seed) if rng is None else rng
+    H = rng.normal(0, 1, size=(n, p))
+    Q, _ = np.linalg.qr(H, mode="reduced")
+    return Q
+
 
 

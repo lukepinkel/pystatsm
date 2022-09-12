@@ -577,7 +577,7 @@ class Polychoric(object):
             pbar.close()
         self.R, self.R_se = R, R_se
         
-        
+
 class PolychoricCorr(object):
 
     def __init__(self, data):
@@ -741,10 +741,4 @@ class PolychoricCorr(object):
 
     
                 
-        
-    
-
-
-
-
 

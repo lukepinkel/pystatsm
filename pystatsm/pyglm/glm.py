@@ -151,11 +151,16 @@ class GLM:
             H = np.block([[H, dbdt.T], [dbdt, d2t]])
         return H 
     
+    def hess_grad(self, params, X=None, Y=None):
+        params, X, Y = self._check_mats(params, X, Y)
+        mu, phi, tau = self._handle_scale(params, X, Y)
+        gw, hw = self.f.get_ghw(Y, mu=mu, phi=phi)
+        return gw, hw
+        
     
     def _fit_optim(self, opt_kws=None, t_init=None, X=None, Y=None):
         if t_init is None:
             t_init = self.theta_init
-
         opt_kws = {} if opt_kws is None else opt_kws
         default_kws = dict(method='trust-constr', options=dict(verbose=0, gtol=1e-6, xtol=1e-6))
         opt_kws = {**default_kws, **opt_kws}
@@ -164,6 +169,27 @@ class GLM:
                                          jac=self.gradient, hess=self.hessian, 
                                          **opt_kws)
         return optimizer
+    
+    def _fit_estimating_equations(self, theta_init=None, n_iters=500, tol=1e-12, X=None, Y=None):
+        x = self.theta_init if theta_init is None else theta_init
+        fit_hist = {"theta":[], "|g|":[], "ll":[]}
+        x, X, Y = self._check_mats(x, X, Y)
+        for i in range(n_iters):
+            H = self.hessian(x, X=X, Y=Y)
+            g = self.gradient(x, X=X, Y=Y)
+            gmax = np.max(np.abs(g))
+            d = np.linalg.solve(H, g)
+            fit_hist["theta"].append(x)
+            fit_hist["ll"].append(self.loglike(x, X=X, Y=Y))
+            fit_hist["|g|"].append(gmax)
+            x = x - d
+            if gmax <= tol:
+                break
+        fit_hist["theta"].append(x)  
+        fit_hist["ll"].append(self.loglike(x, X=X, Y=Y))
+        fit_hist["|g|"].append(np.max(np.abs(self.gradient(x, X=X, Y=Y))))
+        return x, fit_hist
+            
     
     def _fit_manual(self, theta=None):
 
@@ -214,8 +240,11 @@ class GLM:
         if method == 'sp':
             res = self._fit_optim(opt_kws=opt_kws)
             params = res.x
-        else:
+        elif method == "mn":
             params, res = self._fit_manual()
+        elif method == "ee":
+            opt_kws = {} if opt_kws is None else opt_kws
+            params, res = self._fit_estimating_equations(**opt_kws)
         self.optimizer = res
         self.params = params
         mu = self.predict(params, kind="mean")
@@ -295,6 +324,10 @@ class GLM:
                                                t_init=t_init, 
                                                X=self.X[ix], 
                                                Y=self.Y[ix]).x
+            elif method == "ee":
+                theta_samples[i], _ = self._fit_estimating_equations(theta_init=t_init, 
+                                               X=self.X[ix], 
+                                               Y=self.Y[ix])
             else:
                 theta_samples[i], _ = self._bootfit(params=t_init, X=self.X[ix],
                                                    Y=self.Y[ix])
