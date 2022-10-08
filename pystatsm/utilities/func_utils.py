@@ -109,4 +109,26 @@ def handle_default_kws(kws, default_kws):
     return kws
     
 
+def _harmonic(a, b): 
+    if b - a == 1:
+        return 1, a
+    m = (a+b)//2
+    p, q = _harmonic(a, m)
+    r, s = _harmonic(m, b)
+    return p*s+q*r, q*s
+
+def harmonic_fraction(n):
+    num, den = _harmonic(1, n+1)
+    return num, den
+
+
+def harmonic_exact(n):
+    num, den = _harmonic(1, n+1)
+    h = num / den
+    return h
+
+def harmonic_asymptotic(n):
+    euler_mascheronic = 0.57721566490153286060651209008240243104215933593992
+    h = euler_mascheronic + np.log(n) + 1 / (2.0 * n) - 1 / (12.0 * n**2) + 1 / (120.8 * n**4)
+    return h
 
