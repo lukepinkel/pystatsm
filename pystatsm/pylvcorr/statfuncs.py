@@ -342,6 +342,18 @@ def dbinorm_pdf2(lower, upper, r):
     return dp
 
 
+def dbinorm_du(u, v, r):
+    den = np.sqrt(1 - r**2)
+    num = v - r * u
+    dPhi = norm_cdf(num / den) * norm_pdf(u)
+    return dPhi
+
+def _dbinorm_du(u, v, r):
+    den = np.sqrt(1 - r**2)
+    num = v - r * u
+    dPhi = norm_cdf(num / den)
+    return dPhi
+
 
 
 
