@@ -13,6 +13,8 @@ import scipy.stats # analysis:ignore
 import pandas as pd # analysis:ignore
 from ..utilities.linalg_operations import wdiag_outer_prod, diag_outer_prod
 
+
+
 class OLS:
     
     def __init__(self, formula=None, data=None, X=None, y=None):
@@ -107,8 +109,8 @@ class OLS:
         if rse is not None:
             for key, val in rse.items():
                 res["p_"+key] = sp.stats.t(self.n-self.p).sf(np.abs(res['t_'+key]))*2.0
-        dfr = self.n - self.p - 1
-        dfm = self.p
+        dfr = self.n - self.p
+        dfm = self.p - 1
         dft = self.n - 1
         
         ssr = np.sum(resids**2)
@@ -226,27 +228,50 @@ class OLS:
         self.res['permutation_p'] = p_values
         self.res['permutation_p_fwer'] = p_values_fwer
         
-    def _bootstrap(self, n_boot):
+    def _bootstrap(self, n_boot, ssq=False):
         pbar = tqdm.tqdm(total=n_boot, smoothing=0.001)
         beta_samples = np.zeros((n_boot, self.p))
         beta_se_samples =  np.zeros((n_boot, self.p))
-        for i in range(n_boot):
-            ix = np.random.choice(self.n, self.n)
-            Xb, Yb = self.X[ix],  self.y[ix]
-            beta_samples[i], beta_se_samples[i] = self._fit_mats(Xb, Yb)
-            pbar.update(1)
+        if ssq:
+            ssq_samples = np.zeros((n_boot, 13))
+        else:
+            ssq_samples = None
+        i = 0
+        while i < n_boot:
+            try:
+                ix = np.random.choice(self.n, self.n)
+                Xb, Yb = self.X[ix],  self.y[ix]
+                beta_samples[i], beta_se_samples[i] = self._fit_mats(Xb, Yb)
+                if ssq:
+                    ssq_samples[i] = sumsq(Yb, Xb.dot(beta_samples[i]), self.p)
+                i += 1
+                pbar.update(1)
+            except np.linalg.LinAlgError:
+                pass
         pbar.close()
-        return beta_samples, beta_se_samples
+        # for i in range(n_boot):
+        #     ix = np.random.choice(self.n, self.n)
+        #     Xb, Yb = self.X[ix],  self.y[ix]
+        #     beta_samples[i], beta_se_samples[i] = self._fit_mats(Xb, Yb)
+        #     pbar.update(1)
+        # pbar.close()
+        return beta_samples, beta_se_samples, ssq_samples
     
-    def bootstrap(self, n_boot=5_000):
+    def bootstrap(self, n_boot=5_000, ssq=False):
         if hasattr(self, 'res')==False:
             self.fit()
-        self.beta_samples, self.beta_se_samples = self._bootstrap(n_boot)
+        self.beta_samples, self.beta_se_samples, self.ssq_samples = self._bootstrap(n_boot, ssq)
         self.res.insert(self.res.columns.get_loc("SE")+1, "SE_boot", self.beta_samples.std(axis=0))
         self.res.insert(self.res.columns.get_loc("t")+1, "t_boot", self.res['beta']/self.res['SE_boot'])
         self.res.insert(self.res.columns.get_loc("p")+1, "p_boot",  
                         sp.stats.t(self.n-self.p).sf(np.abs(self.res['t_boot']))*2.0)
-        
+        if self.ssq_samples is not None:
+            self.ssq_samples = pd.DataFrame(
+                self.ssq_samples, columns=[
+                    "SSR", "SSM", "SST", "dfr", "dfm", "dft", "MSR", "MSM", "MST",
+                    "Rsquared", "Rsquared_Adj", "F", "p"
+                    ]
+                )
 
     def print_results(self):
         opt_cont = ('display.max_rows', None, 'display.max_columns', None,
@@ -362,7 +387,31 @@ class OLS:
         return y_hat
         
         
-        
+  
+def sumsq(y, yhat, p):
+    n = len(y)
+    dfr = n - p
+    dfm = p - 1
+    dft = n - 1
+    
+    resids = y - yhat
+    ymean = np.mean(y)
+    ssr = np.sum(resids**2)
+    ssm = np.sum((yhat - ymean)**2)
+    sst = np.sum((y - ymean)**2)
+    
+    msr = ssr / dfr
+    msm = ssm / dfm
+    mst = sst / dft
+    
+    rsquared = 1.0 - ssr / sst
+    rsquared_adj = 1.0 - (msr / mst)     
+   
+    fvalue = msm / msr
+    fpval = sp.stats.f(dfm, dfr).sf(fvalue)
+    res = np.array([ssr, ssm, sst, dfr, dfm, dft, msr, msm, mst, rsquared, rsquared_adj, fvalue, fpval])
+    return res
+      
         
         
         
