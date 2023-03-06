@@ -117,6 +117,8 @@ def normalize_xtrx(X, R):
     return X
 
 def ssq(arr, axis=0):
+    if np.ndim(arr) < 2:
+        arr = np.reshape(arr, (-1, 1))
     if axis == 0:
         s = np.einsum("ij,ij->j", arr, arr, optimize=True)
     elif axis == 1:

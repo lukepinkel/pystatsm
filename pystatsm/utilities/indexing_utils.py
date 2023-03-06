@@ -7,6 +7,7 @@ Created on Sun Jul 31 01:22:10 2022
 """
 
 import numpy as np
+import scipy as sp
 
 def diag_indices(n, k=0):
     """
@@ -139,3 +140,16 @@ class ndindex:
     def __next__(self):
         next(self._it)
         return self._it.multi_index
+    
+    
+
+def get_lower_indices(*args):
+    res = 0
+    for i, x in enumerate(args):
+        i1 = i + 1
+        den = int(sp.special.factorial(i1))
+        res = res + int(np.product([x + k for k in range(i1)], dtype=int) / den)
+    return res
+
+
+

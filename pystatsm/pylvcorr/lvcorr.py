@@ -465,6 +465,8 @@ class Polychoric(object):
         return t
     
     def _init_crosstab(self, xi, xj, ti=None, tj=None):
+        not_nan = ~(np.isnan(xi) | np.isnan(xj))
+        xi, xj = xi[not_nan], xj[not_nan]
         ti = self._get_threshold(xi) if ti is None else ti
         tj = self._get_threshold(xj) if tj is None else tj
         _, xtab = sp.stats.contingency.crosstab(xi, xj)
@@ -587,8 +589,11 @@ class PolychoricCorr(object):
         xcounts = {i:{} for i in range(p)}
         rho_inits = {i:{} for i in range(p)}
         for i, j in np.ndindex(p, p):
-            xthresh[i][j], xcounts[i][j] = self._init_crosstab(X[:, i], X[:, j])
-            rho_inits[i][j] = np.atleast_1d(np.corrcoef(X[:, i], X[:, j])[0, 1])
+            Xij = X[:, [i, j]]
+            ind = ~np.isnan(Xij).any(axis=1)
+            Xij = Xij[ind]
+            xthresh[i][j], xcounts[i][j] = self._init_crosstab(Xij[:, 0], Xij[:, 1])
+            rho_inits[i][j] = np.atleast_1d(np.corrcoef(Xij[:, 0], Xij[:, 1])[0, 1])
         
         self.data = data
         self.X = X

@@ -455,5 +455,20 @@ class LHV(object):
         return d2x_dy2
     
 
+def dmat_exp(A):
+    n = A.shape[0]
+    u, V = np.linalg.eig(A)
+    arr = np.zeros((n * n), dtype=float)
+    eu = np.exp(u)
+    for i, j in np.ndindex((n, n)):
+        k = n * i + j
+        if i!=j:
+            arr[k] = (eu[i] - eu[j]) / (u[i] - u[j])
+        else:
+            arr[k] = eu[i]        
+    W = np.kron(V, V)
+    J = (W * arr).dot(W.T)
+    return J
+
 
   

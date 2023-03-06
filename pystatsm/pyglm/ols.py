@@ -385,6 +385,21 @@ class OLS:
         X = self.X if X is None else X
         y_hat = np.dot(X, beta)
         return y_hat
+    
+    def _compute_jackknife_coefs(self):
+        beta = self.beta[None]
+        X = self.X
+        XtXi = np.dot(self.Linv.T, self.Linv)
+        w = (self.resids / (1.0 - self.h))[:, None]
+        dbeta = np.dot(X, XtXi) * w
+        beta_jackknife = beta - dbeta
+        beta_jackknife_mean = np.mean(beta_jackknife, axis=0)
+        beta_jackknife_z = beta_jackknife - beta_jackknife_mean
+        self.beta_jackknife = beta_jackknife
+        self.beta_jackknife_mean = beta_jackknife_mean
+        self.beta_jackknife_z = beta_jackknife_z
+        
+    
         
         
   
