@@ -241,7 +241,8 @@ class GLM:
             res = self._fit_optim(opt_kws=opt_kws)
             params = res.x
         elif method == "mn":
-            params, res = self._fit_manual()
+            opt_kws = {} if opt_kws is None else opt_kws
+            params, res = self._fit_manual(**opt_kws)
         elif method == "ee":
             opt_kws = {} if opt_kws is None else opt_kws
             params, res = self._fit_estimating_equations(**opt_kws)

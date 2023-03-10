@@ -205,17 +205,17 @@ class Gaussian(ExponentialFamily):
  
     def _loglike(self, y, eta=None, mu=None, T=None, scale=1.0):
         if mu is None:
-            mu = self._to_mean(eta=eta, T=T)
-            
+            mu = self._to_mean(eta=eta, T=T)  
         y, mu = self.cshape(y, mu)
         w = self.weights / scale
-        
-        ll= w * np.power((y - mu), 2) + np.log(scale/self.weights)
+        ll = w * np.power((y - mu), 2) + np.log(scale/self.weights)
+        ll = ll / 2.0
         return ll
     
     def _full_loglike(self, y, eta=None, mu=None, T=None, scale=1.0):
         ll = self._loglike(y, eta, mu, T, scale)
-        llf = ll + LN2PI
+        llf = ll + LN2PI / 2.0
+        
         return llf
     
     def canonical_parameter(self, mu):
@@ -231,10 +231,9 @@ class Gaussian(ExponentialFamily):
         return mu
     
     def var_func(self, T=None, mu=None, eta=None, scale=1.0):
-        
         if mu is None:
             mu = self._to_mean(eta=eta, T=T)
-        V = mu*0.0+1.0
+        V = np.ones_like(mu)
         return V
                 
     def d2canonical(self, mu):
@@ -244,7 +243,6 @@ class Gaussian(ExponentialFamily):
     def deviance(self, y, weights=None, T=None, mu=None, eta=None, scale=1.0):
         if mu is None:
             mu = self._to_mean(eta=eta, T=T)
-        
         y, mu = self.cshape(y, mu)
         w = self.weights if weights is None else weights
         d = w * np.power((y - mu), 2.0)
@@ -254,14 +252,14 @@ class Gaussian(ExponentialFamily):
         y, mu = self.cshape(y, mu)
         w = self.weights
         phi = np.exp(tau)
-        g = -np.sum(w * np.power((y - mu), 2) / phi - 1)
+        g = -np.sum(w * np.power((y - mu), 2) / phi - 1) / 2
         return g
     
     def d2tau(self, tau, y, mu):
         y, mu = self.cshape(y, mu)
         w = self.weights
         phi = np.exp(tau)
-        g = np.sum(w * np.power((y - mu), 2) / (2 * phi))
+        g = np.sum(w * np.power((y - mu), 2) / (2 * phi)) / 2
         return g
     
     def dvar_dmu(self, mu):
@@ -310,11 +308,12 @@ class InverseGaussian(ExponentialFamily):
         num = (y - mu)**2
         den = (y * mu**2 * scale)
         ll = w * num / den + np.log((scale * y**3) / w)
+        ll = ll / 2.0
         return ll
     
     def _full_loglike(self, y, eta=None, mu=None, T=None, scale=1.0):
         ll = self._loglike(y, eta, mu, T, scale)
-        llf = ll + LN2PI
+        llf = ll + LN2PI / 2.0
         return llf 
 
     
@@ -356,14 +355,14 @@ class InverseGaussian(ExponentialFamily):
         phi = np.exp(tau)
         num = w * np.power((y - mu), 2)
         den = (phi * y * np.power(mu, 2))
-        g = -np.sum(num / den - 1)
+        g = -np.sum(num / den - 1) / 2
         return g    
     
     def d2tau(self, tau, y, mu):
         y, mu = self.cshape(y, mu)
         w = self.weights
         phi = np.exp(tau)
-        g = np.sum(w * np.power((y - mu), 2) / (2 * phi * y * mu**2))
+        g = np.sum(w * np.power((y - mu), 2) / (2 * phi * y * mu**2)) / 2
         return g
     
     def dvar_dmu(self, mu):

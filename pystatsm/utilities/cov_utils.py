@@ -94,12 +94,12 @@ def _exact_cov(X, mean=None, cov=None, keep_mean=False):
     return Z
     
 
-def get_ar1_corr(n=1, rho=0.0):
+def get_ar1_corr(n_var=1, rho=0.0):
     """
 
     Parameters
     ----------
-    n : int, optional
+    n_var : int, optional
         Size of correlation matrix. The default is 1.
     rho : float, optional
         Autocorrelation. The default is 0.0.
@@ -110,15 +110,15 @@ def get_ar1_corr(n=1, rho=0.0):
         AR1(rho) correlation matrix.
 
     """
-    R = rho**sp.linalg.toeplitz(np.arange(n))
+    R = rho**sp.linalg.toeplitz(np.arange(n_var))
     return R
 
-def get_exchangeable_corr(n=1, c=0.0):
+def get_exchangeable_corr(n_var=1, c=0.0):
     """
 
     Parameters
     ----------
-    n : int
+    n_var: int
         Size of correlation matrix.  The default is 1
     c : float
         Off diagonal constant. The default is 0.0.
@@ -129,14 +129,14 @@ def get_exchangeable_corr(n=1, c=0.0):
         Exchangeable/Compound Symmetry correlation matrix.
 
     """
-    lb = -1.0 / (n - 1)
+    lb = -1.0 / (n_var - 1)
     if c < lb or c>1:
-        raise ValueError("c must be between -1/(n-1) and 1")
-    R = np.eye(n)
-    R[np.tril_indices(n, -1)] = R[np.triu_indices(n, 1)] = c
+        raise ValueError("c must be between -1/(n_var-1) and 1")
+    R = np.eye(n_var)
+    R[np.tril_indices(n_var, -1)] = R[np.triu_indices(n_var, 1)] = c
     return R
 
-def get_mdependent_corr(off_diags):
+def get_mdependent_corr(off_diags, n_var=None):
     """
 
     Parameters
@@ -150,14 +150,14 @@ def get_mdependent_corr(off_diags):
         m-dependent correlation matrix.
 
     """
-    n = np.max([len(r) for r in off_diags])+1
+    n_var = np.max([len(r) for r in off_diags])+1
     m = len(off_diags)
-    R = np.eye(n)
+    R = np.eye(n_var)
     for i in range(1, m+1):
-        R[diag_indices(n, -i)] = R[diag_indices(n, i)] = off_diags[i-1]
+        R[diag_indices(n_var, -i)] = R[diag_indices(n_var, i)] = off_diags[i-1]
     return R
 
-def get_antedependence1_corr(rho):
+def get_antedependence1_corr(rho, n_var=None):
     """
 
     Parameters
@@ -172,16 +172,16 @@ def get_antedependence1_corr(rho):
     rho with n elements produces an n+1 sized correlation matrix 
 
     """
-    n = len(rho) + 1
+    n_var = len(rho) + 1
     r = []
-    for i in range(n-1):
+    for i in range(n_var-1):
         r.append(np.cumprod(rho[i:]))
     r = np.concatenate(r)
-    R = np.eye(n)
-    R[np.triu_indices(n, 1)[::-1]] = R[np.tril_indices(n, -1)[::-1]] = r
+    R = np.eye(n_var)
+    R[np.triu_indices(n_var, 1)[::-1]] = R[np.tril_indices(n_var, -1)[::-1]] = r
     return R
 
-def get_factor_cov(A, Psi, Phi=None):
+def get_factor_cov(A, Psi, Phi=None, n_var=None):
     """
 
     Parameters
@@ -204,7 +204,7 @@ def get_factor_cov(A, Psi, Phi=None):
     S[np.diag_indices_from(S)] += Psi
     return S
 
-def get_spatialpower_corr(rho, distances):
+def get_spatialpower_corr(rho, distances, n_var=None):
     """
 
     Parameters
@@ -227,7 +227,7 @@ def get_spatialpower_corr(rho, distances):
         R[np.diag_indices_from(R)] += 1.0
     return R
 
-def get_spatialexp_corr(theta, distances):
+def get_spatialexp_corr(theta, distances, n_var=None):
     """
 
     Parameters
@@ -247,7 +247,7 @@ def get_spatialexp_corr(theta, distances):
         R[np.diag_indices_from(R)] += 1.0
     return R
 
-def get_spatialgaussian_corr(s, distances):
+def get_spatialgaussian_corr(s, distances, n_var=None):
     """
 
     Parameters
@@ -266,7 +266,7 @@ def get_spatialgaussian_corr(s, distances):
         R[np.diag_indices_from(R)] += 1.0
     return R
 
-def get_toeplitz_corr(rho):
+def get_toeplitz_corr(rho, n_var=None):
     """
 
     Parameters
@@ -281,15 +281,15 @@ def get_toeplitz_corr(rho):
     R = sp.linalg.toeplitz(np.r_[1., rho])
     return R
 
-def get_lkj_corr(n_vars=1, eta=1.0, r_kws=None):
+def get_lkj_corr(n_var=1, eta=1.0, r_kws=None):
     r_kws = handle_default_kws(r_kws, dict(n=1, seed=None, rng=None))
-    r_kws["dim"], r_kws["eta"] = n_vars, eta
+    r_kws["dim"], r_kws["eta"] = n_var, eta
     R = r_lkj(**r_kws)
     if r_kws["n"]==1:
         R = R[0, 0]
     return R
 
-def _get_joint_corr_eig(Sxx, Syy, Vx, Vy, r):
+def _get_joint_corr_eig(Sxx, Syy, Vx, Vy, r, n_var=None):
     Wx, Wy = normalize_xtrx(Vx, Sxx), normalize_xtrx(Vy, Syy)
     C = np.einsum("ij,j,kj->ik", Wx, r, Wy) 
     Sxy = Sxx.dot(C).dot(Syy)
@@ -311,19 +311,22 @@ def _get_joint_corr_r(Sxx, Syy, r):
     S = np.block([[Sxx, Sxy], [Sxy.T, Syy]])
     return S
 
-def get_canvar_corr(Sxx, Syy, r, Vx=None, Vy=None):
+def get_canvar_corr(Sxx, Syy, r, Vx=None, Vy=None, n_var=None):
     if Vx is not None and Vy is not None:
         S = _get_joint_corr_eig(Sxx, Syy, Vx, Vy, r)
     else:
         S = _get_joint_corr_r(Sxx, Syy, r)
     return S
 
-def get_eig_corr(u, rng=None):
+def get_eig_corr(u, rng=None, n_var=None):
     u = u / np.sum(u) * len(u)
     R = sp.stats.random_correlation.rvs(u, random_state=rng)
     return R
 
-        
+def get_eigvals(n_var=10, p_eff=0.5, a=1.0, b=0.1, c=0.5):
+    x = np.arange(n_var) / (n_var * p_eff)
+    u = ((1 - c) * np.exp(-a * x**2) + c * np.exp(-b * x))**2
+    return u
 
 def multivar_marginal_kurtosis(X):
     k = sp.stats.moment(X, 4)/(sp.stats.moment(X, 2)**2)/3.0

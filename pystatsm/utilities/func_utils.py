@@ -354,3 +354,14 @@ def dbinorm_pdf_region(lower, upper, r):
     return dp
 
 
+
+
+def quantile_cut(arr, n, quantile_kws=None, digitize_kws=None):
+    q = np.linspace(0, 1, n, endpoint=False)[1:]
+    t = np.quantile(arr, **handle_default_kws(quantile_kws, {"q":q}))
+    x = np.digitize(arr, **handle_default_kws(digitize_kws, {"bins":t}))
+    return x
+
+
+
+
