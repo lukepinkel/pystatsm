@@ -215,7 +215,6 @@ class Gaussian(ExponentialFamily):
     def _full_loglike(self, y, eta=None, mu=None, T=None, scale=1.0):
         ll = self._loglike(y, eta, mu, T, scale)
         llf = ll + LN2PI / 2.0
-        
         return llf
     
     def canonical_parameter(self, mu):
@@ -729,7 +728,7 @@ class Binomial(ExponentialFamily):
     
     def _full_loglike(self, y, eta=None, mu=None, T=None, scale=1.0):
         ll = self._loglike(y, eta, mu, T, scale)
-        r = self.weights * y
+        r = self.weights * _check_shape(_check_np(y), 1)
         llf = ll - _logbinom(self.weights, r)
         return llf 
 
@@ -798,7 +797,8 @@ class Binomial(ExponentialFamily):
     def d2llscale(self, phi, y):
         return None
     
-    def rvs(self, mu, scale=1.0, rng=None, seed=None):
+    def rvs(self, mu=None, loc=None, scale=1.0, rng=None, seed=None):
+        mu = loc if mu is None else mu
         rng = np.random.default_rng(seed) if rng is None else rng
         y = rng.binomial(n=self.weights, p=mu) / self.weights
         return y

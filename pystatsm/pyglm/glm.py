@@ -129,6 +129,14 @@ class GLM:
         mu, phi, _ = self._handle_scale(params, X, Y)
         ll = self.f.loglike(Y, mu=mu, scale=phi)
         return ll
+    
+        
+    def full_loglike(self, params, X=None, Y=None):
+        params, X, Y = self._check_mats(params, X, Y)
+        mu, phi, _ = self._handle_scale(params, X, Y)
+        ll = self.f.full_loglike(Y, mu=mu, scale=phi)
+        return ll
+    
 
     def gradient(self, params, X=None, Y=None):
         params, X, Y = self._check_mats(params, X, Y)
@@ -285,7 +293,7 @@ class GLM:
         sumstats['PseudoR2_N'] = sumstats['PseudoR2_CS'] / rmax
         sumstats['PseudoR2_MCF'] = 1 - self.LLA / self.LL0
         sumstats['PseudoR2_MCFA'] = 1 - (self.LLA - k) / self.LL0
-        sumstats['PseudoR2_MFA'] = 1 - (LLR) / (LLR + N)
+        sumstats['PseudoR2_MFA'] =  (LLR) / (LLR + N)
         
         self.sumstats = pd.DataFrame(sumstats, index=['Fit Statistic']).T
 
