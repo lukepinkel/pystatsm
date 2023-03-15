@@ -10,6 +10,7 @@ import numpy as np
 import scipy as sp
 import scipy.sparse as sps
 import pandas as pd
+import itertools
 
 @numba.jit(nopython=True, parallel=True)
 def _col_sum(X):
@@ -378,6 +379,43 @@ def welford_cov(arr1, arr2=None, unbiased=False):
     return mean, cov 
 
 
+def cross_tabulate(arr):
+    levels, indices = zip(*[np.unique(arr[:, i], return_inverse=True) for i in range(arr.shape[1])])
+    shape = [len(a) for a in levels]
+    count = np.zeros(shape, dtype=np.intp)
+    np.add.at(count, indices, 1)
+    return count, list(levels)
 
+def flat_cross_tabulate(arr, column_dim=-1):
+    counts, levels = cross_tabulate(arr)
+    col_labels = levels.pop(column_dim)
+    axis_positions = list(range(counts.ndim))#np.arange(counts.ndim)
+    axis_positions.append(axis_positions.pop(column_dim))
+    axis_locations = [axis_positions.index(i) for i in range(counts.ndim)]
+    counts = np.moveaxis(counts, list(range(counts.ndim)), axis_locations)
+    counts = counts.reshape(np.product(counts.shape[:-1]), counts.shape[-1], order='C')
+    row_labels = np.array(list(itertools.product(*levels)))
+    return counts, row_labels, col_labels, axis_locations
+    
+def expand_crosstab(table):
+    """
+    Parameters
+    ----------
+    table : array_like
+        Contingency Table.
+
+    Returns
+    -------
+    arr : array_like
+        Array of observation levle data that when cross tabulated yields the 
+        contingency table
+    """
+    arr = np.zeros((np.sum(table), table.ndim))
+    start = 0
+    for ii in np.ndindex(table.shape):
+        n = table[ii]
+        arr[start:start+n] = np.repeat([ii], n, axis=0)
+        start += n
+    return arr
 
 
