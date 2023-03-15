@@ -843,7 +843,7 @@ class Binomial(ExponentialFamily):
         return y
     
     def ppf(self, q, mu, scale=1.0):
-        return sp.stats.binom(n=self.weights, p=mu).ppf(q)
+        return sp.stats.binom(n=self.weights, p=mu).ppf(q) / self.weights
     
 
 
