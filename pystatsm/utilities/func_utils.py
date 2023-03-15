@@ -21,6 +21,11 @@ def poisson_logp(x, mu, logp=True):
      return p
  
     
+def logbinom(n, k):
+    y=sp.special.gammaln(n+1)-sp.special.gammaln(k+1)-sp.special.gammaln(n-k+1)
+    return y
+
+    
 def log1p(x):
     return np.log(1+x)
 
@@ -35,6 +40,14 @@ def norm_pdf(x, mean=0.0, sd=1.0):
     p = np.exp(-z**2 / 2.0) / (ROOT2PI * sd)
     return p
 
+def symmetric_conf_int(level):
+    if level > 1.0:
+        q = level / 100
+    else:
+        q = level
+    lower = (1.0 - q) / 2.0
+    upper = 1 - lower
+    return upper
 
 
 def get_part(arr, sol, size, step, maximum, res):

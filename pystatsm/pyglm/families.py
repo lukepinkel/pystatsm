@@ -7,18 +7,16 @@ Created on Tue May 19 21:21:57 2020
 """
 import numpy as np
 import scipy as sp
+import scipy.stats
+import scipy.special
 from ..utilities.data_utils import _check_np, _check_shape
+from ..utilities.func_utils import logbinom
 from .links import (Link, IdentityLink, ReciprocalLink, LogLink, LogitLink,
                    PowerLink)
 
 LN2PI = np.log(2.0 * np.pi)
 FOUR_SQRT2 = 4.0 * np.sqrt(2.0)
 
-
-
-def _logbinom(n, k):
-    y=sp.special.gammaln(n+1)-sp.special.gammaln(k+1)-sp.special.gammaln(n-k+1)
-    return y
 
 
 class ExponentialFamily(object):
@@ -303,7 +301,10 @@ class Gaussian(ExponentialFamily):
     
     def rvs(self, mu, scale=1.0, rng=None, seed=None):
         rng = np.random.default_rng(seed) if rng is None else rng
-        return rng.normal(loc=mu, scale=scale)
+        return rng.normal(loc=mu, scale=np.sqrt(scale))
+    
+    def ppf(self, q, mu, scale):
+        return sp.stats.norm(loc=mu, scale=np.sqrt(scale)).ppf(q)
     
 
 class InverseGaussian(ExponentialFamily):
@@ -406,7 +407,12 @@ class InverseGaussian(ExponentialFamily):
     
     def rvs(self, mu, scale=1.0, rng=None, seed=None):
         rng = np.random.default_rng(seed) if rng is None else rng
-        return rng.wald(mean=mu, scale=scale)
+        return rng.wald(mean=mu, scale=np.sqrt(scale))
+    
+    def ppf(self, q, mu, scale=1.0):
+        return sp.stats.wald(loc=mu, scale=np.sqrt(scale)).ppf(q)
+    
+
     
 
 class Gamma(ExponentialFamily):
@@ -515,8 +521,14 @@ class Gamma(ExponentialFamily):
     
     def rvs(self, mu, scale=1.0, rng=None, seed=None):
         rng = np.random.default_rng(seed) if rng is None else rng
-        return rng.gamma(shape=mu, scale=scale)
+        return rng.gamma(shape=1/scale, scale=mu*scale)
     
+    def ppf(self, q, mu, scale=1.0):
+        a = 1 / scale
+        b = 1 / (mu * scale)
+        return sp.stats.gamma(a=a, scale=1/b).ppf(q)
+    
+
 
 
 class NegativeBinomial(ExponentialFamily):
@@ -730,6 +742,11 @@ class Poisson(ExponentialFamily):
         y = rng.poisson(lam=mu)
         return y
     
+    def ppf(self, q, mu, scale=1.0):
+        return sp.stats.poisson(mu=mu, scale=np.sqrt(scale)).ppf(q)
+    
+
+    
 
     
 class Binomial(ExponentialFamily):
@@ -751,7 +768,7 @@ class Binomial(ExponentialFamily):
     def _full_loglike(self, y, eta=None, mu=None, T=None, scale=1.0):
         ll = self._loglike(y, eta, mu, T, scale)
         r = self.weights * _check_shape(_check_np(y), 1)
-        llf = ll - _logbinom(self.weights, r)
+        llf = ll - logbinom(self.weights, r)
         return llf 
 
     
@@ -824,6 +841,11 @@ class Binomial(ExponentialFamily):
         rng = np.random.default_rng(seed) if rng is None else rng
         y = rng.binomial(n=self.weights, p=mu) / self.weights
         return y
+    
+    def ppf(self, q, mu, scale=1.0):
+        return sp.stats.binom(n=self.weights, p=mu).ppf(q)
+    
+
 
 
         
