@@ -80,9 +80,19 @@ class ExponentialFamily(object):
         if mu is None:
             mu = self._to_mean(eta=eta, T=T)
         y, mu = self.cshape(y, mu)
-        V = self.var_func(mu)
-        r_p = self.weights * (y - mu) / np.sqrt(V)
+        V = self.var_func(mu=mu)
+        w = np.sqrt(self.weights  / V)
+        r_p = w * (y - mu)
         return r_p
+    
+    def pearson_chi2(self, y, eta=None, mu=None, T=None, scale=1.0):
+        if mu is None:
+            mu = self._to_mean(eta=eta, T=T)
+        y, mu = self.cshape(y, mu)
+        V = self.var_func(mu=mu)
+        w = self.weights  / V
+        chi2 = np.sum(w * (y - mu)**2)
+        return chi2
     
     def signed_resid(self, y, eta=None, mu=None, T=None, scale=1.0):
         if mu is None:
@@ -91,6 +101,12 @@ class ExponentialFamily(object):
         d = self.deviance(y, mu=mu)
         r_s = np.sign(y - mu) * np.sqrt(d)
         return r_s
+    
+    def deviance_resid(self, y, eta=None, mu=None, T=None, scale=1.0):
+        mu = self._to_mean(eta=eta, T=T) if mu is None else mu
+        d = self.deviance(y, mu=mu, scale=scale)
+        r = np.sign(y - mu) * np.sqrt(d)
+        return r
     
     def gw(self, y, mu, phi=1.0):
         y, mu = self.cshape(y, mu)
@@ -288,7 +304,7 @@ class Gaussian(ExponentialFamily):
     def rvs(self, mu, scale=1.0, rng=None, seed=None):
         rng = np.random.default_rng(seed) if rng is None else rng
         return rng.normal(loc=mu, scale=scale)
-        
+    
 
 class InverseGaussian(ExponentialFamily):
     
@@ -392,6 +408,7 @@ class InverseGaussian(ExponentialFamily):
         rng = np.random.default_rng(seed) if rng is None else rng
         return rng.wald(mean=mu, scale=scale)
     
+
 class Gamma(ExponentialFamily):
     
     def __init__(self, link=ReciprocalLink, weights=1.0, scale=1.0):
@@ -500,6 +517,7 @@ class Gamma(ExponentialFamily):
         rng = np.random.default_rng(seed) if rng is None else rng
         return rng.gamma(shape=mu, scale=scale)
     
+
 
 class NegativeBinomial(ExponentialFamily):
     
@@ -624,6 +642,9 @@ class NegativeBinomial(ExponentialFamily):
         y = rng.negative_binomial(n=n, p=p)
         return y
     
+
+    
+    
 class Poisson(ExponentialFamily):
     
     def __init__(self, link=LogLink, weights=1.0, scale=1.0):
@@ -709,6 +730,7 @@ class Poisson(ExponentialFamily):
         y = rng.poisson(lam=mu)
         return y
     
+
     
 class Binomial(ExponentialFamily):
     
@@ -803,12 +825,7 @@ class Binomial(ExponentialFamily):
         y = rng.binomial(n=self.weights, p=mu) / self.weights
         return y
 
-    
-    
-    
-    
-    
-            
+
         
     
     
