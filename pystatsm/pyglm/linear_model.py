@@ -11,6 +11,7 @@ import numpy as np # analysis:ignore
 import scipy as sp # analysis:ignore
 import scipy.stats # analysis:ignore
 import pandas as pd # analysis:ignore
+from scipy.special import loggamma, digamma, polygamma
 from functools import cached_property
 from abc import ABCMeta, abstractmethod
 from scipy.linalg.lapack import dtrtri
@@ -402,10 +403,13 @@ class GLM(RegressionMixin, LikelihoodModel):
             phi = 1.0
         gw, hw = f.get_ghw(y, mu=mu, phi=phi)
         H = np.dot((X * hw.reshape(-1, 1)).T, X)
-        g = np.dot(X.T, gw)
+        if isinstance(f, NegativeBinomial):
+            dbdt = -np.dot(X.T, phi * (y - mu) / ((1 + phi * mu)**2 * f.dlink(mu)))
+        else:
+            dbdt = np.dot(X.T, gw)
         if scale_estimator == 'NR':
             d2t = np.atleast_2d(f.d2tau(tau, y, mu))
-            dbdt = -np.atleast_2d(g)
+            dbdt = -np.atleast_2d(dbdt)
             H = np.block([[H, dbdt.T], [dbdt, d2t]])
         return H 
         
@@ -641,10 +645,3 @@ class GLM(RegressionMixin, LikelihoodModel):
             res["predicted_lower_ci"] = f.ppf(1-predicted_ci_level, mu=mu, scale=var)
             res["predicted_upper_ci"] = f.ppf(predicted_ci_level, mu=mu, scale=var)
         return res
-
-            
-                
-                
-        
-        
-    

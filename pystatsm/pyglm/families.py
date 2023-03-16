@@ -9,6 +9,7 @@ import numpy as np
 import scipy as sp
 import scipy.stats
 import scipy.special
+from scipy.special import digamma, polygamma, loggamma
 from ..utilities.data_utils import _check_np, _check_shape
 from ..utilities.func_utils import logbinom
 from .links import (Link, IdentityLink, ReciprocalLink, LogLink, LogitLink,
@@ -109,14 +110,17 @@ class ExponentialFamily(object):
     def gw(self, y, mu, phi=1.0):
         y, mu = self.cshape(y, mu)
         num = self.weights * (y - mu)
-        den = self.var_func(mu=mu) * self.dlink(mu) * phi
+        if self.name=="NegativeBinomial":
+            den = self.var_func(mu=mu, scale=phi) * self.dlink(mu)
+        else:
+            den = self.var_func(mu=mu, scale=phi) * self.dlink(mu) * phi
         res = num / den
         return -res
     
     def hw(self, y, mu, phi=1.0):
         y, mu = self.cshape(y, mu)
         eta = self.link(mu)
-        Vinv = 1.0 / (self.var_func(mu=mu))
+        Vinv = 1.0 / (self.var_func(mu=mu, scale=phi))
         W0 = self.dinv_link(eta)**2
         W1 = self.d2inv_link(eta)
         W2 = self.d2canonical(mu)
@@ -129,9 +133,12 @@ class ExponentialFamily(object):
     
     def get_ghw(self, y, mu, phi=1.0):
         y, mu = self.cshape(y, mu)
-        V0, V1 = self.var_func(mu=mu), self.dvar_dmu(mu)
+        V0, V1 = self.var_func(mu=mu, scale=phi), self.dvar_dmu(mu, scale=phi)
         g1, g2 = self.dlink(mu), self.d2link(mu)
-        g1V0 = g1 * V0 * phi
+        if self.name=="NegativeBinomial":
+            g1V0 = g1 * V0 
+        else:
+            g1V0 = g1 * V0 * phi
         r = y - mu
         a = 1.0 + r * (V1 / V0 + g2 / g1)
         rw = self.weights * r
@@ -142,7 +149,7 @@ class ExponentialFamily(object):
     
     def get_a(self, y, mu, phi=1.0):
         y, mu = self.cshape(y, mu)
-        V0, V1 = self.var_func(mu=mu), self.dvar_dmu(mu)
+        V0, V1 = self.var_func(mu=mu, scale=phi), self.dvar_dmu(mu, scale=phi)
         g1, g2 = self.dlink(mu), self.d2link(mu)
         a = 1.0 + (y - mu) * (V1 / V0 + g2 / g1)
         return a
@@ -154,12 +161,12 @@ class ExponentialFamily(object):
     
     def get_w(self, y, mu, phi=1.0):
         y, mu = self.cshape(y, mu)
-        res = self.get_a(y, mu, phi) / (self.dlink(mu)**2 * self.var_func(mu=mu))
+        res = self.get_a(y, mu, phi) / (self.dlink(mu)**2 * self.var_func(mu=mu, scale=phi))
         return res
     
     def da_dmu(self, y, mu, phi=1.0):
         y, mu = self.cshape(y, mu)
-        V0, V1, V2 = self.var_func(mu=mu), self.dvar_dmu(mu), self.d2var_dmu2(mu)
+        V0, V1, V2 = self.var_func(mu=mu, scale=phi), self.dvar_dmu(mu, scale=phi), self.d2var_dmu2(mu, scale=phi)
         g1, g2, g3 = self.dlink(mu), self.d2link(mu), self.d3link(mu)
         u = (V1 / V0 + g2 / g1)
         v = (V2 / V0 - (V1 / V0)**2 + g3 / g1 - (g2 / g1)**2)
@@ -168,10 +175,10 @@ class ExponentialFamily(object):
     
     def d2a_dmu2(self, y, mu, phi=1.0):
         y, mu = self.cshape(y, mu)
-        V0 = self.var_func(mu=mu)
-        V1 = self.dvar_dmu(mu)
-        V2 = self.d2var_dmu2(mu)
-        V3 = self.d3var_dmu3(mu)
+        V0 = self.var_func(mu=mu, scale=phi)
+        V1 = self.dvar_dmu(mu, scale=phi)
+        V2 = self.d2var_dmu2(mu, scale=phi)
+        V3 = self.d3var_dmu3(mu, scale=phi)
         
         g1 = self.dlink(mu)
         g2 = self.d2link(mu)
@@ -188,7 +195,7 @@ class ExponentialFamily(object):
         y, mu = self.cshape(y, mu)
         a0, a1 = self.get_a(y, mu, phi), self.da_dmu(y, mu, phi)
         w = self.get_w(y, mu, phi)
-        V0, V1 = self.var_func(mu=mu), self.dvar_dmu(mu)
+        V0, V1 = self.var_func(mu=mu, scale=phi), self.dvar_dmu(mu, scale=phi)
         g1, g2 = self.dlink(mu), self.d2link(mu)
         res = (w / g1) * (a1 / a0 - V1 / V0 - 2.0 * g2 / g1)
         return res
@@ -199,7 +206,7 @@ class ExponentialFamily(object):
         a0, a1 = self.get_a(y, mu, phi), self.da_dmu(y, mu, phi)
         a2 = self.d2a_dmu2(y, mu, phi)
         g1, g2, g3 = self.dlink(mu), self.d2link(mu), self.d3link(mu)
-        V0, V1, V2 = self.var_func(mu=mu), self.dvar_dmu(mu), self.d2var_dmu2(mu)
+        V0, V1, V2 = self.var_func(mu=mu, scale=phi), self.dvar_dmu(mu, scale=phi), self.d2var_dmu2(mu, scale=phi)
         t1 = w1**2 / w0
         t2 = w1 * g2 / g1**2
         
@@ -275,16 +282,16 @@ class Gaussian(ExponentialFamily):
         g = np.sum(w * np.power((y - mu), 2) / (2 * phi)) / 2
         return g
     
-    def dvar_dmu(self, mu):
+    def dvar_dmu(self, mu, scale=1.0):
         return np.zeros_like(mu)
     
-    def d2var_dmu2(self, mu):
+    def d2var_dmu2(self, mu, scale=1.0):
         return np.zeros_like(mu)
     
-    def d3var_dmu3(self, mu):
+    def d3var_dmu3(self, mu, scale=1.0):
         return np.zeros_like(mu)
     
-    def d4var_dmu4(self, mu):
+    def d4var_dmu4(self, mu, scale=1.0):
         return np.zeros_like(mu)
     
     def llscale(self, phi, y):
@@ -381,16 +388,16 @@ class InverseGaussian(ExponentialFamily):
         g = np.sum(w * np.power((y - mu), 2) / (2 * phi * y * mu**2)) / 2
         return g
     
-    def dvar_dmu(self, mu):
+    def dvar_dmu(self, mu, scale=1.0):
         return 3.0 * mu**2
     
-    def d2var_dmu2(self, mu):
+    def d2var_dmu2(self, mu, scale=1.0):
         return 6.0 * mu
     
-    def d3var_dmu3(self, mu):
+    def d3var_dmu3(self, mu, scale=1.0):
         return np.ones_like(mu) * 6.0
     
-    def d4var_dmu4(self, mu):
+    def d4var_dmu4(self, mu, scale=1.0):
         return np.zeros_like(mu)
     
     def llscale(self, phi, y):
@@ -491,16 +498,16 @@ class Gamma(ExponentialFamily):
         g = np.sum(w / phi * (T3+T2-T1-T0))
         return g
     
-    def dvar_dmu(self, mu):
+    def dvar_dmu(self, mu, scale=1.0):
         return 2.0 * mu
     
-    def d2var_dmu2(self, mu):
+    def d2var_dmu2(self, mu, scale=1.0):
         return np.ones_like(mu) * 2.0
     
-    def d3var_dmu3(self, mu):
+    def d3var_dmu3(self, mu, scale=1.0):
         return np.zeros_like(mu) 
     
-    def d4var_dmu4(self, mu):
+    def d4var_dmu4(self, mu, scale=1.0):
         return np.zeros_like(mu) 
     
     def llscale(self, phi, y):
@@ -534,29 +541,26 @@ class Gamma(ExponentialFamily):
 class NegativeBinomial(ExponentialFamily):
     
     def __init__(self, link=LogLink, weights=1.0, scale=1.0):
+        self.name = "NegativeBinomial"
         super().__init__(link, weights, scale)
     
  
     def _loglike(self, y, eta=None, mu=None, T=None, scale=1.0):
         if mu is None:
             mu = self._to_mean(eta=eta, T=T)
-           
+        phi = scale
         y, mu = self.cshape(y, mu)
         w = self.weights / 1.0
+        a = 1 / phi
         
-        v = 1.0 / scale
-        kmu = scale*mu
-        
-        yv = y + v
-        
-        ll = yv * np.log(1.0 + kmu) - y * np.log(kmu)
-        ll+= sp.special.gammaln(v) - sp.special.gammaln(yv)
-        ll*= w
-        return ll
+        kmu = phi * mu
+        ypa = y + a
+        llk = -w * (y * np.log(kmu) - ypa * np.log(1 + kmu) + loggamma(ypa) - loggamma(a))
+        return llk
     
     def _full_loglike(self, y, eta=None, mu=None, T=None, scale=1.0):
         ll = self._loglike(y, eta, mu, T, scale)
-        llf = ll + self.weights / 1.0 * sp.special.gammaln(y + 1.0)
+        llf = ll + self.weights / 1.0 * loggamma(y + 1.0)
         return llf 
 
     
@@ -577,7 +581,6 @@ class NegativeBinomial(ExponentialFamily):
     def var_func(self, T=None, mu=None, eta=None, scale=1.0):
         if mu is None:
             mu = self._to_mean(eta=eta, T=T)
-    
         V = mu + np.power(mu, 2) * scale
         return V
                 
@@ -606,24 +609,34 @@ class NegativeBinomial(ExponentialFamily):
         y, mu = self.cshape(y, mu)
         w = self.weights
         phi = np.exp(tau)
-        A = phi * (y - mu) / ((1 + phi) * mu)
-        T0 = sp.special.digamma(y + 1 / phi)
-        T1 = np.log(1+phi*mu)
-        T2 = sp.special.digamma(1 / phi)
-        g = (w / phi) * (T0 - T1 - T2 - A)
-        return g 
+        T0 = phi * (y - mu) / (1 + phi * mu)
+        T1 = np.log(1 + phi * mu)
+        T2 = -sp.special.digamma(y + 1 / phi)
+        T3 = sp.special.digamma(1 / phi)
+        dt = (w / phi) * (T0 + T1 + T2 + T3)
+        return -dt
     
     def d2tau(self, tau, y, mu):
         y, mu = self.cshape(y, mu)
         w = self.weights
         phi = np.exp(tau)
-        v = 1/phi
-        T0 = v*np.log(1+phi*mu)
-        T1 = v*(sp.special.digamma(y+v) - sp.special.digamma(v))
-        T2 = v**2 * (sp.special.polygamma(2, y+v)-sp.special.polygamma(2, v))
-        A = -y*phi*mu+mu+2*phi*mu**2 / ((1+phi*mu)**2)
-        g = np.sum(w / phi * (T0 - A - T1 - T2))
-        return g
+        a = 1.0 / phi
+        ypa = y + a
+        u = 1 + phi * mu
+        denom = -y * phi * mu + mu + 2 * phi * mu**2
+        numer = u**2
+        v = denom / numer
+        dtt = v - a * np.log(u) \
+              + a * (sp.special.digamma(ypa) - sp.special.digamma(a)) \
+              + a**2 * (sp.special.polygamma(1, ypa) - sp.special.polygamma(1, a))
+        #a = 1/phi
+        #T0 = (2 * phi * mu**2 + mu - y * phi * mu) / (1 + phi * mu)**2
+        #T1 = a * np.log(1 + phi * mu) 
+        #T2 = a * (sp.special.digamma(y + a) - sp.special.digamma(a))
+        #T3 = a * (sp.special.polygamma(1, y + a) - sp.special.polygamma(1, a))
+        #dtt = (T0 - T1 + T2 + T3)
+        dtt = -np.sum(w  * dtt)
+        return dtt
 
     def dvar_dmu(self, mu, scale=1.0):
         return 2.0 * scale * mu + 1.0
@@ -660,6 +673,7 @@ class NegativeBinomial(ExponentialFamily):
 class Poisson(ExponentialFamily):
     
     def __init__(self, link=LogLink, weights=1.0, scale=1.0):
+        self.name = "Poisson"
         super().__init__(link, weights, scale)
     
  
@@ -716,16 +730,16 @@ class Poisson(ExponentialFamily):
         d*=2.0 * w
         return d
     
-    def dvar_dmu(self, mu):
+    def dvar_dmu(self, mu, scale=1.0):
         return np.ones_like(mu)
     
-    def d2var_dmu2(self, mu):
+    def d2var_dmu2(self, mu, scale=1.0):
         return np.zeros_like(mu)
 
-    def d3var_dmu3(self, mu):
+    def d3var_dmu3(self, mu, scale=1.0):
         return np.zeros_like(mu)
     
-    def d4var_dmu4(self, mu):
+    def d4var_dmu4(self, mu, scale=1.0):
         return np.zeros_like(mu)
     
     def llscale(self, phi, y):
@@ -752,6 +766,7 @@ class Poisson(ExponentialFamily):
 class Binomial(ExponentialFamily):
     
     def __init__(self, link=LogitLink, weights=1.0, scale=1.0):
+        self.name = "Binomial"
         super().__init__(link, weights, scale)
     
  
@@ -815,16 +830,16 @@ class Binomial(ExponentialFamily):
         d[ixb] = y[ixb]*np.log(y[ixb]/mu[ixb]) + u*np.log(u/v)
         return 2*w*d
     
-    def dvar_dmu(self, mu):
+    def dvar_dmu(self, mu, scale=1.0):
         return 1.0 - 2.0 * mu
     
     def d2var_dmu2(self, mu):
         return np.ones_like(mu) * -2.0
      
-    def d3var_dmu3(self, mu):
+    def d3var_dmu3(self, mu, scale=1.0):
         return np.zeros_like(mu)
     
-    def d4var_dmu4(self, mu):
+    def d4var_dmu4(self, mu, scale=1.0):
         return np.zeros_like(mu)
     
     def llscale(self, phi, y):
