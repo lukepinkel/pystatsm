@@ -6,11 +6,11 @@ Created on Wed Mar  8 19:14:22 2023
 @author: lukepinkel
 """
 import tqdm
-import patsy  
-import numpy as np 
-import scipy as sp 
-import scipy.stats 
-import pandas as pd 
+import patsy
+import numpy as np
+import scipy as sp
+import scipy.stats
+import pandas as pd
 from scipy.special import loggamma, digamma, polygamma
 from functools import cached_property
 from patsy import PatsyError
@@ -29,27 +29,27 @@ from .families import (Binomial, ExponentialFamily, Gamma, Gaussian,  # analysis
 LN2PI = np.log(2 * np.pi)
 
 class LikelihoodModel(metaclass=ABCMeta):
-    
+
     @staticmethod
     @abstractmethod
     def _loglike(params, data):
         pass
-    
+
     @staticmethod
     @abstractmethod
     def _gradient(params, data):
         pass
-    
+
     @staticmethod
     @abstractmethod
     def _hessian(params, data):
         pass
-    
+
     @staticmethod
     @abstractmethod
     def _fit(params, data):
         pass
-    
+
     @staticmethod
     def _get_information(ll, n_params, n_obs):
         logn = np.log(n_obs)
@@ -59,7 +59,7 @@ class LikelihoodModel(metaclass=ABCMeta):
         bic = tll + n_params * logn
         caic= tll + n_params * (logn + 1)
         return aic, aicc, bic, caic
-    
+
     @staticmethod
     def _get_pseudo_rsquared(ll_model, ll_null, n_params, n_obs):
         r2_cs = 1-np.exp(2.0/n_obs * (ll_model - ll_null))
@@ -68,14 +68,14 @@ class LikelihoodModel(metaclass=ABCMeta):
         r2_mb = 1.0 - (ll_model - n_params) / ll_null
         llr = 2.0 * (ll_null - ll_model)
         return r2_cs, r2_nk, r2_mc, r2_mb, llr
-    
+
     @staticmethod
     def _parameter_inference(params, params_se, degfree, param_labels):
         res = output.get_param_table(params, params_se,degfree, param_labels)
         return res
 
 class RegressionMixin(object):
-    
+
     def __init__(self, formula=None, data=None, X=None, y=None, *args, **kwargs):
         X, xc, xi, y, yc, yi, d = self._process_data(formula, data, X, y)
         self.X, self.y = X, y
@@ -86,7 +86,7 @@ class RegressionMixin(object):
         self.design_info = d
         self.formula = formula
         self.data = data
-        
+
     @staticmethod
     def _process_data(formula=None, data=None, X=None, y=None, default_varname='x'):
         if formula is not None and data is not None:
@@ -111,7 +111,7 @@ class RegressionMixin(object):
             else:
                 y, ycols, yinds = y.values, y.columns, y.index
         return X, xcols, xinds, y, ycols, yinds, design_info
-    
+
     @staticmethod
     def _process_design_matrix(formula=None, data=None, X=None, default_varname='x'):
         if formula is not None and data is not None:
@@ -134,7 +134,7 @@ class RegressionMixin(object):
                 X, xcols, xinds = X.values, X.columns, X.index
         return X, xcols, xinds, design_info
 
-    
+
     @staticmethod
     def sandwich_cov(grad_weight, X, leverage=None, kind="HC0"):
         w, h = grad_weight, leverage
@@ -152,7 +152,7 @@ class RegressionMixin(object):
             omega = w / (1.0 - h)**np.minimum(4.0, h / np.mean(h))
         B = np.dot((X * omega.reshape(-1, 1)).T, X)
         return B
-    
+
     @staticmethod
     def _compute_leverage_cholesky(WX=None, Linv=None):
         if Linv is None:
@@ -162,30 +162,30 @@ class RegressionMixin(object):
         Q = Linv.dot(WX.T)
         h = np.sum(Q**2, axis=0)
         return h
-            
+
     @staticmethod
     def _compute_leverage_qr(WX=None, Q=None):
         if Q is None:
             Q, R = np.linalg.qr(WX)
         h = np.sum(Q**2, axis=1)
         return h
-    
+
     @staticmethod
     def _rsquared(y, yhat):
         rh = y - yhat
         rb = y - np.mean(y)
         r2 = 1.0 - np.sum(rh**2) / np.sum(rb**2)
         return r2
-    
-    
-    
+
+
+
 class LinearModel(RegressionMixin, LikelihoodModel):
-    
-    
+
+
     def __init__(self, formula=None, data=None, X=None, y=None, *args, **kwargs):
         super().__init__(formula=formula, data=data, X=X, y=y, *args, **kwargs)
- 
-        
+
+
     @staticmethod
     def _loglike(params, data, reml=True):
         beta, logvar = params[:-1], params[-1]
@@ -199,10 +199,10 @@ class LinearModel(RegressionMixin, LikelihoodModel):
         sse = np.dot(resid.T, resid)
         ll = const - (tau * sse) / 2
         return -ll
-    
+
     def loglike(self, params, reml=True):
         return self._loglike(params, (self.X, self.y), reml=reml)
-    
+
     @staticmethod
     def _gradient(params, data, reml=True):
         beta, logvar = params[:-1], params[-1]
@@ -216,11 +216,11 @@ class LinearModel(RegressionMixin, LikelihoodModel):
         grad[:-1] = tau * np.dot(resid.T, X)
         grad[ -1] = (-n / 2) + (tau * np.dot(resid.T, resid)) / 2.0
         return -grad
-    
+
     def gradient(self, params, reml=True):
         return self._gradient(params, (self.X, self.y), reml=reml)
-    
-    
+
+
     @staticmethod
     def _hessian(params, data, reml=True):
         beta, logvar = params[:-1], params[-1]
@@ -232,12 +232,12 @@ class LinearModel(RegressionMixin, LikelihoodModel):
         hess[:-1, :-1] = -tau * np.dot(X.T, X)
         hess[:-1, -1] =  -tau * np.dot(X.T, resid)
         hess[-1, :-1] =  -tau * np.dot(X.T, resid)
-        hess[-1, -1] = -(tau * np.dot(resid.T, resid)) / 2 
-        return -hess 
-    
+        hess[-1, -1] = -(tau * np.dot(resid.T, resid)) / 2
+        return -hess
+
     def hessian(self, params, reml=True):
         return self._hessian(params, (self.X, self.y), reml=reml)
-    
+
     @staticmethod
     def _fit1(params, data, reml=True):
         X, y = data
@@ -254,8 +254,8 @@ class LinearModel(RegressionMixin, LikelihoodModel):
         params = np.zeros(len(beta)+1)
         params[:-1], params[-1] = beta, np.log(sse / n)
         return G, Ginv, L, Linv, sse, beta, params
-    
-        
+
+
     @staticmethod
     def _fit2(params, data, reml=True):
         X, y = data
@@ -272,7 +272,7 @@ class LinearModel(RegressionMixin, LikelihoodModel):
         params = np.zeros(len(beta)+1)
         params[:-1], params[-1] = beta, np.log(sse / n)
         return G, Ginv, L, Linv, sse, beta, params
-    
+
     def _fit(self, reml=True):
         G, Ginv, L, Linv, sse, beta, params = self._fit2(None, (self.X, self.y), reml=reml)
         self.G, self.Ginv, self.L, self.Linv = G, Ginv, L, Linv
@@ -285,11 +285,11 @@ class LinearModel(RegressionMixin, LikelihoodModel):
         self.params_hess = self.hessian(self.params)
         self.params_cov = np.linalg.inv(self.params_hess)
         self.params_se = np.diag(np.linalg.inv(self.hessian(self.params)))**0.5
-        self.res = output.get_param_table(self.params, self.params_se, 
+        self.res = output.get_param_table(self.params, self.params_se,
                                           self.n-self.p,
                                           list(self.xcols)+["log_scale"],
                                           )
-        
+
 
     @staticmethod
     def _get_coef_constrained(params, sse, data, C, d=None, L=None, Linv=None):
@@ -306,13 +306,13 @@ class LinearModel(RegressionMixin, LikelihoodModel):
         sse_constrained = sse + np.dot(w.T, w)
         beta_constrained = params[:-1] - Linv.T.dot(Q.dot(w))
         return beta_constrained, sse_constrained
-        
+
 
 
 
 class GLM(RegressionMixin, LikelihoodModel):
-    
-    def __init__(self, formula=None, data=None, X=None, y=None, family=Gaussian, 
+
+    def __init__(self, formula=None, data=None, X=None, y=None, family=Gaussian,
                  scale_estimator="M", *args, **kwargs):
         super().__init__(formula=formula, data=data, X=X, y=y, *args, **kwargs)
 
@@ -321,22 +321,22 @@ class GLM(RegressionMixin, LikelihoodModel):
                 family = family()
             except TypeError:
                 pass
-        
+
         self.f = family
-        self.param_labels = list(self.xcols) 
+        self.param_labels = list(self.xcols)
         self.beta_init, self.phi_init = self.get_start_values()
         self.params_init = self.beta_init
-        
+
         if isinstance(self.f, (Binomial, Poisson)):
             self.scale_estimator = 'fixed'
         else:
-            self.scale_estimator = scale_estimator   
-        
+            self.scale_estimator = scale_estimator
+
         if self.scale_estimator == 'NR':
             self.params_init = np.concatenate([self.params_init,
                                               np.atleast_1d(np.log(self.phi_init))])
             self.param_labels += ['log_scale']
-     
+
 
     @staticmethod
     def _loglike(params, data, scale_estimator, f):
@@ -352,15 +352,15 @@ class GLM(RegressionMixin, LikelihoodModel):
             phi = 1.0
         ll = f.loglike(y, mu=mu, scale=phi)
         return ll
-        
-        
+
+
     def loglike(self, params, data=None, scale_estimator=None, f=None):
         data = (self.X, self.y) if data is None else data
         s = self.scale_estimator if scale_estimator is None else scale_estimator
         f = self.f if f is None else f
         ll = self._loglike(params=params, data=data, scale_estimator=s, f=f)
         return ll
-    
+
     @staticmethod
     def _full_loglike(params, data, scale_estimator, f):
         X, y = data
@@ -375,15 +375,15 @@ class GLM(RegressionMixin, LikelihoodModel):
             phi = 1.0
         ll = f.full_loglike(y, mu=mu, scale=phi)
         return ll
-        
-        
+
+
     def full_loglike(self, params, data=None, scale_estimator=None, f=None):
         data = (self.X, self.y) if data is None else data
         s = self.scale_estimator if scale_estimator is None else scale_estimator
         f = self.f if f is None else f
         ll = self._full_loglike(params=params, data=data, scale_estimator=s, f=f)
         return ll
-        
+
     @staticmethod
     def _gradient(params, data, scale_estimator, f):
         X, y = data
@@ -393,7 +393,7 @@ class GLM(RegressionMixin, LikelihoodModel):
         else:
             beta = params
         mu = f.inv_link(np.dot(X, beta))
-        
+
         if scale_estimator == "M":
             phi = f.pearson_chi2(y, mu=mu) / (X.shape[0] - X.shape[1])
         elif scale_estimator != "NR":
@@ -404,7 +404,7 @@ class GLM(RegressionMixin, LikelihoodModel):
             dt = np.atleast_1d(np.sum(f.dtau(tau, y, mu)))
             g = np.concatenate([g, dt])
         return g
-        
+
     def gradient(self, params, data=None, scale_estimator=None, f=None):
         data = (self.X, self.y) if data is None else data
         s = self.scale_estimator if scale_estimator is None else scale_estimator
@@ -435,16 +435,16 @@ class GLM(RegressionMixin, LikelihoodModel):
             d2t = np.atleast_2d(f.d2tau(tau, y, mu))
             dbdt = -np.atleast_2d(dbdt)
             H = np.block([[H, dbdt.T], [dbdt, d2t]])
-        return H 
-        
+        return H
+
     def hessian(self, params, data=None, scale_estimator=None, f=None):
         data = (self.X, self.y) if data is None else data
         s = self.scale_estimator if scale_estimator is None else scale_estimator
         f = self.f if f is None else f
         ll = self._hessian(params=params, data=data, scale_estimator=s, f=f)
         return ll
-        
-    
+
+
     def _optimize(self, t_init=None, opt_kws=None, data=None, s=None, f=None):
         t_init = self.params_init if t_init is None else t_init
         data = (self.X, self.y) if data is None else data
@@ -455,10 +455,10 @@ class GLM(RegressionMixin, LikelihoodModel):
         opt_kws = {**default_kws, **opt_kws}
         args = (data, s, f)
         optimizer = sp.optimize.minimize(self.loglike, t_init, args=args,
-                                         jac=self.gradient, hess=self.hessian, 
+                                         jac=self.gradient, hess=self.hessian,
                                          **opt_kws)
         return optimizer
-    
+
     def get_start_values(self):
         if isinstance(self.f, Binomial):
             mu_init = (self.y * self.f.weights + 0.5) / (self.f.weights + 1)
@@ -484,13 +484,13 @@ class GLM(RegressionMixin, LikelihoodModel):
         mu = self.f.inv_link(self.X.dot(beta_init))
         phi_init = self.f.pearson_chi2(self.y, mu=mu) / (self.n - self.p)
         return beta_init, phi_init
-         
+
 
     def _fit(self, method=None, opt_kws=None):
         opt = self._optimize(opt_kws=opt_kws)
         params = opt.x
         return params, opt
-            
+
     def fit(self, method=None, opt_kws=None):
         self.params, self.opt = self._fit(method, opt_kws)
         f, scale_estimator, X, y = self.f, self.scale_estimator, self.X, self.y
@@ -498,10 +498,10 @@ class GLM(RegressionMixin, LikelihoodModel):
         self.params_hess = self.hessian(self.params)
         self.params_cov = np.linalg.inv(self.params_hess)
         self.params_se = np.sqrt(np.diag(self.params_cov))
-        self.res = self._parameter_inference(self.params, self.params_se, 
+        self.res = self._parameter_inference(self.params, self.params_se,
                                              n-n_params,
                                              self.param_labels)
-        
+
         if scale_estimator == "NR":
             beta, phi = self.params[:-1], np.exp(self.params[-1])
             beta_cov = self.params_cov[:-1, :-1]
@@ -528,7 +528,7 @@ class GLM(RegressionMixin, LikelihoodModel):
         self.scale = self.phi = phi
         WX = X * f.hw(y, mu, phi).reshape(-1, 1)
         h = self._compute_leverage_qr(WX)
-        
+
         self.resid_raw = y - mu
         self.resid_pearson = self.f.pearson_resid(y, mu=mu, scale=phi)
         self.resid_deviance = self.f.deviance_resid(y, mu=mu, scale=phi)
@@ -538,15 +538,15 @@ class GLM(RegressionMixin, LikelihoodModel):
         self.resid_pearson_sst = self.resid_pearson_s / np.sqrt(1 - h)
         self.resid_deviance_s   = self.resid_deviance / np.sqrt(phi)
         self.resid_deviance_sst = self.resid_deviance_s / np.sqrt(1 - h)
-        
+
 
         self.resid_likelihood = np.sign(self.resid_raw) \
                                 * np.sqrt(h * self.resid_pearson_sst**2\
                                           +(1 - h) * self.resid_deviance_sst**2)
         self.cooks_distance = (h * self.resid_pearson_sst**2) / (self.p * (1 - h))
-        
+
         self.resids = np.vstack([self.resid_raw, self.resid_pearson, self.resid_deviance,
-                                 self.resid_signed, self.resid_pearson_s, 
+                                 self.resid_signed, self.resid_pearson_s,
                                  self.resid_pearson_sst, self.resid_deviance_s,
                                  self.resid_deviance_sst, self.resid_likelihood,
                                  self.cooks_distance]).T
@@ -562,7 +562,7 @@ class GLM(RegressionMixin, LikelihoodModel):
             self.lln = self.full_loglike(opt_null.x, data=(np.ones((self.n, 1)), self.y))
         else:
             self.lln = self.f.full_loglike(y, mu=np.ones(mu.shape[0])*y.mean(), scale=phi)
-        
+
         k = len(self.params)
         sumstats = {}
         self.aic, self.aicc, self.bic, self.caic = self._get_information(self.llf, k, self.n_obs)
@@ -587,19 +587,19 @@ class GLM(RegressionMixin, LikelihoodModel):
         self.mu = mu
         self.h = h
 
-    
+
     def get_robust_res(self, kind="HC3"):
         w = self.f.gw(self.y, mu=self.mu, phi=self.phi)
         B = self.sandwich_cov(w, self.X, self.h, kind=kind)
         A = self.coefs_cov
         V = A.dot(B).dot(A)
-        res = self._parameter_inference(self.coefs, np.sqrt(np.diag(V)), 
-                                        self.n-len(self.params), 
+        res = self._parameter_inference(self.coefs, np.sqrt(np.diag(V)),
+                                        self.n-len(self.params),
                                         self.param_labels)
         return res
 
-        
-    
+
+
     def _bootfit(self, params, X=None, Y=None, n_iters=500, tol=1e-6):
         params, X, Y = self._check_mats(params, X, Y)
         for i in range(n_iters):
@@ -610,7 +610,7 @@ class GLM(RegressionMixin, LikelihoodModel):
                 break
             params = params + d
         return params, i
-    
+
     def bootstrap(self, n_boot=5000, opt_kws={}, method='sp'):
         if hasattr(self, 'res')==False:
             self.fit()
@@ -621,12 +621,12 @@ class GLM(RegressionMixin, LikelihoodModel):
             ix = np.random.choice(self.X.shape[0], self.X.shape[0])
             if method == 'sp':
                 theta_samples[i] = self._fit_optim(opt_kws=opt_kws,
-                                               t_init=t_init, 
-                                               X=self.X[ix], 
+                                               t_init=t_init,
+                                               X=self.X[ix],
                                                Y=self.Y[ix]).x
             elif method == "ee":
-                theta_samples[i], _ = self._fit_estimating_equations(theta_init=t_init, 
-                                               X=self.X[ix], 
+                theta_samples[i], _ = self._fit_estimating_equations(theta_init=t_init,
+                                               X=self.X[ix],
                                                Y=self.Y[ix])
             else:
                 theta_samples[i], _ = self._bootfit(params=t_init, X=self.X[ix],
@@ -639,19 +639,19 @@ class GLM(RegressionMixin, LikelihoodModel):
         abst = np.abs(self.res['t_boot'])
         self.res.insert(6, "p_boot", sp.stats.t(k).sf(abst)*2.0)
         self.theta_samples = theta_samples
-        
+
     @staticmethod
-    def _predict(coefs, X, f, scale=1.0, coefs_cov=None, linpred=True, linpred_se=True, 
-                 mean=True, mean_ci=True, mean_ci_level=0.95, predicted_ci=True, 
+    def _predict(coefs, X, f, scale=1.0, coefs_cov=None, linpred=True, linpred_se=True,
+                 mean=True, mean_ci=True, mean_ci_level=0.95, predicted_ci=True,
                  predicted_ci_level=0.95):
         res = {}
         eta = np.dot(X, coefs)
         if linpred_se or mean_ci:
             eta_se = wdiag_outer_prod(X, coefs_cov, X)
-            
+
         if mean or mean_ci or predicted_ci:
             mu = f.inv_link(eta)
-        
+
         if linpred:
             res["eta"] = eta
         if linpred_se:
@@ -659,7 +659,7 @@ class GLM(RegressionMixin, LikelihoodModel):
         if mean or mean_ci or predicted_ci:
             mu = f.inv_link(eta)
             res["mu"] = mu
-        
+
         if mean_ci:
             mean_ci_level = symmetric_conf_int(mean_ci_level)
             mean_ci_lmult = sp.special.ndtri(mean_ci_level)
@@ -667,18 +667,17 @@ class GLM(RegressionMixin, LikelihoodModel):
             res["eta_upper_ci"] = eta + mean_ci_lmult * eta_se
             res["mu_lower_ci"] = f.inv_link(res["eta_lower_ci"])
             res["mu_upper_ci"] = f.inv_link(res["eta_upper_ci"])
-        
+
         if predicted_ci:
             predicted_ci_level = symmetric_conf_int(predicted_ci_level)
             var = scale * f.var_func(mu=mu)
             res["predicted_lower_ci"] = f.ppf(1-predicted_ci_level, mu=mu, scale=var)
             res["predicted_upper_ci"] = f.ppf(predicted_ci_level, mu=mu, scale=var)
         return res
-    
-    
-    
-    
-    
-    
-    
-    
+
+
+
+
+
+
+
