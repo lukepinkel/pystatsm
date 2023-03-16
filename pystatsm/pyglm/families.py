@@ -277,7 +277,7 @@ class Gaussian(ExponentialFamily):
         y, mu = self.cshape(y, mu)
         w = self.weights
         phi = np.exp(tau)
-        g = np.sum(w * np.power((y - mu), 2) / (2 * phi)) / 2
+        g = np.sum(w * np.power((y - mu), 2) / (2 * phi))
         return g
 
     def dvar_dmu(self, mu, scale=1.0):
@@ -381,7 +381,7 @@ class InverseGaussian(ExponentialFamily):
         y, mu = self.cshape(y, mu)
         w = self.weights
         phi = np.exp(tau)
-        g = np.sum(w * np.power((y - mu), 2) / (2 * phi * y * mu**2)) / 2
+        g = np.sum(w * np.power((y - mu), 2) / (2 * phi * y * mu**2))
         return g
 
     def dvar_dmu(self, mu, scale=1.0):

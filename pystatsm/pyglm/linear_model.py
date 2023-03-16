@@ -331,7 +331,8 @@ class GLM(RegressionMixin, LikelihoodModel):
         self.beta_init, self.phi_init = self.get_start_values()
         self.params_init = self.beta_init
 
-        if isinstance(self.f, (Binomial, Poisson)):
+        if isinstance(self.f, (Binomial, Poisson)) \
+            or self.f.name in ["Binomial", "Poisson"]:
             self.scale_estimator = 'fixed'
         else:
             self.scale_estimator = scale_estimator
@@ -431,7 +432,7 @@ class GLM(RegressionMixin, LikelihoodModel):
             phi = 1.0
         gw, hw = f.get_ghw(y, mu=mu, phi=phi)
         H = np.dot((X * hw.reshape(-1, 1)).T, X)
-        if isinstance(f, NegativeBinomial):
+        if isinstance(f, NegativeBinomial) or f.name=="NegativeBinomial":
             dbdt = -np.dot(X.T, phi * (y - mu) /
                            ((1 + phi * mu)**2 * f.dlink(mu)))
         else:
