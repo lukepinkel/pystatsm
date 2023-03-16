@@ -533,7 +533,11 @@ class GLM(RegressionMixin, LikelihoodModel):
                                             "Cooks"])
 
         self.llf = self.f.full_loglike(y, mu=mu, scale=phi)
-        self.lln = self.f.full_loglike(y, mu=np.ones(mu.shape[0])*y.mean(), scale=phi)
+        if self.f.name == "NegativeBinomial":
+            opt_null = self._optimize(t_init=np.zeros(2), data=(np.ones((self.n, 1)), self.y))
+            self.lln = self.full_loglike(opt_null.x, data=(np.ones((self.n, 1)), self.y))
+        else:
+            self.lln = self.f.full_loglike(y, mu=np.ones(mu.shape[0])*y.mean(), scale=phi)
         
         k = len(self.params)
         sumstats = {}
