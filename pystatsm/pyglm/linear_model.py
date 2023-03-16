@@ -6,13 +6,14 @@ Created on Wed Mar  8 19:14:22 2023
 @author: lukepinkel
 """
 import tqdm
-import patsy  # analysis:ignore
-import numpy as np # analysis:ignore
-import scipy as sp # analysis:ignore
-import scipy.stats # analysis:ignore
-import pandas as pd # analysis:ignore
+import patsy  
+import numpy as np 
+import scipy as sp 
+import scipy.stats 
+import pandas as pd 
 from scipy.special import loggamma, digamma, polygamma
 from functools import cached_property
+from patsy import PatsyError
 from abc import ABCMeta, abstractmethod
 from scipy.linalg.lapack import dtrtri
 from ..utilities import output
@@ -110,6 +111,29 @@ class RegressionMixin(object):
             else:
                 y, ycols, yinds = y.values, y.columns, y.index
         return X, xcols, xinds, y, ycols, yinds, design_info
+    
+    @staticmethod
+    def _process_design_matrix(formula=None, data=None, X=None, default_varname='x'):
+        if formula is not None and data is not None:
+            try:
+                _, X = patsy.dmatrices(formula, data=data, return_type='dataframe')
+            except PatsyError:
+                X = patsy.dmatrix(formula, data=data, return_type='dataframe')
+            xcols, xinds = X.columns, X.index
+            design_info = X.design_info
+            X = X.values
+        elif X is not None:
+            design_info = None
+            if type(X) not in [pd.DataFrame, pd.Series]:
+                if X.ndim==1:
+                    xcols = [f'{default_varname}']
+                else:
+                    xcols = [f'{default_varname}{i}' for i in range(1, X.shape[1]+1)]
+                xinds = np.arange(X.shape[0])
+            else:
+                X, xcols, xinds = X.values, X.columns, X.index
+        return X, xcols, xinds, design_info
+
     
     @staticmethod
     def sandwich_cov(grad_weight, X, leverage=None, kind="HC0"):
@@ -543,7 +567,7 @@ class GLM(RegressionMixin, LikelihoodModel):
         sumstats = {}
         self.aic, self.aicc, self.bic, self.caic = self._get_information(self.llf, k, self.n_obs)
         self.r2_cs, self.r2_nk, self.r2_mc, self.r2_mb, self.llr = self._get_pseudo_rsquared(self.llf, self.lln, k, self.n_obs)
-        
+        self.r2 = self._rsquared(y, mu)
         sumstats["AIC"] = self.aic
         sumstats["AICC"] = self.aicc
         sumstats["BIC"] = self.bic
@@ -552,6 +576,7 @@ class GLM(RegressionMixin, LikelihoodModel):
         sumstats["R2_NK"] = self.r2_nk
         sumstats["R2_MC"] = self.r2_mc
         sumstats["R2_MB"] = self.r2_mb
+        sumstats["R2_SS"] = self.r2
         sumstats["LLR"] = self.llr
         sumstats["LLF"] = self.llf
         sumstats["LLN"] = self.lln
@@ -649,3 +674,11 @@ class GLM(RegressionMixin, LikelihoodModel):
             res["predicted_lower_ci"] = f.ppf(1-predicted_ci_level, mu=mu, scale=var)
             res["predicted_upper_ci"] = f.ppf(predicted_ci_level, mu=mu, scale=var)
         return res
+    
+    
+    
+    
+    
+    
+    
+    
