@@ -5,26 +5,26 @@ Created on Wed Mar  8 19:14:22 2023
 
 @author: lukepinkel
 """
-import tqdm
+import tqdm                                                                    # analysis:ignore
 import patsy
 import numpy as np
 import scipy as sp
 import scipy.stats
 import pandas as pd
-from scipy.special import loggamma, digamma, polygamma
-from functools import cached_property
+from scipy.special import loggamma, digamma, polygamma                         # analysis:ignore
+from functools import cached_property                                          # analysis:ignore
 from patsy import PatsyError
 from abc import ABCMeta, abstractmethod
-from scipy.linalg.lapack import dtrtri
 from ..utilities import output
-from ..utilities.linalg_operations import wdiag_outer_prod, wls_qr, nwls
+from ..utilities.linalg_operations import wdiag_outer_prod, wls_qr, nwls       # analysis:ignore
 from ..utilities.func_utils import symmetric_conf_int
-from ..utilities.data_utils import _check_shape, _check_type
+from ..utilities.data_utils import _check_shape, _check_type                   # analysis:ignore
 # analysis:ignore
-from .links import LogitLink, ProbitLink, Link, LogLink, ReciprocalLink, PowerLink
-from .families import (Binomial, ExponentialFamily, Gamma, Gaussian,  # analysis:ignore
-                       IdentityLink, InverseGaussian, NegativeBinomial,  # analysis:ignore
-                       Poisson)  # analysis:ignore
+from .links import (LogitLink, ProbitLink, Link, LogLink, ReciprocalLink,      # analysis:ignore
+                    PowerLink)                                                 # analysis:ignore
+from .families import (Binomial, ExponentialFamily, Gamma, Gaussian,           # analysis:ignore
+                       IdentityLink, InverseGaussian, NegativeBinomial,        # analysis:ignore
+                       Poisson)                                                # analysis:ignore
 
 
 LN2PI = np.log(2 * np.pi)
