@@ -242,7 +242,7 @@ def commutation_matrix_indices(m, n):
     """
     ii = np.arange(m * n, dtype=int)
     i = (ii % n) * m + ii // n
-    return i
+    return ii, i
 
 
 
