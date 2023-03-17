@@ -151,5 +151,6 @@ def get_lower_indices(*args):
         res = res + int(np.product([x + k for k in range(i1)], dtype=int) / den)
     return res
 
-
+def rmq(x, n):
+    return x % n, x // n
 
