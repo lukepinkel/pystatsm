@@ -229,3 +229,15 @@ def kronecker_indices_reverse(r, s, t, u, p, q):
     i = p * r + t
     j = q * s + u
     return i, j
+
+
+
+def commutation_matrix_indices(m, n):
+    ii = np.arange(m * n, dtype=int)
+    i = (ii % n) * m + ii // n
+    return i
+
+
+
+
+
