@@ -233,6 +233,13 @@ def kronecker_indices_reverse(r, s, t, u, p, q):
 
 
 def commutation_matrix_indices(m, n):
+    """
+    If X is mn then X_{rs} is vec(X)_{sm+r} and therefore (X^{T})_{sr} which is
+    vec(X^{T})_{rn+s} implying Kmn=K has as row rn+s the sm+r row of Imn=I
+    The ith row of Kmn=K is the (i%n)m+i//n th row of Imn=I i.e. if 
+    i = rn + s
+    then i % n = s and i // n = r and the element sm + r, sm + r is 1
+    """
     ii = np.arange(m * n, dtype=int)
     i = (ii % n) * m + ii // n
     return i
