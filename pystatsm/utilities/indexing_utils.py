@@ -152,5 +152,80 @@ def get_lower_indices(*args):
     return res
 
 def rmq(x, n):
-    return x % n, x // n
+    """
 
+    Parameters
+    ----------
+    x : int
+    n : int
+    Returns
+    -------
+    r : int
+        Remainder
+    q : int
+        Quotient.
+        
+    Returns (x % n, x // n ) = (r, q) where x=r+qn
+    """
+    r, q =  x % n, x // n
+    return r, q
+
+def kronecker_indices_forward(i, j, p, q):
+    """
+    Parameters
+    ----------
+    i : int
+        First Index of Kronecker Product
+    j : int
+        Second Index of Kronecker Product
+    p : int
+        First Dimension of Second Matrix, B, in Kronecker Product.
+    q : int
+        Second Dimension of Second Matrix, B, in Kronecker Product.
+    Returns
+    -------
+    A_ind : tuple
+        (r, s) = (i // p, j // q)
+    B_ind : tuple
+        (t, u) = (i % p, j % q)
+
+    If C is the Kronecker product of A and B then 
+    C_{i, j} = A_{r, s}B_{t, u} = A_{i // p, j // q}B_{i % p, j % q}
+    """
+    r, s = i // p, j // q
+    t, u = i % p, j % q
+    A_ind = r, s
+    B_ind = t, u
+    return A_ind, B_ind
+
+
+
+def kronecker_indices_reverse(r, s, t, u, p, q):
+    """
+
+    Parameters
+    ----------
+    r : int
+        First Index of First Matrix in  Kronecker Product.
+    s : int
+        Second Index of First Matrix in  Kronecker Product.
+    t : TYPE
+        First Index of Second Matrix in  Kronecker Product.
+    u : TYPE
+        Second Index of Second Matrix in  Kronecker Product.
+    p : TYPE
+        First Dimension of Second Matrix, B, in Kronecker Product.
+    q : TYPE
+        Second Dimension of Second Matrix, B, in Kronecker Product.
+
+    Returns
+    -------
+    i : int
+        First Index of Kronecker Product.
+    j : int
+        Second Index of Kronecker Product.
+
+    """
+    i = p * r + t
+    j = q * s + u
+    return i, j
