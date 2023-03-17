@@ -16,7 +16,7 @@ from ..utilities.data_utils import _check_type, _check_shape
 from .links import LogitLink, ProbitLink, Link, LogLink, ReciprocalLink, PowerLink # analysis:ignore
 from .families import (Binomial, ExponentialFamily, Gamma, Gaussian,  # analysis:ignore
                       IdentityLink, InverseGaussian, NegativeBinomial,  # analysis:ignore
-                      Poisson) # analysis:ignore
+                      Poisson) # analysis:ignore)
 
 
 class GLM:
