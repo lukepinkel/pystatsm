@@ -151,7 +151,7 @@ def get_lower_indices(*args):
         res = res + int(np.product([x + k for k in range(i1)], dtype=int) / den)
     return res
 
-def vec_inds_forward(i, m):
+def vec_inds_reverse(i, m):
     """
 
     Parameters
@@ -170,7 +170,7 @@ def vec_inds_forward(i, m):
     r, s =  i % m, i // m
     return r, s
 
-def vec_inds_backwards(r, s, m):
+def vec_inds_forwards(r, s, m):
     i = s * m + r
     return i
 
@@ -189,7 +189,7 @@ def vech_index_reverse(i, n):
     k = n - s - 1                           #column index      
     return j, k
 
-def vech_inds_backwards(r, s, m):
+def vech_inds_forwards(r, s, m):
     i = r + s * m - int(s / 2 * (s + 1))
     return i
 
