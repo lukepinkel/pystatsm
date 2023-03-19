@@ -151,24 +151,50 @@ def get_lower_indices(*args):
         res = res + int(np.product([x + k for k in range(i1)], dtype=int) / den)
     return res
 
-def rmq(x, n):
+def vec_inds_forward(i, m):
     """
 
     Parameters
     ----------
-    x : int
-    n : int
+    i : int
+    m : int
     Returns
     -------
     r : int
         Remainder
-    q : int
+    s : int
         Quotient.
         
-    Returns (x % n, x // n ) = (r, q) where x=r+qn
+    Returns (i % m, i // m ) = (r, s) where i = sm+r
     """
-    r, q =  x % n, x // n
-    return r, q
+    r, s =  i % m, i // m
+    return r, s
+
+def vec_inds_backwards(r, s, m):
+    i = s * m + r
+    return i
+
+    
+def largest_triangular(n):
+    k = int(np.floor((-1 + np.sqrt(8 * n + 1)) / 2))
+    return k
+
+def vech_index_reverse(i, n):
+    q = int(n * (n + 1) / 2)                #q = n * (n + 1) / 2 - the number of elements in the vectorization of the lower half of the matrix, so i ranges over 0,....,q-1
+    r = q - i - 1                           #distance of i from bottom of vector
+    s = largest_triangular(r)               #largest triangular number less than r, i.e. less than the distance from the bottom of the vector
+    t = int(s * (s + 1)//2)                 #t is the s-th triangular number
+    p = r - t                               #row index counting from bottom
+    j = n - p - 1                           #row index
+    k = n - s - 1                           #column index      
+    return j, k
+
+def vech_inds_backwards(r, s, m):
+    i = r + s * m - int(s / 2 * (s + 1))
+    return i
+
+    
+
 
 def kronecker_indices_forward(i, j, p, q):
     """
