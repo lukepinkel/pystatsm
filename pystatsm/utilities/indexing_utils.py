@@ -393,5 +393,25 @@ def duplication_matrix_indices(n):
     r, c = np.concatenate([r1, r2]), np.concatenate([c1, c2])
     return r, c
 
+def elimination_matrix_indices(n):
+    """
+    Compute the indices of the non-zero elements of the elimination matrix
+    for n by n matrices
+    Parameters
+    ----------
+    n : int
+        The size of the matrix
 
+    Returns
+    -------
+    r : array_like
+        The row indices of the non-zero elements of the elimination matrix.
+    c : array_like
+        The column indices of the non-zero elements of the elimination matrix.
+
+    """
+    i, j = tril_indices(n)
+    c = j * n + i
+    r = np.arange(int(n * (n + 1) // 2))
+    return r, c
 
