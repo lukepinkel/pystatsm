@@ -365,7 +365,33 @@ def commutation_matrix_indices(m, n):
     i = (ii % n) * m + ii // n
     return ii, i
 
+def duplication_matrix_indices(n):
+    """
+    Compute the indices of the non-zero elements of the duplication matrix
+    for half vectorizing an n by n symmetric matrix.
 
+    Parameters:
+    -----------
+    n : int
+        The size of the symmetric matrix.
+    Returns:
+    --------
+    r : array_like
+        The row indices of the non-zero elements of the duplication matrix.
+    c : array_like
+        The column indices of the non-zero elements of the duplication matrix.
+    
+    
+    For duplication matrix corresponding to symmetric matrix of size n for 
+    n>i>=j>=0 the jn+i and in+j rows are give by the i+jn-j(j+1)/2 row of
+    the n(n+1)/2 sized identity matrix
+    """
+    i, j = tril_indices(n)
+    r1 = j * n + i
+    r2 = i * n + j
+    c1 = c2 = i + j * n - (j * (j + 1) // 2).astype(int)
+    r, c = np.concatenate([r1, r2]), np.concatenate([c1, c2])
+    return r, c
 
 
 
