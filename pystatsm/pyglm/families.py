@@ -656,6 +656,12 @@ class NegativeBinomial(ExponentialFamily):
         p = mu / var
         y = rng.negative_binomial(n=n, p=p)
         return y
+    
+    def ppf(self, q, mu, scale=1.0):
+        var = mu + scale * mu**2
+        n = - mu**2 / (mu - var)
+        p = mu / var
+        return sp.stats.nbinom(n=n, p=p).ppf(q)
 
 
 class Poisson(ExponentialFamily):

@@ -649,7 +649,10 @@ class GLM(RegressionMixin, LikelihoodModel):
 
         if predicted_ci:
             predicted_ci_level = symmetric_conf_int(predicted_ci_level)
-            var = scale * f.var_func(mu=mu)
+            if f.name == "NegativeBinomial":
+                var = f.var_func(mu=mu, scale=scale)
+            else:
+                var = scale * f.var_func(mu=mu)
             res["predicted_lower_ci"] = f.ppf(
                 1-predicted_ci_level, mu=mu, scale=var)
             res["predicted_upper_ci"] = f.ppf(

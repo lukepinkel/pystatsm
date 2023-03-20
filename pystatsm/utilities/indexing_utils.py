@@ -182,7 +182,7 @@ def largest_triangular(n):
 def vech_inds_reverse(i, n):
     q = int(n * (n + 1) / 2)                #q = n * (n + 1) / 2 - the number of elements in the vectorization of the lower half of the matrix, so i ranges over 0,....,q-1
     r = q - i - 1                           #distance of i from bottom of vector
-    s = largest_triangular(r)               #largest triangular number less than r, i.e. less than the distance from the bottom of the vector
+    s = largest_triangular(r)               #index of largest triangular number less than r, i.e. less than the distance from the bottom of the vector
     t = int(s * (s + 1)//2)                 #t is the s-th triangular number
     p = r - t                               #row index counting from bottom
     j = n - p - 1                           #row index
