@@ -114,8 +114,8 @@ def triu_indices(n, k=0, m=None, order='F'):
     elif order == 'C':
         inds = np.triu_indices(n=n, k=k, m=m)
     return inds
- 
-   
+
+
 def flat_mgrid(*xi, **kwargs):
     g = np.meshgrid(*xi, **kwargs)
     f = [i.flatten() for i in g]
@@ -127,7 +127,7 @@ class ndindex:
     def __init__(self, *shape, order='F'):
         if len(shape) == 1 and isinstance(shape[0], tuple):
             shape = shape[0]
-        x = np.lib.stride_tricks.as_strided(np.core.numeric.zeros(1), 
+        x = np.lib.stride_tricks.as_strided(np.core.numeric.zeros(1),
                                             shape=shape,
                                             strides=np.core.numeric.zeros_like(shape))
         self._it = np.core.numeric.nditer(x, flags=['multi_index', 'zerosize_ok'],
@@ -140,8 +140,8 @@ class ndindex:
     def __next__(self):
         next(self._it)
         return self._it.multi_index
-    
-    
+
+
 
 def get_lower_indices(*args):
     res = 0
@@ -157,43 +157,116 @@ def vec_inds_reverse(i, m):
     Parameters
     ----------
     i : int
+        Index in vector
     m : int
+        Number of rows in matrix
     Returns
     -------
     r : int
-        Remainder
+        Row index corresponding to the vector index i
     s : int
-        Quotient.
-        
+        Column index corresponding to the vector index i
+
     Returns (i % m, i // m ) = (r, s) where i = sm+r
     """
     r, s =  i % m, i // m
     return r, s
 
 def vec_inds_forwards(r, s, m):
+    """
+    Parameters
+    ----------
+    r : int
+        Row index
+    s : int
+        Column index
+    m : int
+        Number of rows oin matrix
+
+    Returns
+    -------
+    i : int
+        Vextor index corresponding to the the index (r, s) in a matrix with
+        m rows
+    """
     i = s * m + r
     return i
 
-    
+
 def largest_triangular(n):
+    """
+    Returns the index of the largest triangular number that is less than or equal to n.
+
+    Parameters
+    ----------
+    n : int
+        The upper bound of the triangular numbers to consider.
+
+    Returns
+    -------
+    int
+        The index of the largest triangular number k such that k <= n, where the
+        first triangular number is at index 1.
+    """
     k = int(np.floor((-1 + np.sqrt(8 * n + 1)) / 2))
     return k
 
 def vech_inds_reverse(i, n):
+    """
+    Returns the row and column indices of the lower triangular matrix element
+    corresponding to the i-th element of the half vectorization.
+
+    Parameters
+    ----------
+    i : int
+        Index in the half vectorization
+    n : int
+        The number of rows (and columns) of the square matrix.
+
+    Returns
+    -------
+    j : int
+        Row index
+    k : int
+        Column index
+
+    The tuple (j, k) represents the row and column indices in the lower
+    triangular part of a matrix corresponding to the i-th element of the
+    half vectorization.
+
+    """
     q = int(n * (n + 1) / 2)                #q = n * (n + 1) / 2 - the number of elements in the vectorization of the lower half of the matrix, so i ranges over 0,....,q-1
     r = q - i - 1                           #distance of i from bottom of vector
     s = largest_triangular(r)               #index of largest triangular number less than r, i.e. less than the distance from the bottom of the vector
     t = int(s * (s + 1)//2)                 #t is the s-th triangular number
     p = r - t                               #row index counting from bottom
     j = n - p - 1                           #row index
-    k = n - s - 1                           #column index      
+    k = n - s - 1                           #column index
     return j, k
 
 def vech_inds_forwards(r, s, m):
+    """
+    Returns the index of the (r, s)-th element in the lower triangle of a
+    square matrix of size (m x m) that has been half vectorized.
+
+    Parameters
+    ----------
+    r : int
+        The row index of the element in the original matrix.
+    s : int
+        The column index of the element in the original matrix.
+    m : int
+        The number of rows (and columns) of the square matrix.
+
+    Returns
+    -------
+    int
+        The index in the half vectorized form corresponding to the
+        (r, s)-th element in the original matrix.
+
+    """
     i = r + s * m - int(s / 2 * (s + 1))
     return i
-
-    
 
 
 def kronecker_indices_forward(i, j, p, q):
@@ -215,7 +288,7 @@ def kronecker_indices_forward(i, j, p, q):
     B_ind : tuple
         (t, u) = (i % p, j % q)
 
-    If C is the Kronecker product of A and B then 
+    If C is the Kronecker product of A and B then
     C_{i, j} = A_{r, s}B_{t, u} = A_{i // p, j // q}B_{i % p, j % q}
     """
     r, s = i // p, j // q
@@ -235,13 +308,13 @@ def kronecker_indices_reverse(r, s, t, u, p, q):
         First Index of First Matrix in  Kronecker Product.
     s : int
         Second Index of First Matrix in  Kronecker Product.
-    t : TYPE
+    t : int
         First Index of Second Matrix in  Kronecker Product.
-    u : TYPE
+    u : int
         Second Index of Second Matrix in  Kronecker Product.
-    p : TYPE
+    p : int
         First Dimension of Second Matrix, B, in Kronecker Product.
-    q : TYPE
+    q : int
         Second Dimension of Second Matrix, B, in Kronecker Product.
 
     Returns
@@ -260,9 +333,31 @@ def kronecker_indices_reverse(r, s, t, u, p, q):
 
 def commutation_matrix_indices(m, n):
     """
+    Returns the indices needed to construct the commutation matrix Kmn.
+    Kmn is the mn x mn matrix such that the product of the vectorized form
+    of any m x n matrix X with Kmn is equal to the vectorized form of X^T.
+
+    Parameters
+    ----------
+    m : int
+        The number of rows of the matrix X.
+    n : int
+        The number of columns of the matrix X.
+
+    Returns
+    -------
+    ii : numpy.ndarray
+        An array of integers representing the indices of the mn x mn identity matrix
+        as well as the row indices of the corresponding commutation matrix
+    i : numpy.ndarray
+        An array of integers representing the columns indices of the commutation
+        matrix Kmn.
+
+    Notes
+    -------
     If X is mn then X_{rs} is vec(X)_{sm+r} and therefore (X^{T})_{sr} which is
     vec(X^{T})_{rn+s} implying Kmn=K has as row rn+s the sm+r row of Imn=I
-    The ith row of Kmn=K is the (i%n)m+i//n th row of Imn=I i.e. if 
+    The ith row of Kmn=K is the (i%n)m+i//n th row of Imn=I i.e. if
     i = rn + s
     then i % n = s and i // n = r and the element sm + r, sm + r is 1
     """
