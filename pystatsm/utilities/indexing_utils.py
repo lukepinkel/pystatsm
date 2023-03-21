@@ -186,7 +186,7 @@ def vec_inds_forwards(r, s, m):
     Returns
     -------
     i : int
-        Vextor index corresponding to the the index (r, s) in a matrix with
+        Vector index corresponding to the the index (r, s) in a matrix with
         m rows
     """
     i = s * m + r
@@ -208,7 +208,15 @@ def largest_triangular(n):
         The index of the largest triangular number k such that k <= n, where the
         first triangular number is at index 1.
     """
-    k = int(np.floor((-1 + np.sqrt(8 * n + 1)) / 2))
+    a = np.asarray(n)
+    k = np.floor((-1 + np.sqrt(8 * a + 1)) / 2).astype(int)
+    k = k.item() if np.isscalar(n) else k
+    return k
+
+def _as_int(n):
+    a = np.asarray(n)
+    k = a.astype(int)
+    k = k.item() if np.isscalar(n) else k
     return k
 
 def vech_inds_reverse(i, n):
@@ -238,7 +246,8 @@ def vech_inds_reverse(i, n):
     q = int(n * (n + 1) / 2)                #q = n * (n + 1) / 2 - the number of elements in the vectorization of the lower half of the matrix, so i ranges over 0,....,q-1
     r = q - i - 1                           #distance of i from bottom of vector
     s = largest_triangular(r)               #index of largest triangular number less than r, i.e. less than the distance from the bottom of the vector
-    t = int(s * (s + 1)//2)                 #t is the s-th triangular number
+    t = s * (s + 1)//2                      #t is the s-th triangular number
+    t = _as_int(t)
     p = r - t                               #row index counting from bottom
     j = n - p - 1                           #row index
     k = n - s - 1                           #column index
@@ -265,7 +274,7 @@ def vech_inds_forwards(r, s, m):
         (r, s)-th element in the original matrix.
 
     """
-    i = r + s * m - int(s / 2 * (s + 1))
+    i = r + s * m - _as_int(s * (s + 1) // 2)
     return i
 
 
@@ -414,4 +423,10 @@ def elimination_matrix_indices(n):
     c = j * n + i
     r = np.arange(int(n * (n + 1) // 2))
     return r, c
+
+
+
+
+
+
 
