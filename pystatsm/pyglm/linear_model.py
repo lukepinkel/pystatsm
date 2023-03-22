@@ -716,6 +716,16 @@ class GLM(RegressionMixin, LikelihoodModel):
         self.mu = mu
         self.h = h
 
+    
+    def _one_step_approx(self, WX, h, rp):
+        # y = rp / np.sqrt(1 - h)
+        # Q, R = np.linalg.qr(WX)
+        # b = sp.linalg.solve_triangular(R, Q.T, lower=False).T
+        # db = b * y.reshape(-1, 1)
+        y = rp / np.sqrt(1 - h)
+        db = WX.dot(np.linalg.inv(np.dot(WX.T, WX))) * y.reshape(-1, 1)
+        return db
+        
     def get_robust_res(self, kind="HC3"):
         w = self.f.gw(self.y, mu=self.mu, phi=self.phi, dispersion=self.dispersion)
         B = self.sandwich_cov(w, self.X, self.h, kind=kind)
