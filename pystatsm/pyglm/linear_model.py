@@ -163,7 +163,7 @@ class LikelihoodModel(metaclass=ABCMeta):
                 if profile_loglike(par - kl * par_se) > lli:
                     break
             for kr in range(1, 20):
-                if profile_loglike(par + kr * par_se ) > lli:
+                if profile_loglike(par + kr * par_se) > lli:
                     break
             left_bracket = (par - kl * par_se, par)
             right_bracket = (par, par + kr * par_se)
