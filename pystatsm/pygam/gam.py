@@ -637,7 +637,7 @@ class GAM:
         self.model_deviance = self.f.deviance(self.y, mu=self.mu).sum()
         self.deviance_explained = (self.null_deviance - self.model_deviance) / self.null_deviance
         self.rsquared = 1.0 - np.sum((self.y - self.mu)**2) / np.sum((self.y - ymu)**2)
-        self.ll_model = self.f.full_loglike(self.y, mu=self.mu, scale=self.model_deviance/self.n_obs)
+        self.ll_model = self.f.full_loglike(self.y, mu=self.mu, phi=self.model_deviance/self.n_obs)
         self.aic = 2.0 * self.ll_model + 2.0 + self.edf * 2.0
         self.sumstats = pd.DataFrame([self.deviance_explained, self.rsquared,
                                       self.ll_model, self.aic, self.edf], 

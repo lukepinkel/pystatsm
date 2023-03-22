@@ -127,14 +127,14 @@ class GLM:
     def loglike(self, params, X=None, Y=None):
         params, X, Y = self._check_mats(params, X, Y)
         mu, phi, _ = self._handle_scale(params, X, Y)
-        ll = self.f.loglike(Y, mu=mu, scale=phi)
+        ll = self.f.loglike(Y, mu=mu, phi=phi)
         return ll
     
         
     def full_loglike(self, params, X=None, Y=None):
         params, X, Y = self._check_mats(params, X, Y)
         mu, phi, _ = self._handle_scale(params, X, Y)
-        ll = self.f.full_loglike(Y, mu=mu, scale=phi)
+        ll = self.f.full_loglike(Y, mu=mu, phi=phi)
         return ll
     
 
@@ -270,9 +270,9 @@ class GLM:
             self.beta = params
         self.phi = phi
         
-        llf = self.f.full_loglike(y, mu=mu, scale=phi)
+        llf = self.f.full_loglike(y, mu=mu, phi=phi)
         lln = self.f.full_loglike(y, mu=np.ones(mu.shape[0])*y.mean(), 
-                                  scale=phi)
+                                  phi=phi)
         self.LLA = llf*2.0
         self.LL0 = lln*2.0
         k = len(params)
@@ -285,7 +285,7 @@ class GLM:
         sumstats['LLR'] = 2*(lln - llf)
         sumstats['pearson_chi2'] = self._est_scale(self.Y, 
                                     self.predict(self.params, kind="mean"))*self.dfe
-        sumstats['deviance'] = self.f.deviance(y=self.Y, mu=mu, scale=phi).sum()
+        sumstats['deviance'] = self.f.deviance(y=self.Y, mu=mu, phi=phi).sum()
 
         sumstats['PseudoR2_CS'] = 1-np.exp(1.0/N * (self.LLA - self.LL0))
         rmax = 1-np.exp(1.0/N *(-self.LL0))
