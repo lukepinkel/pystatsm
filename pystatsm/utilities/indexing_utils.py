@@ -8,6 +8,7 @@ Created on Sun Jul 31 01:22:10 2022
 
 import numpy as np
 import scipy as sp
+import itertools
 
 def diag_indices(n, k=0):
     """
@@ -143,13 +144,60 @@ class ndindex:
 
 
 
-def get_lower_indices(*args):
-    res = 0
-    for i, x in enumerate(args):
-        i1 = i + 1
-        den = int(sp.special.factorial(i1))
-        res = res + int(np.product([x + k for k in range(i1)], dtype=int) / den)
-    return res
+# def get_lower_indices(*args):
+#     res = 0
+#     for i, x in enumerate(args):
+#         i1 = i + 1
+#         den = int(sp.special.factorial(i1))
+#         res = res + int(np.product([x + k for k in range(i1)], dtype=int) / den)
+#     return res
+
+def ascending_indices(shape):
+    """
+    Generate a list of indices with ascending order for a given
+    multidimensional array shape.
+
+    Parameters
+    ----------
+    shape : tuple of int
+        A tuple representing the shape of the multidimensional array, where each
+        element is the size of a dimension.
+
+    Returns
+    -------
+    sorted_indices : list of tuples of int
+        A list containing tuples of indices in ascending order, where each
+        tuple corresponds to an element in the multidimensional array with
+        the given shape.
+
+    """
+    all_indices = list(itertools.product(*[range(s) for s in shape]))
+    filtered_indices = [x for x in all_indices if all(x[i] <= x[i+1] for i in range(len(x)-1))]
+    sorted_indices = sorted(filtered_indices)
+    return sorted_indices
+
+def ascending_indices_generator(shape):
+    """
+    Generate a list of indices with ascending order for a given
+    multidimensional array shape.
+    
+    
+    Parameters
+    ----------
+    shape : tuple of int
+        A tuple representing the shape of the multidimensional array, where each
+        element is the size of a dimension.
+    
+    Yields
+    ------
+    indices : tuple of int
+        A tuple containing the indices in ascending order, corresponding to an element
+        in the multidimensional array with the given shape.
+
+    """
+    for indices in itertools.product(*[range(s) for s in shape]):
+        if all(indices[i] <= indices[i+1] for i in range(len(shape)-1)):
+            yield indices
 
 def vec_inds_reverse(i, m):
     """
