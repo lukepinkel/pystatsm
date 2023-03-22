@@ -286,6 +286,10 @@ class RegressionMixin(object):
         rb = y - np.mean(y)
         r2 = 1.0 - np.sum(rh**2) / np.sum(rb**2)
         return r2
+    
+    #@staticmethod
+    #def _dbeta(WX, h, rp):
+        
 
 
 class LinearModel(RegressionMixin, LikelihoodModel):
@@ -442,20 +446,42 @@ class GLM(RegressionMixin, LikelihoodModel):
         if self.scale_estimator == 'NR':
             self.params_init = np.r_[self.params_init, np.log(self.phi_init)]
             self.param_labels += ['log_scale']
+        
+        
+    @staticmethod
+    def _unpack_params(params, scale_estimator):
+        if scale_estimator == "NR":
+            beta, phi, tau = params[:-1], np.exp(params[-1]), params[-1]
+        else:
+            beta, phi, tau = params, 1.0,  0.0
+        return beta, phi, tau
+    
+    @staticmethod
+    def _unpack_params_data(params, data, scale_estimator, f):
+        X, y = data
+        if scale_estimator == "NR":
+            beta, phi, tau = params[:-1], np.exp(params[-1]), params[-1]
+        else:
+            beta, phi, tau = params, 1.0,  0.0
+            
+        mu = f.inv_link(np.dot(X, beta))
+        
+        if f.name == "NegativeBinomial":
+            dispersion, phi = phi, 1.0
+        else:
+            dispersion = 1.0
+        
+        if scale_estimator == "M":
+            phi = f.pearson_chi2(y, mu=mu, dispersion=dispersion) / (X.shape[0] - X.shape[1])
+        elif scale_estimator != "NR":
+            phi = 1.0
+        return X, y, mu, beta, phi, tau, dispersion
 
     @staticmethod
     def _loglike(params, data, scale_estimator, f):
-        X, y = data
-        if scale_estimator == "NR":
-            beta, phi = params[:-1], np.exp(params[-1])
-        else:
-            beta = params
-        mu = f.inv_link(np.dot(X, beta))
-        if scale_estimator == "M":
-            phi = f.pearson_chi2(y, mu=mu) / (X.shape[0] - X.shape[1])
-        elif scale_estimator != "NR":
-            phi = 1.0
-        ll = f.loglike(y, mu=mu, scale=phi)
+        X, y, mu, beta, phi, tau, dispersion = GLM._unpack_params_data(params, data, 
+                                                           scale_estimator, f)
+        ll = f.loglike(y, mu=mu, phi=phi, dispersion=dispersion)
         return ll
 
     def loglike(self, params, data=None, scale_estimator=None, f=None):
@@ -468,17 +494,9 @@ class GLM(RegressionMixin, LikelihoodModel):
 
     @staticmethod
     def _full_loglike(params, data, scale_estimator, f):
-        X, y = data
-        if scale_estimator == "NR":
-            beta, phi = params[:-1], np.exp(params[-1])
-        else:
-            beta = params
-        mu = f.inv_link(np.dot(X, beta))
-        if scale_estimator == "M":
-            phi = f.pearson_chi2(y, mu=mu) / (X.shape[0] - X.shape[1])
-        elif scale_estimator != "NR":
-            phi = 1.0
-        ll = f.full_loglike(y, mu=mu, scale=phi)
+        X, y, mu, beta, phi, tau, dispersion = GLM._unpack_params_data(params, data,
+                                                           scale_estimator, f)
+        ll = f.full_loglike(y, mu=mu, phi=phi, dispersion=dispersion)
         return ll
 
     def full_loglike(self, params, data=None, scale_estimator=None, f=None):
@@ -492,19 +510,9 @@ class GLM(RegressionMixin, LikelihoodModel):
 
     @staticmethod
     def _gradient(params, data, scale_estimator, f):
-        X, y = data
-        if scale_estimator == "NR":
-            beta, tau = params[:-1], params[-1]
-            phi = np.exp(tau)
-        else:
-            beta = params
-        mu = f.inv_link(np.dot(X, beta))
-
-        if scale_estimator == "M":
-            phi = f.pearson_chi2(y, mu=mu) / (X.shape[0] - X.shape[1])
-        elif scale_estimator != "NR":
-            phi = 1.0
-        w = f.gw(y, mu=mu, phi=phi)
+        X, y, mu, beta, phi, tau, dispersion = GLM._unpack_params_data(params, data, 
+                                                           scale_estimator, f)
+        w = f.gw(y, mu=mu, phi=phi, dispersion=dispersion)
         g = np.dot(X.T, w)
         if scale_estimator == 'NR':
             dt = np.atleast_1d(np.sum(f.dtau(tau, y, mu)))
@@ -521,24 +529,16 @@ class GLM(RegressionMixin, LikelihoodModel):
 
     @staticmethod
     def _hessian(params, data, scale_estimator, f):
-        X, y = data
-        if scale_estimator == "NR":
-            beta, tau = params[:-1], params[-1]
-            phi = np.exp(tau)
-        else:
-            beta = params
-        mu = f.inv_link(np.dot(X, beta))
-        if scale_estimator == "M":
-            phi = f.pearson_chi2(y, mu=mu) / (X.shape[0] - X.shape[1])
-        elif scale_estimator != "NR":
-            phi = 1.0
-        gw, hw = f.get_ghw(y, mu=mu, phi=phi)
+        X, y, mu, beta, phi, tau, dispersion = GLM._unpack_params_data(params, data, 
+                                                           scale_estimator, f)
+        gw, hw = f.get_ghw(y, mu=mu, phi=phi, dispersion=dispersion)
         H = np.dot((X * hw.reshape(-1, 1)).T, X)
         if isinstance(f, NegativeBinomial) or f.name=="NegativeBinomial":
-            dbdt = -np.dot(X.T, phi * (y - mu) /
-                           ((1 + phi * mu)**2 * f.dlink(mu)))
+            dbdt = -np.dot(X.T, dispersion * (y - mu) /
+                           ((1 + dispersion * mu)**2 * f.dlink(mu)))
         else:
             dbdt = np.dot(X.T, gw)
+        #dbdt = np.dot(X.T, gw)
         if scale_estimator == 'NR':
             d2t = np.atleast_2d(f.d2tau(tau, y, mu))
             dbdt = -np.atleast_2d(dbdt)
@@ -609,9 +609,12 @@ class GLM(RegressionMixin, LikelihoodModel):
         self.res = self._parameter_inference(self.params, self.params_se,
                                              n-n_params,
                                              self.param_labels)
-
         if scale_estimator == "NR":
             beta, phi = self.params[:-1], np.exp(self.params[-1])
+            if f.name == "NegativeBinomial":
+                dispersion, phi = phi, 1.0
+            else:
+                dispersion = 1.0
             beta_cov = self.params_cov[:-1, :-1]
             beta_se = self.params_se[:-1]
             beta_labels = self.param_labels[:-1]
@@ -620,6 +623,7 @@ class GLM(RegressionMixin, LikelihoodModel):
             beta_cov = self.params_cov
             beta_se = self.params_se
             beta_labels = self.param_labels
+            dispersion, phi = 1.0, 1.0
         self.beta_cov = self.coefs_cov = beta_cov
         self.beta_se = self.coefs_se = beta_se
         self.beta = self.coefs = beta
@@ -628,19 +632,20 @@ class GLM(RegressionMixin, LikelihoodModel):
         eta = np.dot(X, beta)
         self.eta = self.linpred = eta
         mu = f.inv_link(eta)
-        self.chi2 = f.pearson_chi2(y, mu=mu)
+        self.chi2 = f.pearson_chi2(y, mu=mu, phi=1.0, dispersion=dispersion)
         if scale_estimator == "M":
             phi = self.chi2 / (X.shape[0] - X.shape[1])
         elif scale_estimator != "NR":
             phi = 1.0
-        self.scale = self.phi = phi
-        WX = X * f.hw(y, mu, phi).reshape(-1, 1)
+        self.phi = phi
+        self.dispersion = dispersion
+        WX = X * np.sqrt(f.get_ehw(y, mu, phi=phi, dispersion=dispersion).reshape(-1, 1))
         h = self._compute_leverage_qr(WX)
 
         self.resid_raw = y - mu
-        self.resid_pearson = self.f.pearson_resid(y, mu=mu, scale=phi)
-        self.resid_deviance = self.f.deviance_resid(y, mu=mu, scale=phi)
-        self.resid_signed = self.f.signed_resid(y, mu=mu, scale=phi)
+        self.resid_pearson = self.f.pearson_resid(y, mu=mu, phi=1.0, dispersion=dispersion)
+        self.resid_deviance = self.f.deviance_resid(y, mu=mu, phi=1.0, dispersion=dispersion)
+        self.resid_signed = self.f.signed_resid(y, mu=mu, phi=1.0, dispersion=dispersion)
 
         self.resid_pearson_s = self.resid_pearson / np.sqrt(phi)
         self.resid_pearson_sst = self.resid_pearson_s / np.sqrt(1 - h)
@@ -675,7 +680,7 @@ class GLM(RegressionMixin, LikelihoodModel):
                                             "Likelihood",
                                             "Cooks"])
 
-        self.llf = self.f.full_loglike(y, mu=mu, scale=phi)
+        self.llf = self.f.full_loglike(y, mu=mu, phi=phi, dispersion=dispersion)
         if self.f.name == "NegativeBinomial":
             opt_null = self._optimize(t_init=np.zeros(
                 2), data=(np.ones((self.n, 1)), self.y))
@@ -683,7 +688,7 @@ class GLM(RegressionMixin, LikelihoodModel):
                 opt_null.x, data=(np.ones((self.n, 1)), self.y))
         else:
             self.lln = self.f.full_loglike(
-                y, mu=np.ones(mu.shape[0])*y.mean(), scale=phi)
+                y, mu=np.ones(mu.shape[0])*y.mean(), phi=phi)
 
         k = len(self.params)
         sumstats = {}
@@ -704,7 +709,7 @@ class GLM(RegressionMixin, LikelihoodModel):
         sumstats["LLR"] = self.llr
         sumstats["LLF"] = self.llf
         sumstats["LLN"] = self.lln
-        sumstats["Deviance"] = np.sum(f.deviance(y=y, mu=mu, scale=phi))
+        sumstats["Deviance"] = np.sum(f.deviance(y=y, mu=mu, phi=1.0, dispersion=dispersion))
         sumstats["Chi2"] = self.chi2
         sumstats = pd.DataFrame(sumstats, index=["Statistic"]).T
         self.sumstats = sumstats
@@ -712,7 +717,7 @@ class GLM(RegressionMixin, LikelihoodModel):
         self.h = h
 
     def get_robust_res(self, kind="HC3"):
-        w = self.f.gw(self.y, mu=self.mu, phi=self.phi)
+        w = self.f.gw(self.y, mu=self.mu, phi=self.phi, dispersion=self.dispersion)
         B = self.sandwich_cov(w, self.X, self.h, kind=kind)
         A = self.coefs_cov
         V = A.dot(B).dot(A)
@@ -722,7 +727,7 @@ class GLM(RegressionMixin, LikelihoodModel):
         return res
 
     @staticmethod
-    def _predict(coefs, X, f, scale=1.0, coefs_cov=None, linpred=True,
+    def _predict(coefs, X, f, phi=1.0, dispersion=1.0, coefs_cov=None, linpred=True,
                  linpred_se=True,  mean=True, mean_ci=True, mean_ci_level=0.95,
                  predicted_ci=True, predicted_ci_level=0.95):
         res = {}
@@ -751,12 +756,9 @@ class GLM(RegressionMixin, LikelihoodModel):
 
         if predicted_ci:
             predicted_ci_level = symmetric_conf_int(predicted_ci_level)
-            if f.name == "NegativeBinomial":
-                var = f.var_func(mu=mu, scale=scale)
-            else:
-                var = scale * f.var_func(mu=mu)
+            v = f.variance(mu=mu, phi=phi, dispersion=dispersion)
             res["predicted_lower_ci"] = f.ppf(
-                1-predicted_ci_level, mu=mu, scale=var)
+                1-predicted_ci_level, mu=mu, scale=v)
             res["predicted_upper_ci"] = f.ppf(
-                predicted_ci_level, mu=mu, scale=var)
+                predicted_ci_level, mu=mu, scale=v)
         return res
