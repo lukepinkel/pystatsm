@@ -6,6 +6,12 @@ Created on Tue Oct  5 14:25:28 2021
 """
 
 import setuptools
+from Cython.Build import cythonize
+
+ext_modules = [setuptools.Extension("pystatsm.utilities.ordered_indices", 
+                                    ["pystatsm/utilities/ordered_indices.pyx"]
+                                    )
+               ]
 
 setuptools.setup(
     name="pystatsm",
@@ -27,5 +33,6 @@ setuptools.setup(
         'matplotlib>=3.3',
         'patsy>=0.5.1',
         'pandas>=1.2.1'
-]
+        ],
+    ext_modules=cythonize(ext_modules)
 )
