@@ -17,7 +17,7 @@ from patsy import PatsyError
 from abc import ABCMeta, abstractmethod
 from ..utilities import output
 from ..utilities.linalg_operations import wdiag_outer_prod, wls_qr, nwls       # analysis:ignore
-from ..utilities.func_utils import symmetric_conf_int
+from ..utilities.func_utils import symmetric_conf_int, handle_default_kws
 from ..utilities.data_utils import _check_shape, _check_type                   # analysis:ignore
 # analysis:ignore
 from .links import (LogitLink, ProbitLink, Link, LogLink, ReciprocalLink,      # analysis:ignore
@@ -75,7 +75,109 @@ class LikelihoodModel(metaclass=ABCMeta):
     def _parameter_inference(params, params_se, degfree, param_labels):
         res = output.get_param_table(params, params_se, degfree, param_labels)
         return res
+    
+    @staticmethod
+    def _make_constraints(fixed_indices, fixed_values):
+        constraints = []
+        if np.asarray(fixed_indices).dtype==bool:
+            fixed_indices = np.where(fixed_indices)
+        for i, xi in list(zip(fixed_indices, fixed_values)):    
+            constraints.append({"type":"eq", "fun":lambda x: x[i] - xi})
+        return constraints
 
+    @staticmethod
+    def _profile_loglike_constrained(par, ind, params, loglike, grad, hess, 
+                                     minimize_kws=None, return_info=False):
+        par, ind = np.atleast_1d(par), np.atleast_1d(ind)
+        constraints = []
+        for i, xi in list(zip(ind, par)):    
+            constraints.append({"type":"eq", "fun":lambda x: x[i] - xi})
+        default_minimize_kws = dict(fun=loglike, jac=grad, hess=hess, 
+                                    method="trust-constr",
+                                    constraints=constraints)
+        minimize_kws = handle_default_kws(minimize_kws, default_minimize_kws)
+        x0 = params.copy()
+        x0[ind] = par
+        opt = sp.optimize.minimize(x0=x0, **minimize_kws)
+        if return_info:
+            res = opt
+        else:
+            res = loglike(opt.x)
+        return res
+    
+    @staticmethod
+    def _profile_loglike_restricted(par, ind, params, loglike, grad, hess, 
+                                    minimize_kws=None, return_info=False):
+        par, ind = np.atleast_1d(par), np.atleast_1d(ind)
+        free_ind = np.setdiff1d(np.arange(len(params)), ind)
+        full_params = params.copy()
+        full_params[ind] = par
+        
+        def restricted_func(free_params):
+            full_params[free_ind] = free_params
+            full_params[ind] = par
+            fval = loglike(full_params)
+            return fval
+        
+        def restricted_grad(free_params):
+            full_params[free_ind] = free_params
+            full_params[ind] = par
+            g = grad(full_params)[free_ind]
+            return g
+        
+        def restricted_hess(free_params):
+            full_params[free_ind] = free_params
+            full_params[ind] = par
+            H = hess(full_params)[free_ind][:, free_ind]
+            return H
+        
+
+        default_minimize_kws = dict(fun=restricted_func,
+                                    jac=restricted_grad,
+                                    hess=restricted_hess, 
+                                    method="trust-constr")
+        minimize_kws = handle_default_kws(minimize_kws, default_minimize_kws)
+        x0 = params.copy()[free_ind]
+        opt = sp.optimize.minimize(x0=x0, **minimize_kws)
+        if return_info:
+            res = opt
+        else:
+            res = restricted_func(opt.x)
+        return res
+    
+    
+    @staticmethod
+    def _solve_interval(profile_loglike, par, par_se, lli, method="root", 
+                       return_info=False):
+        if method == "lstq":
+            left=sp.optimize.minimize(lambda x:(profile_loglike(x)-lli)**2,
+                                        par-2 * par_se)
+            right=sp.optimize.minimize(lambda x:(profile_loglike(x)-lli)**2,
+                                         par+2 * par_se)
+            if return_info:
+                left, right = left, right
+            else:
+                left, right = left.x, right.x
+        else:
+            for kl in range(1, 20):
+                if profile_loglike(par - kl * par_se) > lli:
+                    break
+            for kr in range(1, 20):
+                if profile_loglike(par + kr * par_se ) > lli:
+                    break
+            left_bracket = (par - kl * par_se, par)
+            right_bracket = (par, par + kr * par_se)
+            left = sp.optimize.root_scalar(lambda x:profile_loglike(x)-lli,
+                                           bracket=left_bracket)
+            right = sp.optimize.root_scalar(lambda x:profile_loglike(x)-lli, 
+                                            bracket=right_bracket)
+            if return_info:
+                left, right = left, right
+            else:
+                left, right = left.root, right.root
+        return left, right
+
+        
 
 class RegressionMixin(object):
 
