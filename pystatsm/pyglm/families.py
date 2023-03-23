@@ -88,9 +88,10 @@ class ExponentialFamily(object):
 
     def pearson_chi2(self, y, eta=None, mu=None, T=None, phi=1.0, dispersion=1.0, weights=None):
         mu = self._to_mean(eta=eta, T=T) if mu is None else mu
+        weights = self.weights if weights is None else weights
         y, mu = self.cshape(y, mu)
         V = self.var_func(mu=mu, dispersion=dispersion)
-        w = self.weights / V
+        w = weights / V
         chi2 = np.sum(w * (y - mu)**2)
         return chi2
 

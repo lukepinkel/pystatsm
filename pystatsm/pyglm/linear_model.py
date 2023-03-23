@@ -511,7 +511,7 @@ class GLM(RegressionMixin, LikelihoodModel):
     
     @staticmethod
     def _unpack_params_data(params, data, scale_estimator, f):
-        X, y = data
+        X, y, weights = data
         if scale_estimator == "NR":
             beta, phi, tau = params[:-1], np.exp(params[-1]), params[-1]
         else:
@@ -528,17 +528,17 @@ class GLM(RegressionMixin, LikelihoodModel):
             phi = f.pearson_chi2(y, mu=mu, dispersion=dispersion) / (X.shape[0] - X.shape[1])
         elif scale_estimator != "NR":
             phi = 1.0
-        return X, y, mu, beta, phi, tau, dispersion
+        return X, y, weights, mu, beta, phi, tau, dispersion
 
     @staticmethod
     def _loglike(params, data, scale_estimator, f):
-        X, y, mu, beta, phi, tau, dispersion = GLM._unpack_params_data(params, data, 
+        X, y, weights, mu, beta, phi, tau, dispersion = GLM._unpack_params_data(params, data, 
                                                            scale_estimator, f)
-        ll = f.loglike(y, mu=mu, phi=phi, dispersion=dispersion)
+        ll = f.loglike(y, weights=weights, mu=mu, phi=phi, dispersion=dispersion)
         return ll
 
     def loglike(self, params, data=None, scale_estimator=None, f=None):
-        data = (self.X, self.y) if data is None else data
+        data = (self.X, self.y, None) if data is None else data
         s = self.scale_estimator if scale_estimator is None \
             else scale_estimator
         f = self.f if f is None else f
@@ -547,33 +547,32 @@ class GLM(RegressionMixin, LikelihoodModel):
 
     @staticmethod
     def _full_loglike(params, data, scale_estimator, f):
-        X, y, mu, beta, phi, tau, dispersion = GLM._unpack_params_data(params, data,
+        X, y, weights, mu, beta, phi, tau, dispersion = GLM._unpack_params_data(params, data,
                                                            scale_estimator, f)
-        ll = f.full_loglike(y, mu=mu, phi=phi, dispersion=dispersion)
+        ll = f.full_loglike(y, weights=weights, mu=mu, phi=phi, dispersion=dispersion)
         return ll
 
     def full_loglike(self, params, data=None, scale_estimator=None, f=None):
-        data = (self.X, self.y) if data is None else data
+        data = (self.X, self.y, None) if data is None else data
         s = self.scale_estimator if scale_estimator is None\
             else scale_estimator
         f = self.f if f is None else f
-        ll = self._full_loglike(
-            params=params, data=data, scale_estimator=s, f=f)
+        ll = self._full_loglike(params=params, data=data, scale_estimator=s, f=f)
         return ll
 
     @staticmethod
     def _gradient(params, data, scale_estimator, f):
-        X, y, mu, beta, phi, tau, dispersion = GLM._unpack_params_data(params, data, 
+        X, y, weights, mu, beta, phi, tau, dispersion = GLM._unpack_params_data(params, data, 
                                                            scale_estimator, f)
-        w = f.gw(y, mu=mu, phi=phi, dispersion=dispersion)
+        w = f.gw(y, mu=mu, phi=phi, dispersion=dispersion, weights=weights)
         g = np.dot(X.T, w)
         if scale_estimator == 'NR':
-            dt = np.atleast_1d(np.sum(f.dtau(tau, y, mu)))
+            dt = np.atleast_1d(np.sum(f.dtau(tau, y, mu, weights=weights)))
             g = np.concatenate([g, dt])
         return g
 
     def gradient(self, params, data=None, scale_estimator=None, f=None):
-        data = (self.X, self.y) if data is None else data
+        data = (self.X, self.y, None) if data is None else data
         s = self.scale_estimator if scale_estimator is None\
             else scale_estimator
         f = self.f if f is None else f
@@ -582,17 +581,17 @@ class GLM(RegressionMixin, LikelihoodModel):
     
     @staticmethod
     def _gradient_i(params, data, scale_estimator, f):
-        X, y, mu, beta, phi, tau, dispersion = GLM._unpack_params_data(params, data, 
+        X, y, weights, mu, beta, phi, tau, dispersion = GLM._unpack_params_data(params, data, 
                                                            scale_estimator, f)
-        w = f.gw(y, mu=mu, phi=phi, dispersion=dispersion)
+        w = f.gw(y, mu=mu, phi=phi, dispersion=dispersion, weights=weights)
         g = X * w.reshape(-1, 1)
         if scale_estimator == 'NR':
-            dt = f.dtau(tau, y, mu, reduce=False).reshape(-1, 1)
+            dt = f.dtau(tau, y, mu, weights=weights, reduce=False).reshape(-1, 1)
             g = np.concatenate([g, dt], axis=1)
         return g
 
     def gradient_i(self, params, data=None, scale_estimator=None, f=None):
-        data = (self.X, self.y) if data is None else data
+        data = (self.X, self.y, None) if data is None else data
         s = self.scale_estimator if scale_estimator is None\
             else scale_estimator
         f = self.f if f is None else f
@@ -601,9 +600,9 @@ class GLM(RegressionMixin, LikelihoodModel):
 
     @staticmethod
     def _hessian(params, data, scale_estimator, f):
-        X, y, mu, beta, phi, tau, dispersion = GLM._unpack_params_data(params, data, 
+        X, y, weights, mu, beta, phi, tau, dispersion = GLM._unpack_params_data(params, data, 
                                                            scale_estimator, f)
-        gw, hw = f.get_ghw(y, mu=mu, phi=phi, dispersion=dispersion)
+        gw, hw = f.get_ghw(y, mu=mu, phi=phi, dispersion=dispersion, weights=weights)
         H = np.dot((X * hw.reshape(-1, 1)).T, X)
         if isinstance(f, NegativeBinomial) or f.name=="NegativeBinomial":
             dbdt = -np.dot(X.T, dispersion * (y - mu) /
@@ -612,13 +611,13 @@ class GLM(RegressionMixin, LikelihoodModel):
             dbdt = np.dot(X.T, gw)
         #dbdt = np.dot(X.T, gw)
         if scale_estimator == 'NR':
-            d2t = np.atleast_2d(f.d2tau(tau, y, mu))
+            d2t = np.atleast_2d(f.d2tau(tau, y, mu, weights=weights))
             dbdt = -np.atleast_2d(dbdt)
             H = np.block([[H, dbdt.T], [dbdt, d2t]])
         return H
 
     def hessian(self, params, data=None, scale_estimator=None, f=None):
-        data = (self.X, self.y) if data is None else data
+        data = (self.X, self.y, None) if data is None else data
         s = self.scale_estimator if scale_estimator is None\
             else scale_estimator
         f = self.f if f is None else f
@@ -627,7 +626,7 @@ class GLM(RegressionMixin, LikelihoodModel):
 
     def _optimize(self, t_init=None, opt_kws=None, data=None, s=None, f=None):
         t_init = self.params_init if t_init is None else t_init
-        data = (self.X, self.y) if data is None else data
+        data = (self.X, self.y, None) if data is None else data
         s = self.scale_estimator if s is None else s
         f = self.f if f is None else f
         opt_kws = {} if opt_kws is None else opt_kws
@@ -755,9 +754,9 @@ class GLM(RegressionMixin, LikelihoodModel):
         self.llf = self.f.full_loglike(y, mu=mu, phi=phi, dispersion=dispersion)
         if self.f.name == "NegativeBinomial":
             opt_null = self._optimize(t_init=np.zeros(
-                2), data=(np.ones((self.n, 1)), self.y))
+                2), data=(np.ones((self.n, 1)), self.y, None))
             self.lln = self.full_loglike(
-                opt_null.x, data=(np.ones((self.n, 1)), self.y))
+                opt_null.x, data=(np.ones((self.n, 1)), self.y, None))
         else:
             self.lln = self.f.full_loglike(
                 y, mu=np.ones(mu.shape[0])*y.mean(), phi=phi)
