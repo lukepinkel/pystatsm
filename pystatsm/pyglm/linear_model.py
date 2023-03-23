@@ -674,6 +674,7 @@ class GLM(RegressionMixin, LikelihoodModel):
         self.params, self.opt = self._fit(method, opt_kws)
         f, scale_estimator, X, y = self.f, self.scale_estimator, self.X, self.y
         n, n_params = self.n, len(self.params)
+        self.n_params = n_params
         self.params_hess = self.hessian(self.params)
         self.params_cov = np.linalg.inv(self.params_hess)
         self.params_se = np.sqrt(np.diag(self.params_cov))
@@ -843,3 +844,22 @@ class GLM(RegressionMixin, LikelihoodModel):
             res["predicted_upper_ci"] = f.ppf(
                 predicted_ci_level, mu=mu, scale=v)
         return res
+    
+    def jacknife(self):
+        jacknife_samples = np.zeros((self.n_obs, self.n_params))
+        ii = np.ones(self.n_obs, dtype=bool)
+        if type(self.f.weights) is np.ndarray:
+            weights = self.f.weights
+        else:
+            weights = np.ones(self.n_obs)
+        pbar = tqdm.tqdm(total=self.n_obs)
+        for i in range(self.n_obs):
+            ii[i] = False
+            opt = self._optimize(data=(self.X[ii], self.y[ii], weights[ii]), f=self.f)
+            jacknife_samples[i] = opt.x
+            ii[i] = True
+            pbar.update(1)
+        pbar.close()
+        jacknife_samples = pd.DataFrame(jacknife_samples, index=self.xinds,
+                                        columns=self.param_labels)
+       
