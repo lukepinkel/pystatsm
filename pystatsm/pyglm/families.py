@@ -280,19 +280,23 @@ class Gaussian(ExponentialFamily):
         d = w * np.power((y - mu), 2.0)
         return d
 
-    def dtau(self, tau, y, mu):
+    def dtau(self, tau, y, mu, reduce=True):
         y, mu = self.cshape(y, mu)
         w = self.weights
         phi = np.exp(tau)
-        g = -np.sum(w * np.power((y - mu), 2) / phi - 1) / 2
+        g = -(w * np.power((y - mu), 2) / phi - 1) / 2
+        if reduce:
+            g = np.sum(g)
         return g
 
-    def d2tau(self, tau, y, mu):
+    def d2tau(self, tau, y, mu, reduce=True):
         y, mu = self.cshape(y, mu)
         w = self.weights
         phi = np.exp(tau)
-        g = np.sum(w * np.power((y - mu), 2) / (2 * phi))
-        return g
+        h = w * np.power((y - mu), 2) / (2 * phi)
+        if reduce:
+            h = np.sum(h)
+        return h
 
     def dvar_dmu(self, mu, dispersion=1.0):
         return np.zeros_like(mu)
@@ -377,21 +381,25 @@ class InverseGaussian(ExponentialFamily):
         d = w * np.power((y - mu), 2.0) / (y * np.power(mu, 2))
         return d
 
-    def dtau(self, tau, y, mu):
+    def dtau(self, tau, y, mu, reduce=True):
         y, mu = self.cshape(y, mu)
         w = self.weights
         phi = np.exp(tau)
         num = w * np.power((y - mu), 2)
         den = (phi * y * np.power(mu, 2))
-        g = -np.sum(num / den - 1) / 2
+        g = -(num / den - 1) / 2
+        if reduce:
+            g = np.sum(g)
         return g
 
-    def d2tau(self, tau, y, mu):
+    def d2tau(self, tau, y, mu, reduce=True):
         y, mu = self.cshape(y, mu)
         w = self.weights
         phi = np.exp(tau)
-        g = np.sum(w * np.power((y - mu), 2) / (2 * phi * y * mu**2))
-        return g
+        h = w * np.power((y - mu), 2) / (2 * phi * y * mu**2)
+        if reduce:
+            h = np.sum(h)
+        return h
 
     def dvar_dmu(self, mu, dispersion=1.0):
         return 3.0 * mu**2
@@ -474,7 +482,7 @@ class Gamma(ExponentialFamily):
         d = 2 * w * ((y - mu) / mu - np.log(y / mu))
         return d
 
-    def dtau(self, tau, y, mu):
+    def dtau(self, tau, y, mu, reduce=True):
         y, mu = self.cshape(y, mu)
         w = self.weights
         phi = np.exp(tau)
@@ -482,9 +490,11 @@ class Gamma(ExponentialFamily):
         T1 = (1 - y / mu)
         T2 = -sp.special.digamma(w / phi)
         g = (w / phi) * (T0 + T1 + T2)
+        if reduce:
+            g = np.sum(g)
         return g
 
-    def d2tau(self, tau, y, mu):
+    def d2tau(self, tau, y, mu, reduce=True):
         y, mu = self.cshape(y, mu)
         w = self.weights
         phi = np.exp(tau)
@@ -492,8 +502,10 @@ class Gamma(ExponentialFamily):
         T1 = (2 - y / mu)
         T2 = sp.special.digamma(w / phi)
         T3 = w / phi * sp.special.polygamma(1, w / phi)
-        g = np.sum(w / phi * (T3+T2-T1-T0))
-        return g
+        h = w / phi * (T3+T2-T1-T0)
+        if reduce:
+            h = np.sum(h)
+        return h
 
     def dvar_dmu(self, mu, dispersion=1.0):
         return 2.0 * mu
@@ -592,7 +604,7 @@ class NegativeBinomial(ExponentialFamily):
         d *= 2*w
         return d
 
-    def dtau(self, tau, y, mu):
+    def dtau(self, tau, y, mu, reduce=True):
         y, mu = self.cshape(y, mu)
         w = self.weights
         dispersion = np.exp(tau)
@@ -600,10 +612,12 @@ class NegativeBinomial(ExponentialFamily):
         T1 = np.log(1 + dispersion * mu)
         T2 = -sp.special.digamma(y + 1 / dispersion)
         T3 = sp.special.digamma(1 / dispersion)
-        dt = (w / dispersion) * (T0 + T1 + T2 + T3)
-        return -dt
+        g = -(w / dispersion) * (T0 + T1 + T2 + T3)
+        if reduce:
+            g = np.sum(g)
+        return g
 
-    def d2tau(self, tau, y, mu):
+    def d2tau(self, tau, y, mu, reduce=True):
         y, mu = self.cshape(y, mu)
         w = self.weights
         dispersion = np.exp(tau)
@@ -623,8 +637,10 @@ class NegativeBinomial(ExponentialFamily):
         #T2 = a * (sp.special.digamma(y + a) - sp.special.digamma(a))
         #T3 = a * (sp.special.polygamma(1, y + a) - sp.special.polygamma(1, a))
         #dtt = (T0 - T1 + T2 + T3)
-        dtt = -np.sum(w * dtt)
-        return dtt
+        h = -w * dtt
+        if reduce:
+            h = np.sum(h)
+        return h
 
     def dvar_dmu(self, mu, dispersion=1.0):
         return 2.0 * dispersion * mu + 1.0
