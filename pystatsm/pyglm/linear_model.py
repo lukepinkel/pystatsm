@@ -176,6 +176,57 @@ class LikelihoodModel(metaclass=ABCMeta):
             else:
                 left, right = left.root, right.root
         return left, right
+    
+    @staticmethod
+    def _lr_test(ll_unconstrained, ll_constrained, constraint_dim, 
+                 return_dataframe=True):
+        ll_full = ll_unconstrained
+        ll_null = ll_constrained
+        df = constraint_dim
+        lr_stat = 2.0 * (ll_full - ll_null)
+        p_value = sp.stats.chi2(df=df).sf(lr_stat)
+        res = {"Stat":lr_stat, "df":df ,"P Value":p_value}
+        if return_dataframe:  
+            res = pd.DataFrame(res, index=["LR Test"])
+        return res
+    
+    @staticmethod
+    def _wald_test(params_unconstrained, 
+                   params_constrained,
+                   constraint_derivative,
+                   hess_inv,
+                   grad_cov,
+                   return_dataframe=True):
+        theta, theta0 = params_unconstrained, params_constrained
+        A, B, C = hess_inv, grad_cov, constraint_derivative
+        V = np.dot(A, np.dot(B, A))
+        M = np.linalg.inv(C.dot(V).dot(C.T))
+        a = np.dot(C, theta - theta0)
+        wald_stat = np.dot(a, M.dot(a))
+        df = constraint_derivative.shape[0]
+        p_value = sp.stats.chi2(df=df).sf(wald_stat)
+        res = {"Stat":wald_stat, "df":df ,"P Value":p_value}
+        if return_dataframe:  
+            res = pd.DataFrame(res, index=["Wald Test"])
+        return res
+    
+    @staticmethod
+    def _score_test(grad_constrained, 
+                    constraint_derivative,
+                    hess_inv, 
+                    grad_cov,
+                    return_dataframe=True):
+        A, B, C, D = hess_inv, grad_cov, constraint_derivative, grad_constrained
+        V = np.dot(A, np.dot(B, A))
+        M = np.linalg.inv(C.T.dot(V).dot(C))
+        a = np.dot(C.T, np.dot(A, D))
+        score_stat = np.dot(a, M.dot(a))
+        df = constraint_derivative.shape[0]
+        p_value = sp.stats.chi2(df=df).sf(score_stat)
+        res = {"Stat":score_stat, "df":df ,"P Value":p_value}
+        if return_dataframe:  
+            res = pd.DataFrame(res, index=["Score Test"])
+        return res
 
 
 
@@ -733,7 +784,7 @@ class GLM(RegressionMixin, LikelihoodModel):
         V = A.dot(B).dot(A)
         res = self._parameter_inference(self.coefs, np.sqrt(np.diag(V)),
                                         self.n-len(self.params),
-                                        self.param_labels)
+                                        self.beta_labels)
         return res
 
     @staticmethod
