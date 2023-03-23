@@ -405,18 +405,11 @@ class CorrCholesky(object):
         return d2y_dx2
     
     def _hess_rvs(self, y):
-        #x = self._rvs(y)
-        #M = _invecl(x)
-        #L, dL, d2L = dchol(M, self.dM, self.d2M, order=2)
-        #k = (np.product(d2L.shape[:2]),)
-        #d2L = d2L.reshape(k+d2L.shape[2:], order='F')
-        #d2L = d2L[self.E.tocoo().col]
-        #d2y_dx2 = d2L[np.ix_(self.tril_inds, self.tril_inds, self.tril_inds)]
-        #dL = dL.reshape(np.product(dL.shape[:2]), dL.shape[2], order='F')
-        #dL = self.E.dot(dL)[np.ix_(self.tril_inds, self.tril_inds)]
-        #dx_dy = np.linalg.inv(dL)
-        #d2x_dy2 = -np.einsum("ijk,kl->ijl", d2y_dx2, dx_dy)
-        return jac_approx(self._jac_rvs, y.copy())
+        x = self._rvs(y)
+        d2y_dx2 = self._hess_fwd(x)
+        dx_dy = self._jac_rvs(y)
+        d2x_dy2 = np.einsum("rst,ir,sj,tk->ijk", -d2y_dx2, dx_dy, dx_dy, dx_dy, optimize=True)
+        return d2x_dy2
         
 
 class OffDiagMask(object):
