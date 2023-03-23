@@ -845,21 +845,55 @@ class GLM(RegressionMixin, LikelihoodModel):
                 predicted_ci_level, mu=mu, scale=v)
         return res
     
-    def jacknife(self):
-        jacknife_samples = np.zeros((self.n_obs, self.n_params))
-        ii = np.ones(self.n_obs, dtype=bool)
+    def _jacknife(self, method="optimize", verbose=True):
         if type(self.f.weights) is np.ndarray:
             weights = self.f.weights
         else:
             weights = np.ones(self.n_obs)
-        pbar = tqdm.tqdm(total=self.n_obs)
-        for i in range(self.n_obs):
-            ii[i] = False
-            opt = self._optimize(data=(self.X[ii], self.y[ii], weights[ii]), f=self.f)
-            jacknife_samples[i] = opt.x
-            ii[i] = True
-            pbar.update(1)
-        pbar.close()
+        if method == "optimize":
+            jacknife_samples = np.zeros((self.n_obs, self.n_params))
+            ii = np.ones(self.n_obs, dtype=bool)
+            pbar = tqdm.tqdm(total=self.n_obs) if verbose else None
+            for i in range(self.n_obs):
+                ii[i] = False
+                opt = self._optimize(data=(self.X[ii], self.y[ii], weights[ii]), f=self.f)
+                jacknife_samples[i] = opt.x
+                ii[i] = True
+                if verbose:
+                    pbar.update(1)
+            if verbose:
+                pbar.close()
+        elif method == "one-step":    
+            w = self.f.get_ehw(self.y, self.mu, phi=self.phi,
+                               dispersion=self.dispersion,
+                               weights=weights).reshape(-1, 1)
+            WX = self.X * w
+            h = self._compute_leverage_qr(WX)
+            one_step = self._one_step_approx(WX, h, self.resid_pearson_s)
+            jacknife_samples = self.params.reshape(1, -1) - one_step
         jacknife_samples = pd.DataFrame(jacknife_samples, index=self.xinds,
                                         columns=self.param_labels)
+        return jacknife_samples
+    
+    
+    def _bootstrap(self, n_boot=1000, verbose=True, rng=None):
+        rng = np.random.default_rng() if rng is None else rng 
+        n, q = self.n_obs, self.n_params
+        weights = self.f.weights
+        w = weights if type(weights) is np.ndarray else np.ones(n)
+        X, y = self.X, self.y
+        pbar = tqdm.tqdm(total=n_boot) if verbose else None
+        boot_samples = np.zeros((n_boot, q))
+        for i in range(n_boot):
+            ii = rng.choice(n, size=n, replace=True)
+            opt = self._optimize(data=(X[ii], y[ii], w[ii]), f=self.f)
+            boot_samples[i] = opt.x
+            pbar.update(1)
+        if verbose:
+            pbar.close()
+        boot_samples = pd.DataFrame(boot_samples, index=self.xinds, 
+                                    columns=self.param_labels)
+        
+        return boot_samples
+    
        
