@@ -577,6 +577,25 @@ class GLM(RegressionMixin, LikelihoodModel):
         f = self.f if f is None else f
         ll = self._gradient(params=params, data=data, scale_estimator=s, f=f)
         return ll
+    
+    @staticmethod
+    def _gradient_i(params, data, scale_estimator, f):
+        X, y, mu, beta, phi, tau, dispersion = GLM._unpack_params_data(params, data, 
+                                                           scale_estimator, f)
+        w = f.gw(y, mu=mu, phi=phi, dispersion=dispersion)
+        g = X * w.reshape(-1, 1)
+        if scale_estimator == 'NR':
+            dt = f.dtau(tau, y, mu).reshape(-1, 1)
+            g = np.concatenate([g, dt], axis=1)
+        return g
+
+    def gradient_i(self, params, data=None, scale_estimator=None, f=None):
+        data = (self.X, self.y) if data is None else data
+        s = self.scale_estimator if scale_estimator is None\
+            else scale_estimator
+        f = self.f if f is None else f
+        ll = self._gradient_i(params=params, data=data, scale_estimator=s, f=f)
+        return ll
 
     @staticmethod
     def _hessian(params, data, scale_estimator, f):
