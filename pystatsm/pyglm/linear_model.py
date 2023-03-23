@@ -891,9 +891,7 @@ class GLM(RegressionMixin, LikelihoodModel):
             pbar.update(1)
         if verbose:
             pbar.close()
-        boot_samples = pd.DataFrame(boot_samples, index=self.xinds, 
-                                    columns=self.param_labels)
-        
+        boot_samples = pd.DataFrame(boot_samples,columns=self.param_labels)
         return boot_samples
     
        
