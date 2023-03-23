@@ -6,6 +6,7 @@ Created on Tue May 19 21:42:34 2020
 @author: lukepinkel
 """
 import numpy as np
+import scipy as sp
 from scipy.optimize.optimize import MemoizeJac
 
 LBFGSB_options = dict(disp=10, maxfun=5000, maxiter=5000, gtol=1e-8)
@@ -59,4 +60,26 @@ class MemoizeGradHess(MemoizeJac):
         return self.hess
     
     
+class ZeroConstraint(object):
     
+    def __init__(self, n_params, zero_indices):
+        self.n = self.n_params = n_params
+        self.m = self.n_zeroed = len(zero_indices)
+        self.zero_indices = zero_indices
+        jac = np.zeros((self.m, self.n))
+        jac[np.arange(self.m), zero_indices] = 1.0
+        self.jac = jac
+    
+    def func(self, params):
+        params_zeroed = params[self.zero_indices]
+        return params_zeroed
+    
+    def grad(self, params):
+        return self.jac
+    
+    def make_constraint(self):
+        nlc = sp.optimize.NonlinearConstraint(self.func, 
+                                        jac=self.grad, 
+                                        lb=np.zeros(self.m), 
+                                        ub=np.zeros(self.m))
+        return nlc
