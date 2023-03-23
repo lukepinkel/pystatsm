@@ -60,6 +60,8 @@ def get_param_table(params,
     ci_label = f"CI{100*(1-alpha):g}"
     df[[f"Lower{ci_label}", f"Upper{ci_label}"]] = np.column_stack((ci_lower, ci_upper))
     return df
+
+
 def compute_bias_corrected_bootstrap_intervals(params, jack_samples, boot_samples, alpha=0.05):
     """
     Compute bias-corrected and accelerated (BCa) bootstrap confidence intervals for the given parameters.
