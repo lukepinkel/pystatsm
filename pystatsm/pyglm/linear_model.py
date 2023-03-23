@@ -194,11 +194,12 @@ class LikelihoodModel(metaclass=ABCMeta):
     def _wald_test(params_unconstrained, 
                    params_constrained,
                    constraint_derivative,
-                   hess_inv,
-                   grad_cov,
+                   hess_unconstrained_inv,
+                   grad_unconstrained_cov,
                    return_dataframe=True):
         theta, theta0 = params_unconstrained, params_constrained
-        A, B, C = hess_inv, grad_cov, constraint_derivative
+        A, B = hess_unconstrained_inv, grad_unconstrained_cov
+        C = constraint_derivative
         V = np.dot(A, np.dot(B, A))
         M = np.linalg.inv(C.dot(V).dot(C.T))
         a = np.dot(C, theta - theta0)
@@ -213,10 +214,11 @@ class LikelihoodModel(metaclass=ABCMeta):
     @staticmethod
     def _score_test(grad_constrained, 
                     constraint_derivative,
-                    hess_inv, 
-                    grad_cov,
+                    hess_inv_constrained, 
+                    grad_constrained_cov,
                     return_dataframe=True):
-        A, B, C, D = hess_inv, grad_cov, constraint_derivative, grad_constrained
+        A, B = hess_inv_constrained, grad_constrained_cov
+        C, D = constraint_derivative, grad_constrained
         V = np.dot(A, np.dot(B, A))
         M = np.linalg.inv(C.T.dot(V).dot(C))
         a = np.dot(C.T, np.dot(A, D))
