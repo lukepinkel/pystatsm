@@ -585,7 +585,7 @@ class GLM(RegressionMixin, LikelihoodModel):
         w = f.gw(y, mu=mu, phi=phi, dispersion=dispersion)
         g = X * w.reshape(-1, 1)
         if scale_estimator == 'NR':
-            dt = f.dtau(tau, y, mu).reshape(-1, 1)
+            dt = f.dtau(tau, y, mu, reduce=False).reshape(-1, 1)
             g = np.concatenate([g, dt], axis=1)
         return g
 
