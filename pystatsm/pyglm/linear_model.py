@@ -790,22 +790,23 @@ class GLM(RegressionMixin, LikelihoodModel):
 
     
     def _one_step_approx(self, WX, h, rp):
-        # y = rp / np.sqrt(1 - h)
-        # Q, R = np.linalg.qr(WX)
-        # b = sp.linalg.solve_triangular(R, Q.T, lower=False).T
-        # db = b * y.reshape(-1, 1)
         y = rp / np.sqrt(1 - h)
         db = WX.dot(np.linalg.inv(np.dot(WX.T, WX))) * y.reshape(-1, 1)
         return db
         
-    def get_robust_res(self, kind="HC3"):
-        w = self.f.gw(self.y, mu=self.mu, phi=self.phi, dispersion=self.dispersion)
-        B = self.sandwich_cov(w, self.X, self.h, kind=kind)
-        A = self.coefs_cov
+    def get_robust_res(self, grad_kws=None):
+        default_kws = dict(params=self.params,
+                           data=(self.X, self.y, self.f.weights), 
+                           scale_estimator=self.scale_estimator,
+                           f=self.f)
+        grad_kws = handle_default_kws(grad_kws, default_kws)
+        G = self.gradient_i(**grad_kws)
+        B = np.dot(G.T, G)
+        A = self.params_cov
         V = A.dot(B).dot(A)
-        res = self._parameter_inference(self.coefs, np.sqrt(np.diag(V)),
+        res = self._parameter_inference(self.params, np.sqrt(np.diag(V)),
                                         self.n-len(self.params),
-                                        self.beta_labels)
+                                        self.param_labels)
         return res
 
     @staticmethod
@@ -892,6 +893,7 @@ class GLM(RegressionMixin, LikelihoodModel):
         if verbose:
             pbar.close()
         boot_samples = pd.DataFrame(boot_samples,columns=self.param_labels)
+
         return boot_samples
     
        
