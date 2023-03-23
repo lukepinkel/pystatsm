@@ -214,14 +214,14 @@ class LikelihoodModel(metaclass=ABCMeta):
     @staticmethod
     def _score_test(grad_constrained, 
                     constraint_derivative,
-                    hess_inv_constrained, 
+                    hess_constrained_inv, 
                     grad_constrained_cov,
                     return_dataframe=True):
-        A, B = hess_inv_constrained, grad_constrained_cov
+        A, B = hess_constrained_inv, grad_constrained_cov
         C, D = constraint_derivative, grad_constrained
         V = np.dot(A, np.dot(B, A))
-        M = np.linalg.inv(C.T.dot(V).dot(C))
-        a = np.dot(C.T, np.dot(A, D))
+        M = np.linalg.inv(C.dot(V).dot(C.T))
+        a = np.dot(C, np.dot(A, D))
         score_stat = np.dot(a, M.dot(a))
         df = constraint_derivative.shape[0]
         p_value = sp.stats.chi2(df=df).sf(score_stat)
