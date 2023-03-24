@@ -233,6 +233,7 @@ class LikelihoodModel(metaclass=ABCMeta):
 class RegressionData(object):
     def __init__(self, *args, weights=None):
         self.data = []
+        self.design_info = []
         self.indexes = []
         self.columns = []
         self.names = []
@@ -250,10 +251,16 @@ class RegressionData(object):
             if isinstance(data, pd.DataFrame):
                 self.columns.append(data.columns)
                 self.data.append(data.to_numpy())
+                if hasattr(data, "design_info"):
+                    design_info = data.design_info
+                else:
+                    design_info = None
+                self.design_info.append(design_info)
             else:  # pd.Series
                 self.names.append(data.name)
                 self.data.append(data.to_numpy().reshape(-1, 1))
         else:  # numpy array
+            self.design_info.append(None)
             self.indexes.append(np.arange(data.shape[0]))
             self.columns.append([f"{varname}{i}" for i in range(data.shape[1])] 
                                 if data.ndim==2 else [f"{varname}0"])
