@@ -19,7 +19,7 @@ from ..utilities import output
 from ..utilities.linalg_operations import wdiag_outer_prod, wls_qr, nwls       # analysis:ignore
 from ..utilities.func_utils import symmetric_conf_int, handle_default_kws
 from ..utilities.data_utils import _check_shape, _check_type                   # analysis:ignore
-# analysis:ignore
+from ..utilities.formula import design_matrices                  # analysis:ignore
 from .links import (LogitLink, ProbitLink, Link, LogLink, ReciprocalLink,      # analysis:ignore
                     PowerLink)                                                 # analysis:ignore
 from .families import (Binomial, ExponentialFamily, Gamma, Gaussian,           # analysis:ignore
@@ -230,7 +230,67 @@ class LikelihoodModel(metaclass=ABCMeta):
             res = pd.DataFrame(res, index=["Score Test"])
         return res
 
+class RegressionData(object):
+    def __init__(self, *args, weights=None):
+        self.data = []
+        self.indexes = []
+        self.columns = []
+        self.names = []
+        self.weights = weights
+        for arg in args:
+            self.store(arg)
 
+    def store(self, data, varname="x"):
+        if isinstance(data, (pd.DataFrame, pd.Series)):
+            self.indexes.append(data.index)
+            if isinstance(data, pd.DataFrame):
+                self.columns.append(data.columns)
+                self.data.append(data.to_numpy())
+            else:  # pd.Series
+                self.names.append(data.name)
+                self.data.append(data.to_numpy().reshape(-1, 1))
+        else:  # numpy array
+            self.indexes.append(np.arange(data.shape[0]))
+            self.columns.append([f"varname{i}" for i in range(data.shape[1])] 
+                                if data.ndim==2 else ["x0"])
+            self.data.append(data)
+    
+    def __getitem__(self, index):
+        indexed_data = tuple(x[index] for x in self.data)
+        if self.weights is not None:
+            indexed_weights = self.weights[index]
+            return RegressionData(*indexed_data, weights=indexed_weights)
+        return RegressionData(*indexed_data)
+    
+    def __iter__(self):
+        if self.weights is not None:
+            return iter((*self.data, self.weights))
+        return iter(self.data)
+    
+    def __len__(self):
+        l = len(self.data) if self.weights is None else len(self.data)+1
+        return l
+
+    def __repr__(self):
+        s = [str(d.shape) for d in self.data if d is not None]
+        if self.weights is not None:
+            s.append(str(self.weights.shape))
+        return f"RegressionData({', '.join(s)})"
+    
+    @classmethod
+    def from_formulas(cls, data, main_formula, *formula_args, **formula_kwargs):
+        formulas = list(formula_args) + list(formula_kwargs.values())
+        y, X_main = patsy.dmatrices(main_formula, data=data, return_type='dataframe')
+        
+        model_matrices = [X_main]
+        for formula in formulas:
+            lhs, X = design_matrices(formula, data)
+            model_matrices.append(X)
+        model_matrices.append(y)
+        return cls(*model_matrices)
+    
+    def add_weights(self, weights=None):
+        self.weights = np.ones(len(self.data[-1])) if weights is None else weights
 
 class RegressionMixin(object):
 

@@ -7,8 +7,10 @@ Created on Tue Jul 12 05:54:38 2022
 """
 
 import re
+import patsy
 import numpy as np
 import pandas as pd
+from patsy import highlevel
 
 def find_smooth_terms(formula):
     return re.findall("(?<=s[(])(.*?)(?=[)])", formula)
@@ -83,3 +85,19 @@ def parse_smooths(formula):
     model_info = dict(y_vars=y_vars, x_vars=x_vars, fe_form=fe_form,
                       smooths=smooths)
     return model_info
+
+
+def design_matrices(formula_like, data={}, eval_env=0, NA_action="drop",
+                    return_type="dataframe"):
+    eval_env = highlevel.EvalEnvironment.capture(eval_env, reference=1)
+    (lhs, rhs) = highlevel._do_highlevel_design(formula_like, data=data,
+                                   return_type=return_type,
+                                   eval_env=eval_env,
+                                   NA_action=NA_action)
+    return lhs, rhs
+
+
+
+
+
+
