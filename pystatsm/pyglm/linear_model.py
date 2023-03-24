@@ -239,7 +239,11 @@ class RegressionData(object):
         self.weights = weights
         for arg in args:
             self.store(arg)
-
+            
+    @property
+    def has_weights(self):
+        return False if self.weights is None else True
+    
     def store(self, data, varname="x"):
         if isinstance(data, (pd.DataFrame, pd.Series)):
             self.indexes.append(data.index)
@@ -251,8 +255,8 @@ class RegressionData(object):
                 self.data.append(data.to_numpy().reshape(-1, 1))
         else:  # numpy array
             self.indexes.append(np.arange(data.shape[0]))
-            self.columns.append([f"varname{i}" for i in range(data.shape[1])] 
-                                if data.ndim==2 else ["x0"])
+            self.columns.append([f"{varname}{i}" for i in range(data.shape[1])] 
+                                if data.ndim==2 else [f"{varname}0"])
             self.data.append(data)
     
     def __getitem__(self, index):
