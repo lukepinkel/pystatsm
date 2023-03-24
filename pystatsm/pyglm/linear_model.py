@@ -259,8 +259,8 @@ class RegressionData(object):
         indexed_data = tuple(x[index] for x in self.data)
         if self.weights is not None:
             indexed_weights = self.weights[index]
-            return RegressionData(*indexed_data, weights=indexed_weights)
-        return RegressionData(*indexed_data)
+            return (*indexed_data, indexed_weights)
+        return (*indexed_data,)
     
     def __iter__(self):
         if self.weights is not None:
