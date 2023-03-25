@@ -7,6 +7,7 @@ Created on Wed Mar  8 19:14:22 2023
 """
 import tqdm                                                                    # analysis:ignore
 import patsy
+import numba
 import numpy as np
 import scipy as sp
 import scipy.stats
@@ -368,11 +369,22 @@ class RegressionMixin(object):
         rb = y - np.mean(y)
         r2 = 1.0 - np.sum(rh**2) / np.sum(rb**2)
         return r2
-    
-    #@staticmethod
-    #def _dbeta(WX, h, rp):
-        
 
+        
+@numba.jit(nopython=True,parallel=True)
+def bootstrap_chol(X, y, params, n_boot):
+    n = X.shape[0]
+    for i in numba.prange(n_boot):
+        ii = np.random.choice(n, n)
+        Xboot = X[ii]
+        yboot = y[ii]
+        G = np.dot(Xboot.T, Xboot)
+        c = np.dot(Xboot.T, yboot)
+        L = np.linalg.cholesky(G)
+        w = np.linalg.solve(L, c)#numba_dtrtrs(L, c, "L")
+        params[i, :-1] = np.linalg.solve(L.T, w).T#numba_dtrtrs(L.T, w).T
+        params[i, -1] = (np.dot(yboot.T, yboot) - np.dot(w.T, w))[0, 0]
+    return params
 
 class LinearModel(RegressionMixin, LikelihoodModel):
 
@@ -499,7 +511,36 @@ class LinearModel(RegressionMixin, LikelihoodModel):
         sse_constrained = sse + np.dot(w.T, w)
         beta_constrained = params[:-1] - Linv.T.dot(Q.dot(w))
         return beta_constrained, sse_constrained
-
+        
+    
+    def _bootstrap(self, n_boot, verbose=True):
+        pbar = tqdm.tqdm(total=n_boot, smoothing=0.001) if verbose else None
+        params = np.zeros((n_boot, self.p+1))
+        i = 0
+        while i < n_boot:
+            try:
+                ix = np.random.choice(self.n, self.n)
+                Xb, yb = self.X[ix],  self.y[ix]
+                G, c = Xb.T.dot(Xb), Xb.T.dot(yb)
+                L = np.linalg.cholesky(G)
+                w = sp.linalg.solve_triangular(L, c, lower=True)
+                params[i, :-1] = sp.linalg.solve_triangular(L.T, w, lower=False)
+                params[i, -1] =  (yb.T.dot(yb) - w.T.dot(w)) 
+                i += 1
+                if verbose:
+                    pbar.update(1)
+            except np.linalg.LinAlgError:
+                pass
+        if verbose:
+            pbar.close()
+        return params
+    
+    def _bootstrap_jitted(self, n_boot):
+        params = np.zeros((n_boot, self.p+1))
+        params = bootstrap_chol(self.X, self.y.reshape(-1, 1), params, n_boot)
+        return params
+    
+    
 
 class GLM(RegressionMixin, LikelihoodModel):
 
