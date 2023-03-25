@@ -26,7 +26,6 @@ from .families import (Binomial, ExponentialFamily, Gamma, Gaussian,           #
                        IdentityLink, InverseGaussian, NegativeBinomial,        # analysis:ignore
                        Poisson)                                                # analysis:ignore
 
-
 LN2PI = np.log(2 * np.pi)
 
 
@@ -230,7 +229,7 @@ class LikelihoodModel(metaclass=ABCMeta):
             res = pd.DataFrame(res, index=["Score Test"])
         return res
 
-class RegressionData(object):
+class ModelData(object):
     def __init__(self, *args, weights=None):
         self.data = []
         self.design_info = []
@@ -286,7 +285,7 @@ class RegressionData(object):
         s = [str(d.shape) for d in self.data if d is not None]
         if self.weights is not None:
             s.append(str(self.weights.shape))
-        return f"RegressionData({', '.join(s)})"
+        return f"ModelData({', '.join(s)})"
     
     @classmethod
     def from_formulas(cls, data, main_formula, *formula_args, **formula_kwargs):
@@ -302,73 +301,32 @@ class RegressionData(object):
     
     def add_weights(self, weights=None):
         self.weights = np.ones(len(self.data[-1])) if weights is None else weights
+        
+    def flatten_y(self):
+        self.data[-1] = self.data[-1].flatten()
 
 class RegressionMixin(object):
 
     def __init__(self, formula=None, data=None, X=None, y=None, *args,
                  **kwargs):
-        X, xc, xi, y, yc, yi, d = self._process_data(formula, data, X, y)
-        self.X, self.y = X, y
-        self.xcols, self.xinds = xc, xi
-        self.ycols, self.yinds = yc, yi
-        self.n = self.n_obs = X.shape[0]
-        self.p = self.n_var = X.shape[1]
-        self.design_info = d
-        self.formula = formula
-        self.data = data
-
+        self.model_data = self._process_data(formula, data, X, y, *args, **kwargs)
+        
+        
     @staticmethod
     def _process_data(formula=None, data=None, X=None, y=None,
-                      default_varname='x'):
+                      default_varname='x', *args, **kwargs):
         if formula is not None and data is not None:
+            model_data = ModelData.from_formulas(data, formula, *args, **kwargs)
             y, X = patsy.dmatrices(formula, data=data, return_type='dataframe')
-            xcols, xinds = X.columns, X.index
-            ycols, yinds = y.columns, y.index
-            design_info = X.design_info
-            X, y = X.values, y.values[:, 0]
         elif X is not None and y is not None:
-            design_info = None
-            if type(X) not in [pd.DataFrame, pd.Series]:
-                if X.ndim == 1:
-                    xcols = [f'{default_varname}']
-                else:
-                    xcols = [f'{default_varname}{i}' for i in range(
-                        1, X.shape[1]+1)]
-                xinds = np.arange(X.shape[0])
-                ycols, yinds = ['y'], np.arange(y.shape[0])
-            else:
-                X, xcols, xinds = X.values, X.columns, X.index
-            if type(y) not in [pd.DataFrame, pd.Series]:
-                ycols, yinds = ['y'], np.arange(y.shape[0])
-            else:
-                y, ycols, yinds = y.values, y.columns, y.index
-        return X, xcols, xinds, y, ycols, yinds, design_info
+            model_data = ModelData(*((X,)+args+(y,)))
+        
+        if np.ndim(model_data.data[-1]) == 2:
+            if model_data.data[-1].shape[1] == 1:
+                model_data.flatten_y()
+        return model_data
 
-    @staticmethod
-    def _process_design_matrix(formula=None, data=None, X=None,
-                               default_varname='x'):
-        if formula is not None and data is not None:
-            try:
-                _, X = patsy.dmatrices(
-                    formula, data=data, return_type='dataframe')
-            except PatsyError:
-                X = patsy.dmatrix(formula, data=data, return_type='dataframe')
-            xcols, xinds = X.columns, X.index
-            design_info = X.design_info
-            X = X.values
-        elif X is not None:
-            design_info = None
-            if type(X) not in [pd.DataFrame, pd.Series]:
-                if X.ndim == 1:
-                    xcols = [f'{default_varname}']
-                else:
-                    xcols = [f'{default_varname}{i}' for i in range(
-                        1, X.shape[1]+1)]
-                xinds = np.arange(X.shape[0])
-            else:
-                X, xcols, xinds = X.values, X.columns, X.index
-        return X, xcols, xinds, design_info
-
+                           
     @staticmethod
     def sandwich_cov(grad_weight, X, leverage=None, kind="HC0"):
         w, h = grad_weight, leverage
@@ -549,7 +507,14 @@ class GLM(RegressionMixin, LikelihoodModel):
                  family=Gaussian, scale_estimator="M", *args,
                  **kwargs):
         super().__init__(formula=formula, data=data, X=X, y=y, *args, **kwargs)
-
+        self.xinds, self.yinds = self.model_data.indexes
+        self.xcols, self.ycols = self.model_data.columns
+        self.X, self.y = self.model_data
+        self.n = self.n_obs = self.X.shape[0]
+        self.p = self.n_var = self.X.shape[1]
+        self.x_design_info, self.y_design_info = self.model_data.design_info
+        self.formula = formula
+        self.data = data
         if isinstance(family, ExponentialFamily) is False:
             try:
                 family = family()
@@ -967,4 +932,3 @@ class GLM(RegressionMixin, LikelihoodModel):
 
         return boot_samples
     
-       
