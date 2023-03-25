@@ -371,27 +371,20 @@ class RegressionMixin(object):
         return r2
 
         
-@numba.jit(nopython=True,parallel=True)
-def bootstrap_chol(X, y, params, n_boot):
-    n = X.shape[0]
-    for i in numba.prange(n_boot):
-        ii = np.random.choice(n, n)
-        Xboot = X[ii]
-        yboot = y[ii]
-        G = np.dot(Xboot.T, Xboot)
-        c = np.dot(Xboot.T, yboot)
-        L = np.linalg.cholesky(G)
-        w = np.linalg.solve(L, c)#numba_dtrtrs(L, c, "L")
-        params[i, :-1] = np.linalg.solve(L.T, w).T#numba_dtrtrs(L.T, w).T
-        params[i, -1] = (np.dot(yboot.T, yboot) - np.dot(w.T, w))[0, 0]
-    return params
-
 class LinearModel(RegressionMixin, LikelihoodModel):
 
     def __init__(self, formula=None, data=None, X=None, y=None, *args,
                  **kwargs):
         super().__init__(formula=formula, data=data, X=X, y=y, *args,
                          **kwargs)
+        self.xinds, self.yinds = self.model_data.indexes
+        self.xcols, self.ycols = self.model_data.columns
+        self.X, self.y = self.model_data
+        self.n = self.n_obs = self.X.shape[0]
+        self.p = self.n_var = self.X.shape[1]
+        self.x_design_info, self.y_design_info = self.model_data.design_info
+        self.formula = formula
+        self.data = data
 
     @staticmethod
     def _loglike(params, data, reml=True):
@@ -495,6 +488,7 @@ class LinearModel(RegressionMixin, LikelihoodModel):
                                           self.n-self.p,
                                           list(self.xcols)+["log_scale"],
                                           )
+        self.params_labels = list(self.xcols)+["log_scale"]
 
     @staticmethod
     def _get_coef_constrained(params, sse, data, C, d=None, L=None, Linv=None):
@@ -535,9 +529,25 @@ class LinearModel(RegressionMixin, LikelihoodModel):
             pbar.close()
         return params
     
+    @staticmethod
+    @numba.jit(nopython=True,parallel=True)
+    def bootstrap_chol(X, y, params, n_boot):
+        n = X.shape[0]
+        for i in numba.prange(n_boot):
+            ii = np.random.choice(n, n)
+            Xboot = X[ii]
+            yboot = y[ii]
+            G = np.dot(Xboot.T, Xboot)
+            c = np.dot(Xboot.T, yboot)
+            L = np.linalg.cholesky(G)
+            w = np.linalg.solve(L, c)#numba_dtrtrs(L, c, "L")
+            params[i, :-1] = np.linalg.solve(L.T, w).T#numba_dtrtrs(L.T, w).T
+            params[i, -1] = (np.dot(yboot.T, yboot) - np.dot(w.T, w))[0, 0]
+        return params
+
     def _bootstrap_jitted(self, n_boot):
         params = np.zeros((n_boot, self.p+1))
-        params = bootstrap_chol(self.X, self.y.reshape(-1, 1), params, n_boot)
+        params = self.bootstrap_chol(self.X, self.y.reshape(-1, 1), params, n_boot)
         return params
     
     
