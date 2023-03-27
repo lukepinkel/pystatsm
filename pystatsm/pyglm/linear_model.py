@@ -29,31 +29,130 @@ from .families import (Binomial, ExponentialFamily, Gamma, Gaussian,           #
 
 LN2PI = np.log(2 * np.pi)
 
-
 class LikelihoodModel(metaclass=ABCMeta):
+    """
+    Abstract base class for likelihood-based models.
+
+    This class serves as a blueprint for building likelihood-based models. 
+    It provides an interface  for implementing log-likelihood, gradient, and
+    Hessian functions, as well as methods for fitting, information criteria, 
+    pseudo-R-squared, parameter inference, and hypothesis testing.
+
+    Subclasses must implement the following methods:
+        _loglike
+        _gradient
+        _hessian
+        _fit
+
+    Additional methods that can be used or overridden in subclasses are also provided.
+    """
 
     @staticmethod
     @abstractmethod
     def _loglike(params, data):
+        """
+        Compute the log-likelihood of the model.
+
+        Parameters
+        ----------
+        params : array_like
+            Model parameters.
+        data : any
+            Data used to compute the log-likelihood.
+
+        Returns
+        -------
+        float
+            Log-likelihood value.
+        """
         pass
 
     @staticmethod
     @abstractmethod
     def _gradient(params, data):
+        """
+        Compute the gradient of the log-likelihood with respect to the parameters.
+
+        Parameters
+        ----------
+        params : array_like
+            Model parameters.
+        data : any
+            Data used to compute the gradient.
+
+        Returns
+        -------
+        ndarray
+            Gradient of the log-likelihood.
+        """
         pass
 
     @staticmethod
     @abstractmethod
     def _hessian(params, data):
+        """
+        Compute the Hessian of the log-likelihood with respect to the parameters.
+
+        Parameters
+        ----------
+        params : array_like
+            Model parameters.
+        data : any
+            Data used to compute the Hessian.
+
+        Returns
+        -------
+        ndarray
+            Hessian of the log-likelihood.
+        """
         pass
 
     @staticmethod
     @abstractmethod
     def _fit(params, data):
+        """
+        Fit the model to the given data.
+
+        Parameters
+        ----------
+        params : array_like
+            Initial model parameters.
+        data : any
+            Data used to fit the model.
+
+        Returns
+        -------
+        dict
+            Fitted model parameters and additional information.
+        """
         pass
 
     @staticmethod
     def _get_information(ll, n_params, n_obs):
+        """
+        Computes various information criteria for model comparison and selection.
+
+        This method calculates the Akaike Information Criterion (AIC), the
+        corrected Akaike Information Criterion (AICc), the Bayesian Information 
+        Criterion (BIC), and the Consistent Akaike Information Criterion (CAIC) 
+        based on the provided log-likelihood,  number of parameters, and number
+        of observations.
+
+        Parameters
+        ----------
+        ll : float
+            The log-likelihood of the model.
+        n_params : int
+            The number of parameters in the model.
+        n_obs : int
+            The number of observations in the dataset.
+
+        Returns
+        -------
+        tuple
+            A tuple containing the computed values of AIC, AICc, BIC, and CAIC,
+            respectively.
+        """
         logn = np.log(n_obs)
         tll = 2 * ll
         aic = tll + 2 * n_params
@@ -64,6 +163,31 @@ class LikelihoodModel(metaclass=ABCMeta):
 
     @staticmethod
     def _get_pseudo_rsquared(ll_model, ll_null, n_params, n_obs):
+        """
+        Compute pseudo R-squared values for the model.
+        
+        This method computes the Cox-Snell, Nagelkerke, McFadden, and 
+        McFadden-Bartlett pseudo R-squared values, as well as the likelihood 
+        ratio test statistic.
+    
+        Parameters
+        ----------
+        ll_model : float
+            The log-likelihood of the fitted model.
+        ll_null : float
+            The log-likelihood of the null model.
+        n_params : int
+            The number of parameters in the model.
+        n_obs : int
+            The number of observations in the dataset.
+    
+        Returns
+        -------
+        tuple
+            A tuple containing the computed values of Cox-Snell, Nagelkerke, 
+            McFadden, McFadden-Bartlett pseudo R-squared, and likelihood ratio 
+            test statistic, respectively.
+        """
         r2_cs = 1-np.exp(2.0/n_obs * (ll_model - ll_null))
         r2_nk = r2_cs / (1-np.exp(2.0 / n_obs * -ll_null))
         r2_mc = 1.0 - ll_model / ll_null
@@ -73,11 +197,45 @@ class LikelihoodModel(metaclass=ABCMeta):
 
     @staticmethod
     def _parameter_inference(params, params_se, degfree, param_labels):
+        """
+        Create a parameter inference table.
+    
+        Parameters
+        ----------
+        params : array_like
+            Model parameters.
+        params_se : array_like
+            Standard errors of the parameters.
+        degfree : int
+            Degrees of freedom for the parameter inference.
+        param_labels : array_like
+            Labels of the parameters.
+    
+        Returns
+        -------
+        DataFrame
+            A pandas DataFrame containing the parameter inference table.
+        """
         res = output.get_param_table(params, params_se, degfree, param_labels)
         return res
 
     @staticmethod
     def _make_constraints(fixed_indices, fixed_values):
+        """
+        Create constraints for optimization.
+        
+        Parameters
+        ----------
+        fixed_indices : array_like
+            Indices of the fixed parameters.
+        fixed_values : array_like
+            Values of the fixed parameters.
+        
+        Returns
+        -------
+        list
+            A list of constraints for optimization.
+        """
         constraints = []
         if np.asarray(fixed_indices).dtype==bool:
             fixed_indices = np.where(fixed_indices)
@@ -88,6 +246,39 @@ class LikelihoodModel(metaclass=ABCMeta):
     @staticmethod
     def _profile_loglike_constrained(par, ind, params, loglike, grad, hess,
                                      minimize_kws=None, return_info=False):
+        """
+        Calculate the profile log-likelihood for a model with constrained
+        parameters by directly  incorporating constraints during the 
+        optimization process.
+        
+        Parameters
+        ----------
+        par : array_like
+            Parameter values to be constrained.
+        ind : array_like
+            Indices of the constrained parameters.
+        params : array_like
+            Initial parameter estimates for the optimization.
+        loglike : callable
+            Function to compute the log-likelihood.
+        grad : callable
+            Function to compute the gradient of the log-likelihood.
+        hess : callable
+            Function to compute the Hessian of the log-likelihood.
+        minimize_kws : dict, optional
+            Additional keyword arguments to be passed to the
+            scipy.optimize.minimize function.
+        return_info : bool, optional
+            If True, return the optimization result object instead of the 
+            log-likelihood value. Default is False.
+        
+        Returns
+        -------
+        float or OptimizeResult
+            If return_info is False, return the profile log-likelihood for 
+            the constrained model.  Otherwise, return the optimization result
+            object.
+        """
         par, ind = np.atleast_1d(par), np.atleast_1d(ind)
         constraints = []
         for i, xi in list(zip(ind, par)):
@@ -108,6 +299,40 @@ class LikelihoodModel(metaclass=ABCMeta):
     @staticmethod
     def _profile_loglike_restricted(par, ind, params, loglike, grad, hess,
                                     minimize_kws=None, return_info=False):
+        """
+        Calculate the profile log-likelihood for a model with restricted 
+        parameters by optimizing  over the free (unconstrained) parameters 
+        and substituting the fixed (restricted) parameter 
+        values.
+        
+        Parameters
+        ----------
+        par : array_like
+            Parameter values to be restricted.
+        ind : array_like
+            Indices of the restricted parameters.
+        params : array_like
+            Initial parameter estimates for the optimization.
+        loglike : callable
+            Function to compute the log-likelihood.
+        grad : callable
+            Function to compute the gradient of the log-likelihood.
+        hess : callable
+            Function to compute the Hessian of the log-likelihood.
+        minimize_kws : dict, optional
+            Additional keyword arguments to be passed to the 
+            scipy.optimize.minimize function.
+        return_info : bool, optional
+            If True, return the optimization result object instead of the 
+            log-likelihood value.  Default is False.
+        
+        Returns
+        -------
+        float or OptimizeResult
+            If return_info is False, return the profile log-likelihood for 
+            the restricted model.  Otherwise, return the optimization result
+            object.
+        """
         par, ind = np.atleast_1d(par), np.atleast_1d(ind)
         free_ind = np.setdiff1d(np.arange(len(params)), ind)
         full_params = params.copy()
@@ -149,6 +374,32 @@ class LikelihoodModel(metaclass=ABCMeta):
     @staticmethod
     def _solve_interval(profile_loglike, par, par_se, lli, method="root",
                        return_info=False):
+        """
+        Compute the confidence interval for a parameter using the profile 
+        log-likelihood.
+        
+        Parameters
+        ----------
+        profile_loglike : callable
+            Function to compute the profile log-likelihood.
+        par : float
+            Point estimate of the parameter.
+        par_se : float
+            Standard error of the parameter.
+        lli : float
+            Log-likelihood value used to compute the interval.
+        method : str, optional
+            Method to solve the interval, either 'root' or 'lstq'. Default 
+            is 'root'.
+        return_info : bool, optional
+            If True, return additional optimization information. 
+            Default is False.
+        
+        Returns
+        -------
+        tuple
+            The lower and upper bounds of the confidence interval.
+        """
         if method == "lstq":
             left=sp.optimize.minimize(lambda x:(profile_loglike(x)-lli)**2,
                                         par-2 * par_se)
@@ -180,6 +431,29 @@ class LikelihoodModel(metaclass=ABCMeta):
     @staticmethod
     def _lr_test(ll_unconstrained, ll_constrained, constraint_dim, 
                  return_dataframe=True):
+        """
+        Perform the likelihood ratio test for nested models.
+    
+        Parameters
+        ----------
+        ll_unconstrained : float
+            Log-likelihood value of the unconstrained model.
+        ll_constrained : float
+            Log-likelihood value of the constrained model.
+        constraint_dim : int
+            Dimension of the constraint, representing the difference in the
+            number of parameters between 
+            the unconstrained and constrained models.
+        return_dataframe : bool, optional
+            If True, the result is returned as a pandas DataFrame. 
+            Default is True.
+    
+        Returns
+        -------
+        DataFrame or dict
+            A pandas DataFrame or dictionary containing the likelihood ratio 
+            test statistic, degrees of freedom, and p-value.
+        """
         ll_full = ll_unconstrained
         ll_null = ll_constrained
         df = constraint_dim
@@ -197,6 +471,32 @@ class LikelihoodModel(metaclass=ABCMeta):
                    hess_unconstrained_inv,
                    grad_unconstrained_cov,
                    return_dataframe=True):
+        """
+        Perform the Wald test for nested models.
+    
+        Parameters
+        ----------
+        params_unconstrained : array_like
+            Unconstrained model parameters.
+        params_constrained : array_like
+            Constrained model parameters.
+        constraint_derivative : array_like
+            Derivative of the constraint with respect to the parameters.
+        hess_unconstrained_inv : array_like
+            Inverse of the Hessian matrix for the unconstrained model.
+        grad_unconstrained_cov : array_like
+            Covariance matrix of the gradient for the unconstrained model.
+        return_dataframe : bool, optional
+            If True, the result is returned as a pandas DataFrame. 
+            Default is True.
+    
+        Returns
+        -------
+        DataFrame or dict
+            A pandas DataFrame or dictionary containing the Wald test statistic,
+            degrees of freedom, 
+            and p-value.
+        """
         theta, theta0 = params_unconstrained, params_constrained
         A, B = hess_unconstrained_inv, grad_unconstrained_cov
         C = constraint_derivative
@@ -217,6 +517,29 @@ class LikelihoodModel(metaclass=ABCMeta):
                     hess_constrained_inv, 
                     grad_constrained_cov,
                     return_dataframe=True):
+        """
+         Perform the score test for nested models.
+        
+         Parameters
+         ----------
+         grad_constrained : array_like
+             Gradient of the constrained model.
+         constraint_derivative : array_like
+             Derivative of the constraint with respect to the parameters.
+         hess_constrained_inv : array_like
+             Inverse of the Hessian matrix for the constrained model.
+         grad_constrained_cov : array_like
+             Covariance matrix of the gradient for the constrained model.
+         return_dataframe : bool, optional
+             If True, the result is returned as a pandas DataFrame. 
+             Default is True.
+        
+         Returns
+         -------
+         DataFrame or dict
+             A pandas DataFrame or dictionary containing the score test 
+             statistic, degrees of freedom,  and p-value.
+         """
         A, B = hess_constrained_inv, grad_constrained_cov
         C, D = constraint_derivative, grad_constrained
         V = np.dot(A, np.dot(B, A))
@@ -231,7 +554,37 @@ class LikelihoodModel(metaclass=ABCMeta):
         return res
 
 class ModelData(object):
+    """
+    A class for storing and managing model data, including input variables,
+    output variables, and weights.
+    
+    Attributes
+    ----------
+    data : list
+        A list of arrays or dataframes, each representing an input or 
+        output variable.
+    design_info : list
+        A list of design_info objects corresponding to each variable in `data`.
+    indexes : list
+        A list of indexes for each input or output variable.
+    columns : list
+        A list of column names for each input or output variable.
+    names : list
+        A list of names for each input or output variable.
+    weights : array_like, optional
+        An array of weights for the data, default is None.
+    """
     def __init__(self, *args, weights=None):
+        """
+        Initialize the ModelData object.
+        
+        Parameters
+        ----------
+        *args : variable number of input/output variables
+            Input and output variables as pandas DataFrames, Series, or numpy arrays.
+        weights : array_like, optional
+            An array of weights for the data, default is None.
+        """
         self.data = []
         self.design_info = []
         self.indexes = []
@@ -243,9 +596,27 @@ class ModelData(object):
             
     @property
     def has_weights(self):
+        """
+        Check if the ModelData object has weights.
+    
+        Returns
+        -------
+        bool
+            True if the object has weights, False otherwise.
+        """
         return False if self.weights is None else True
     
     def store(self, data, varname="x"):
+        """
+        Store the input or output variable as a numpy array and update attributes.
+        
+        Parameters
+        ----------
+        data : pd.DataFrame, pd.Series, or np.ndarray
+            Input or output variable.
+        varname : str, optional
+            Variable name prefix for numpy arrays, default is "x".
+        """
         if isinstance(data, (pd.DataFrame, pd.Series)):
             self.indexes.append(data.index)
             if isinstance(data, pd.DataFrame):
@@ -267,6 +638,19 @@ class ModelData(object):
             self.data.append(data)
     
     def __getitem__(self, index):
+        """
+        Get a tuple of the indexed data.
+        
+        Parameters
+        ----------
+        index : int or slice
+            Index or slice for selecting the data.
+        
+        Returns
+        -------
+        tuple
+            A tuple of the indexed data.
+        """
         indexed_data = tuple(x[index] for x in self.data)
         if self.weights is not None:
             indexed_weights = self.weights[index]
@@ -274,15 +658,40 @@ class ModelData(object):
         return (*indexed_data,)
     
     def __iter__(self):
+        """
+        Return an iterator for the data.
+        
+        Returns
+        -------
+        iterator
+            Iterator for the data.
+        """
+
         if self.weights is not None:
             return iter((*self.data, self.weights))
         return iter(self.data)
     
     def __len__(self):
+        """
+        Get the length of the data.
+    
+        Returns
+        -------
+        int
+            Length of the data.
+        """
         l = len(self.data) if self.weights is None else len(self.data)+1
         return l
 
     def __repr__(self):
+        """
+        Return a string representation of the ModelData object.
+        
+        Returns
+        -------
+        str
+            String representation of the ModelData object.
+        """
         s = [str(d.shape) for d in self.data if d is not None]
         if self.weights is not None:
             s.append(str(self.weights.shape))
@@ -290,6 +699,25 @@ class ModelData(object):
     
     @classmethod
     def from_formulas(cls, data, main_formula, *formula_args, **formula_kwargs):
+        """
+        Create a ModelData object from Patsy formulas.
+    
+        Parameters
+        ----------
+        data : pd.DataFrame
+            DataFrame containing the data to be used in the formulas.
+        main_formula : str
+            A Patsy formula for the main model.
+        *formula_args : str
+            Additional Patsy formulas as positional arguments.
+        **formula_kwargs : str
+            Additional Patsy formulas as keyword arguments.
+    
+        Returns
+        -------
+        ModelData
+            A ModelData object with the data from the formulas.
+        """
         formulas = list(formula_args) + list(formula_kwargs.values())
         y, X_main = patsy.dmatrices(main_formula, data=data, return_type='dataframe')
         
@@ -301,21 +729,86 @@ class ModelData(object):
         return cls(*model_matrices)
     
     def add_weights(self, weights=None):
+        """
+        Add weights to the ModelData object.
+
+        Parameters
+        ----------
+        weights : array_like, optional
+            An array of weights for the data, default is None.
+        """
         self.weights = np.ones(len(self.data[-1])) if weights is None else weights
         
     def flatten_y(self):
+        """
+        Flatten the output variable (y) in the data.
+        """
         self.data[-1] = self.data[-1].flatten()
+        
 
 class RegressionMixin(object):
+    """
+    A mixin class for regression models.
+    
+    Attributes
+    ----------
+    model_data : ModelData
+        Contains the processed data for the model.
+    """
 
     def __init__(self, formula=None, data=None, X=None, y=None, weights=None,
                  *args, **kwargs):
+        """
+        Initialize the RegressionMixin instance.
+        
+        Parameters
+        ----------
+        formula : str, optional
+            A patsy formula specifying the model.
+        data : DataFrame, optional
+            A DataFrame containing the data.
+        X : array_like, optional
+            An array of independent variables.
+        y : array_like, optional
+            An array of dependent variables.
+        weights : array_like, optional
+            An array of weights to be applied in the model.
+        *args : tuple
+            Additional positional arguments.
+        **kwargs : dict
+            Additional keyword arguments.
+        """
         self.model_data = self._process_data(formula, data, X, y, *args, **kwargs)
         self.model_data.add_weights(weights)
         
     @staticmethod
     def _process_data(formula=None, data=None, X=None, y=None,
                       default_varname='x', *args, **kwargs):
+        """
+        Process input data for the regression model.
+    
+        Parameters
+        ----------
+        formula : str, optional
+            A patsy formula specifying the model.
+        data : DataFrame, optional
+            A DataFrame containing the data.
+        X : array_like, optional
+            An array of independent variables.
+        y : array_like, optional
+            An array of dependent variables.
+        default_varname : str, optional
+            The default variable name if none is provided.
+        *args : tuple
+            Additional positional arguments.
+        **kwargs : dict
+            Additional keyword arguments.
+    
+        Returns
+        -------
+        ModelData
+            The processed data for the model.
+        """
         if formula is not None and data is not None:
             model_data = ModelData.from_formulas(data, formula, *args, **kwargs)
             y, X = patsy.dmatrices(formula, data=data, return_type='dataframe')
@@ -330,6 +823,25 @@ class RegressionMixin(object):
                            
     @staticmethod
     def sandwich_cov(grad_weight, X, leverage=None, kind="HC0"):
+        """
+        Calculate sandwich covariance matrix for robust standard errors.
+        
+        Parameters
+        ----------
+        grad_weight : array_like
+            An array of gradient weights.
+        X : array_like
+            An array of independent variables.
+        leverage : array_like, optional
+            An array of leverage values.
+        kind : str, optional
+            The type of robust covariance matrix to compute (default is "HC0").
+        
+        Returns
+        -------
+        array_like
+            The sandwich covariance matrix.
+        """
         w, h = grad_weight, leverage
         n, p = X.shape
         w = w ** 2
@@ -348,6 +860,21 @@ class RegressionMixin(object):
 
     @staticmethod
     def _compute_leverage_cholesky(WX=None, Linv=None):
+        """
+        Compute the leverage values using the Cholesky decomposition method.
+    
+        Parameters
+        ----------
+        WX : array_like, optional
+            Weighted independent variables.
+        Linv : array_like, optional
+            Inverse of the lower triangular Cholesky factor L.
+    
+        Returns
+        -------
+        array_like
+            The leverage values.
+        """
         if Linv is None:
             G = np.dot(WX.T, WX)
             L = np.linalg.cholesky(G)
@@ -358,6 +885,21 @@ class RegressionMixin(object):
 
     @staticmethod
     def _compute_leverage_qr(WX=None, Q=None):
+        """
+        Compute the leverage of the data points using QR decomposition.
+        
+        Parameters
+        ----------
+        WX : array_like, optional
+            The weighted design matrix.
+        Q : array_like, optional
+            The Q matrix resulting from the QR decomposition.
+        
+        Returns
+        -------
+        h : array_like
+            Leverage values for each data point.
+        """
         if Q is None:
             Q, R = np.linalg.qr(WX)
         h = np.sum(Q**2, axis=1)
@@ -365,6 +907,21 @@ class RegressionMixin(object):
 
     @staticmethod
     def _rsquared(y, yhat):
+        """
+        Compute the coefficient of determination (R-squared) for the regression model.
+    
+        Parameters
+        ----------
+        y : array_like
+            The observed response variable.
+        yhat : array_like
+            The predicted response variable.
+    
+        Returns
+        -------
+        r2 : float
+            The R-squared value.
+        """
         rh = y - yhat
         rb = y - np.mean(y)
         r2 = 1.0 - np.sum(rh**2) / np.sum(rb**2)
@@ -372,7 +929,26 @@ class RegressionMixin(object):
 
         
 class LinearModel(RegressionMixin, LikelihoodModel):
+    """
+    A linear regression model class that inherits from RegressionMixin and LikelihoodModel.
 
+    Parameters
+    ----------
+    formula : str, optional
+        A formula representing the relationship between the response and predictor variables.
+    data : DataFrame, optional
+        A pandas DataFrame containing the data to be used for the linear regression model.
+    X : array-like, optional
+        The predictor variables in the linear regression model.
+    y : array-like, optional
+        The response variable in the linear regression model.
+    weights : array-like, optional
+        Weights to be applied to the data during the regression fitting process.
+    *args : tuple
+        Additional positional arguments.
+    **kwargs : dict
+        Additional keyword arguments.
+    """
     def __init__(self, formula=None, data=None, X=None, y=None, weights=None,
                  *args, **kwargs):
         super().__init__(formula=formula, data=data, X=X, y=y, weights=weights, 
@@ -388,6 +964,23 @@ class LinearModel(RegressionMixin, LikelihoodModel):
 
     @staticmethod
     def _loglike(params, data, reml=True):
+        """
+        Compute the log-likelihood of the linear model.
+    
+        Parameters
+        ----------
+        params : array_like
+            Model parameters.
+        data : tuple
+            Tuple containing the predictor variables (X) and response variable (y).
+        reml : bool, optional
+            Whether to use Restricted Maximum Likelihood (REML) estimation. Default is True.
+    
+        Returns
+        -------
+        float
+            Log-likelihood value.
+        """
         beta, logvar = params[:-1], params[-1]
         tau = np.exp(-logvar)
         X, y = data
@@ -401,10 +994,42 @@ class LinearModel(RegressionMixin, LikelihoodModel):
         return -ll
 
     def loglike(self, params, reml=True):
+        """
+        Compute the log-likelihood of the linear model.
+        
+        Parameters
+        ----------
+        params : array_like
+            Model parameters.
+        reml : bool, optional
+            Whether to use Restricted Maximum Likelihood (REML) estimation. Default is True.
+        
+        Returns
+        -------
+        float
+            Log-likelihood value.
+        """
         return self._loglike(params, (self.X, self.y), reml=reml)
 
     @staticmethod
     def _gradient(params, data, reml=True):
+        """
+        Compute the gradient of the log-likelihood function with respect to the parameters.
+    
+        Parameters
+        ----------
+        params : array_like
+            Model parameters.
+        data : tuple
+            Tuple containing the predictor variables (X) and response variable (y).
+        reml : bool, optional
+            Whether to use Restricted Maximum Likelihood (REML) estimation. Default is True.
+    
+        Returns
+        -------
+        ndarray
+            Gradient of the log-likelihood function.
+        """
         beta, logvar = params[:-1], params[-1]
         tau = np.exp(-logvar)
         X, y = data
@@ -418,10 +1043,42 @@ class LinearModel(RegressionMixin, LikelihoodModel):
         return -grad
 
     def gradient(self, params, reml=True):
+        """
+        Compute the gradient of the log-likelihood function with respect to the parameters.
+    
+        Parameters
+        ----------
+        params : array_like
+            Model parameters.
+        reml : bool, optional
+            Whether to use Restricted Maximum Likelihood (REML) estimation. Default is True.
+    
+        Returns
+        -------
+        ndarray
+            Gradient of the log-likelihood function.
+        """
         return self._gradient(params, (self.X, self.y), reml=reml)
 
     @staticmethod
     def _hessian(params, data, reml=True):
+        """
+        Compute the Hessian of the log-likelihood function with respect to the parameters.
+    
+        Parameters
+        ----------
+        params : array_like
+            Model parameters.
+        data : tuple
+            Tuple containing the predictor variables (X) and response variable (y).
+        reml : bool, optional
+            Whether to use Restricted Maximum Likelihood (REML) estimation. Default is True.
+    
+        Returns
+        -------
+        ndarray
+            Hessian of the log-likelihood function.
+        """
         beta, logvar = params[:-1], params[-1]
         tau = np.exp(-logvar)
         X, y = data
@@ -435,10 +1092,42 @@ class LinearModel(RegressionMixin, LikelihoodModel):
         return -hess
 
     def hessian(self, params, reml=True):
+        """
+        Compute the Hessian of the log-likelihood function with respect to the parameters.
+        
+        Parameters
+        ----------
+        params : array_like
+            Model parameters.
+        reml : bool, optional
+            Whether to use Restricted Maximum Likelihood (REML) estimation. Default is True.
+        
+        Returns
+        -------
+        ndarray
+            Hessian of the log-likelihood function.
+        """
         return self._hessian(params, (self.X, self.y), reml=reml)
 
     @staticmethod
     def _fit1(params, data, reml=True):
+        """
+        Fit the linear model using Cholesky decomposition (Method 1).
+        
+        Parameters
+        ----------
+        params : array_like
+            Model parameters.
+        data : tuple
+            Tuple containing the predictor variables (X) and response variable (y).
+        reml : bool, optional
+            Whether to use Restricted Maximum Likelihood (REML) estimation. Default is True.
+        
+        Returns
+        -------
+        tuple
+            Tuple containing the matrices and parameters needed for the model.
+        """
         X, y = data
         n, p = X.shape
         G = X.T.dot(X)
@@ -456,6 +1145,23 @@ class LinearModel(RegressionMixin, LikelihoodModel):
 
     @staticmethod
     def _fit2(params, data, reml=True):
+        """
+        Fit the linear model using Cholesky decomposition (Method 2).
+        
+        Parameters
+        ----------
+        params : array_like
+            Model parameters.
+        data : tuple
+            Tuple containing the predictor variables (X) and response variable (y).
+        reml : bool, optional
+            Whether to use Restricted Maximum Likelihood (REML) estimation. Default is True.
+        
+        Returns
+        -------
+        tuple
+            Tuple containing the matrices and parameters needed for the model.
+        """
         X, y = data
         n, p = X.shape
         G = np.dot(X.T, X)
@@ -472,6 +1178,20 @@ class LinearModel(RegressionMixin, LikelihoodModel):
         return G, Ginv, L, Linv, sse, beta, params
 
     def _fit(self, reml=True):
+        """
+        Fit the linear model using the best Cholesky decomposition method available.
+        
+        Parameters
+        ----------
+        reml : bool, optional
+            Whether to use Restricted Maximum Likelihood (REML) estimation. Default is True.
+        
+        Returns
+        -------
+        None
+            The fitted model parameters are stored as attributes of the LinearModel object.
+        """
+
         G, Ginv, L, Linv, sse, beta, params = self._fit2(
             None, (self.X, self.y), reml=reml)
         self.G, self.Ginv, self.L, self.Linv = G, Ginv, L, Linv
@@ -492,6 +1212,31 @@ class LinearModel(RegressionMixin, LikelihoodModel):
 
     @staticmethod
     def _get_coef_constrained(params, sse, data, C, d=None, L=None, Linv=None):
+        """
+        Get the constrained coefficients of the linear model.
+        
+        Parameters
+        ----------
+        params : array_like
+            Model parameters.
+        sse : float
+            Sum of squared errors.
+        data : tuple
+            Tuple containing the predictor variables (X) and response variable (y).
+        C : ndarray
+            Constraint matrix.
+        d : array_like, optional
+            Vector of constants for the constraints. Default is None (assumed to be a zero vector).
+        L : ndarray, optional
+            Lower-triangular Cholesky factor of the Gram matrix. Default is None.
+        Linv : ndarray, optional
+            Inverse of the lower-triangular Cholesky factor. Default is None.
+        
+        Returns
+        -------
+        tuple
+            Tuple containing the constrained coefficients and the sum of squared errors for the constrained model.
+        """
         if Linv is None:
             if L is None:
                 X, y = data
@@ -508,6 +1253,21 @@ class LinearModel(RegressionMixin, LikelihoodModel):
         
     
     def _bootstrap(self, n_boot, verbose=True):
+        """
+        Perform a non-parametric bootstrap to estimate model coefficients and error variance.
+        
+        Parameters
+        ----------
+        n_boot : int
+            Number of bootstrap samples to generate.
+        verbose : bool, optional
+            Whether to display a progress bar during bootstrapping. Default is True.
+        
+        Returns
+        -------
+        ndarray
+            An array containing the bootstrapped model parameters.
+        """
         pbar = tqdm.tqdm(total=n_boot, smoothing=0.001) if verbose else None
         params = np.zeros((n_boot, self.p+1))
         i = 0
@@ -532,6 +1292,25 @@ class LinearModel(RegressionMixin, LikelihoodModel):
     @staticmethod
     @numba.jit(nopython=True,parallel=True)
     def bootstrap_chol(X, y, params, n_boot):
+        """
+        Perform a non-parametric bootstrap using Cholesky decomposition (JIT-compiled with Numba).
+        
+        Parameters
+        ----------
+        X : ndarray
+            Predictor variables.
+        y : ndarray
+            Response variable.
+        params : ndarray
+            An array to store the bootstrapped model parameters.
+        n_boot : int
+            Number of bootstrap samples to generate.
+        
+        Returns
+        -------
+        ndarray
+            An array containing the bootstrapped model parameters.
+        """
         n = X.shape[0]
         for i in numba.prange(n_boot):
             ii = np.random.choice(n, n)
@@ -546,12 +1325,45 @@ class LinearModel(RegressionMixin, LikelihoodModel):
         return params
 
     def _bootstrap_jitted(self, n_boot):
+        """
+        Perform a non-parametric bootstrap using the JIT-compiled Cholesky decomposition method.
+    
+        Parameters
+        ----------
+        n_boot : int
+            Number of bootstrap samples to generate.
+    
+        Returns
+        -------
+        ndarray
+            An array containing the bootstrapped model parameters.
+        """
         params = np.zeros((n_boot, self.p+1))
         params = self.bootstrap_chol(self.X, self.y.reshape(-1, 1), params, n_boot)
         return params
     
     def _permutation_test(self, vars_of_interest, n_perms=5000,
                        verbose=True, rng=None):
+        """
+        Perform a permutation test on the variables of interest.
+    
+        Parameters
+        ----------
+        vars_of_interest : list
+            List of indices of the predictor variables of interest.
+        n_perms : int, optional
+            Number of permutations to perform. Default is 5000.
+        verbose : bool, optional
+            Whether to show a progress bar. Default is True.
+        rng : np.random.Generator, optional
+            A random number generator instance.
+    
+        Returns
+        -------
+        tuple
+            Tuple containing p-values adjusted for family-wise error rate (FWER) and 
+            unadjusted p-values.
+        """
         rng = np.random.default_rng() if rng is None else rng
         pbar = tqdm.tqdm(total=n_perms, smoothing=0.001) if verbose else None
         p_values = np.zeros(len(vars_of_interest))
@@ -593,7 +1405,57 @@ class LinearModel(RegressionMixin, LikelihoodModel):
     
 
 class GLM(RegressionMixin, LikelihoodModel):
+    """
+    Generalized Linear Model (GLM) class for fitting regression models.
 
+    Parameters
+    ----------
+    formula : str, optional
+        A patsy formula specifying the model to be fitted.
+    data : pandas.DataFrame, optional
+        A DataFrame containing the data to be used for model fitting.
+    X : ndarray, optional
+        The predictor variables matrix.
+    y : ndarray, optional
+        The response variable.
+    family : ExponentialFamily, optional
+        The distribution family to use. Default is Gaussian.
+    scale_estimator : str, optional
+        The scale estimator to use. Default is "M".
+    weights : ndarray, optional
+        Optional array of weights to be used in the model fitting.
+    *args
+        Additional positional arguments.
+    **kwargs
+        Additional keyword arguments.
+
+    Attributes
+    ----------
+    xinds, yinds : array-like
+        Indexes for predictor and response variables.
+    xcols, ycols : array-like
+        Columns for predictor and response variables.
+    X, y, weights : ndarray
+        Predictor variables matrix, response variable, and weights.
+    n, n_obs : int
+        Number of observations.
+    p, n_var : int
+        Number of variables.
+    x_design_info, y_design_info : DesignInfo
+        Design information for predictor and response variables.
+    formula : str
+        Patsy formula specifying the model.
+    f : ExponentialFamily
+        The distribution family to use.
+    param_labels : list
+        Labels for the model parameters.
+    beta_init, phi_init : ndarray
+        Initial values for model parameters.
+    params_init : ndarray
+        Initial values for model parameters.
+    scale_estimator : str
+        Scale estimator method.
+    """
     def __init__(self, formula=None, data=None, X=None, y=None,
                  family=Gaussian, scale_estimator="M", weights=None, *args,
                  **kwargs):
@@ -801,6 +1663,7 @@ class GLM(RegressionMixin, LikelihoodModel):
     def fit(self, method=None, opt_kws=None):
         self.params, self.opt = self._fit(method, opt_kws)
         f, scale_estimator, X, y = self.f, self.scale_estimator, self.X, self.y
+        weights = self.model_data.weights
         n, n_params = self.n, len(self.params)
         self.n_params = n_params
         self.params_hess = self.hessian(self.params)
@@ -832,7 +1695,7 @@ class GLM(RegressionMixin, LikelihoodModel):
         eta = np.dot(X, beta)
         self.eta = self.linpred = eta
         mu = f.inv_link(eta)
-        self.chi2 = f.pearson_chi2(y, mu=mu, phi=1.0, dispersion=dispersion)
+        self.chi2 = f.pearson_chi2(y, mu=mu, phi=1.0, dispersion=dispersion, weights=weights)
         if scale_estimator == "M":
             phi = self.chi2 / (X.shape[0] - X.shape[1])
         elif scale_estimator != "NR":
@@ -880,15 +1743,15 @@ class GLM(RegressionMixin, LikelihoodModel):
                                             "Likelihood",
                                             "Cooks"])
 
-        self.llf = self.f.full_loglike(y, mu=mu, phi=phi, dispersion=dispersion)
+        self.llf = self.f.full_loglike(y, mu=mu, phi=phi, dispersion=dispersion, weights=weights)
         if self.f.name == "NegativeBinomial":
             opt_null = self._optimize(t_init=np.zeros(
                 2), data=(np.ones((self.n, 1)), self.y, None))
             self.lln = self.full_loglike(
-                opt_null.x, data=(np.ones((self.n, 1)), self.y, None))
+                opt_null.x, data=(np.ones((self.n, 1)), self.y, weights))
         else:
             self.lln = self.f.full_loglike(
-                y, mu=np.ones(mu.shape[0])*y.mean(), phi=phi)
+                y, mu=np.ones(mu.shape[0])*y.mean(), phi=phi, weights=weights)
 
         k = len(self.params)
         sumstats = {}
@@ -909,7 +1772,9 @@ class GLM(RegressionMixin, LikelihoodModel):
         sumstats["LLR"] = self.llr
         sumstats["LLF"] = self.llf
         sumstats["LLN"] = self.lln
-        sumstats["Deviance"] = np.sum(f.deviance(y=y, mu=mu, phi=1.0, dispersion=dispersion))
+        sumstats["Deviance"] = np.sum(f.deviance(y=y, mu=mu, phi=1.0, 
+                                                 dispersion=dispersion,
+                                                 weights=weights))
         sumstats["Chi2"] = self.chi2
         sumstats = pd.DataFrame(sumstats, index=["Statistic"]).T
         self.sumstats = sumstats
