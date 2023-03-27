@@ -550,6 +550,46 @@ class LinearModel(RegressionMixin, LikelihoodModel):
         params = self.bootstrap_chol(self.X, self.y.reshape(-1, 1), params, n_boot)
         return params
     
+    def _permutation_test(self, vars_of_interest, n_perms=5000,
+                       verbose=True, rng=None):
+        rng = np.random.default_rng() if rng is None else rng
+        pbar = tqdm.tqdm(total=n_perms, smoothing=0.001) if verbose else None
+        p_values = np.zeros(len(vars_of_interest))
+        p_values_fwer = np.zeros(len(vars_of_interest))
+        abst = np.abs(self.tvalues[vars_of_interest])
+        
+        n, p = self.n, self.p
+        ixc = np.setdiff1d(np.arange(p), vars_of_interest)
+        X, y = self.X, self.y
+        G = np.dot(X.T, X)
+        L = np.linalg.cholesky(G)
+        Linv = np.linalg.inv(L)
+        Ginv = np.diag(np.dot(Linv.T, Linv))
+        Xc = X[:, ixc]
+        
+        Gc = G[ixc][:, ixc]
+        c = np.dot(X[:, ixc].T, y)
+        Lc = np.linalg.cholesky(Gc)
+        w = np.linalg.solve(Lc, c)
+        g = np.linalg.solve(Lc.T, w)
+        u = Xc.dot(g)
+        r = y - u
+        for i in range(n_perms):
+            z = u + r[rng.permutation(n)]
+            c = X.T.dot(z)
+            w = sp.linalg.solve_triangular(L, c, lower=True)
+            s2 =  (y.T.dot(y) - w.T.dot(w)) / (n - p)
+            beta = sp.linalg.solve_triangular(L.T, w, lower=False)
+            beta_se = np.sqrt(s2 * Ginv)           
+            abstp = np.abs(beta / beta_se)[vars_of_interest]
+            p_values_fwer += (abstp.max()>abst) / n_perms
+            p_values +=  (abstp>abst) / n_perms
+            if verbose:
+                pbar.update(1)
+        if verbose:
+            pbar.close()
+        return p_values_fwer, p_values
+    
     
 
 class GLM(RegressionMixin, LikelihoodModel):
