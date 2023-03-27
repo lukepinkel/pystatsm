@@ -308,10 +308,10 @@ class ModelData(object):
 
 class RegressionMixin(object):
 
-    def __init__(self, formula=None, data=None, X=None, y=None, *args,
-                 **kwargs):
+    def __init__(self, formula=None, data=None, X=None, y=None, weights=None,
+                 *args, **kwargs):
         self.model_data = self._process_data(formula, data, X, y, *args, **kwargs)
-        
+        self.model_data.add_weights(weights)
         
     @staticmethod
     def _process_data(formula=None, data=None, X=None, y=None,
@@ -373,13 +373,13 @@ class RegressionMixin(object):
         
 class LinearModel(RegressionMixin, LikelihoodModel):
 
-    def __init__(self, formula=None, data=None, X=None, y=None, *args,
-                 **kwargs):
-        super().__init__(formula=formula, data=data, X=X, y=y, *args,
-                         **kwargs)
+    def __init__(self, formula=None, data=None, X=None, y=None, weights=None,
+                 *args, **kwargs):
+        super().__init__(formula=formula, data=data, X=X, y=y, weights=weights, 
+                         *args, **kwargs)
         self.xinds, self.yinds = self.model_data.indexes
         self.xcols, self.ycols = self.model_data.columns
-        self.X, self.y = self.model_data
+        self.X, self.y, self.weights = self.model_data
         self.n = self.n_obs = self.X.shape[0]
         self.p = self.n_var = self.X.shape[1]
         self.x_design_info, self.y_design_info = self.model_data.design_info
@@ -595,17 +595,18 @@ class LinearModel(RegressionMixin, LikelihoodModel):
 class GLM(RegressionMixin, LikelihoodModel):
 
     def __init__(self, formula=None, data=None, X=None, y=None,
-                 family=Gaussian, scale_estimator="M", *args,
+                 family=Gaussian, scale_estimator="M", weights=None, *args,
                  **kwargs):
-        super().__init__(formula=formula, data=data, X=X, y=y, *args, **kwargs)
+        super().__init__(formula=formula, data=data, X=X, y=y, weights=weights, 
+                         *args, **kwargs)
         self.xinds, self.yinds = self.model_data.indexes
         self.xcols, self.ycols = self.model_data.columns
-        self.X, self.y = self.model_data
+        self.X, self.y, self.weights = self.model_data
         self.n = self.n_obs = self.X.shape[0]
         self.p = self.n_var = self.X.shape[1]
         self.x_design_info, self.y_design_info = self.model_data.design_info
         self.formula = formula
-        self.data = data
+        #self.data = data
         if isinstance(family, ExponentialFamily) is False:
             try:
                 family = family()
@@ -665,7 +666,7 @@ class GLM(RegressionMixin, LikelihoodModel):
         return ll
 
     def loglike(self, params, data=None, scale_estimator=None, f=None):
-        data = (self.X, self.y, None) if data is None else data
+        data = self.model_data if data is None else data  #data = (self.X, self.y, None) if data is None else data
         s = self.scale_estimator if scale_estimator is None \
             else scale_estimator
         f = self.f if f is None else f
@@ -680,7 +681,7 @@ class GLM(RegressionMixin, LikelihoodModel):
         return ll
 
     def full_loglike(self, params, data=None, scale_estimator=None, f=None):
-        data = (self.X, self.y, None) if data is None else data
+        data = self.model_data if data is None else data  #data = (self.X, self.y, None) if data is None else data
         s = self.scale_estimator if scale_estimator is None\
             else scale_estimator
         f = self.f if f is None else f
@@ -699,7 +700,7 @@ class GLM(RegressionMixin, LikelihoodModel):
         return g
 
     def gradient(self, params, data=None, scale_estimator=None, f=None):
-        data = (self.X, self.y, None) if data is None else data
+        data = self.model_data if data is None else data  #data = (self.X, self.y, None) if data is None else data
         s = self.scale_estimator if scale_estimator is None\
             else scale_estimator
         f = self.f if f is None else f
@@ -718,7 +719,7 @@ class GLM(RegressionMixin, LikelihoodModel):
         return g
 
     def gradient_i(self, params, data=None, scale_estimator=None, f=None):
-        data = (self.X, self.y, None) if data is None else data
+        data = self.model_data if data is None else data  #data = (self.X, self.y, None) if data is None else data
         s = self.scale_estimator if scale_estimator is None\
             else scale_estimator
         f = self.f if f is None else f
@@ -744,7 +745,7 @@ class GLM(RegressionMixin, LikelihoodModel):
         return H
 
     def hessian(self, params, data=None, scale_estimator=None, f=None):
-        data = (self.X, self.y, None) if data is None else data
+        data = self.model_data if data is None else data  #data = (self.X, self.y, None) if data is None else data
         s = self.scale_estimator if scale_estimator is None\
             else scale_estimator
         f = self.f if f is None else f
@@ -753,7 +754,7 @@ class GLM(RegressionMixin, LikelihoodModel):
 
     def _optimize(self, t_init=None, opt_kws=None, data=None, s=None, f=None):
         t_init = self.params_init if t_init is None else t_init
-        data = (self.X, self.y, None) if data is None else data
+        data = self.model_data if data is None else data #(self.X, self.y, None) if data is None else data
         s = self.scale_estimator if s is None else s
         f = self.f if f is None else f
         opt_kws = {} if opt_kws is None else opt_kws
