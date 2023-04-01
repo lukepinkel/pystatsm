@@ -118,15 +118,6 @@ class ExponentialFamily(object):
         return -res
 
     def hw(self, y, mu, phi=1.0, dispersion=1.0, weights=None):
-        # y, mu = self.cshape(y, mu)
-        # eta = self.link(mu)
-        # Vinv = 1.0 / (self.var_func(mu=mu, dispersion=dispersion))
-        # W0 = self.dinv_link(eta)**2
-        # W1 = self.d2inv_link(eta)
-        # W2 = self.d2canonical(mu)
-        # Psc = (y-mu) * (W2 * W0 + W1 * Vinv)
-        # Psb = Vinv * W0
-        # res = (Psc - Psb) * self.weights
         weights = self.weights if weights is None else weights
         y, mu = self.cshape(y, mu)
         V0 = self.var_func(mu=mu, dispersion=dispersion)
