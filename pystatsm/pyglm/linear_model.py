@@ -1072,7 +1072,8 @@ class LinearModel(RegressionMixin, LikelihoodModel):
         data : tuple
             Tuple containing the predictor variables (X) and response variable (y).
         reml : bool, optional
-            Whether to use Restricted Maximum Likelihood (REML) estimation. Default is True.
+            Whether to use Restricted Maximum Likelihood (REML) estimation.
+            Default is True.
     
         Returns
         -------
@@ -1093,14 +1094,16 @@ class LinearModel(RegressionMixin, LikelihoodModel):
 
     def hessian(self, params, reml=True):
         """
-        Compute the Hessian of the log-likelihood function with respect to the parameters.
+        Compute the Hessian of the log-likelihood function with respect to 
+        the parameters.
         
         Parameters
         ----------
         params : array_like
             Model parameters.
         reml : bool, optional
-            Whether to use Restricted Maximum Likelihood (REML) estimation. Default is True.
+            Whether to use Restricted Maximum Likelihood (REML) estimation. 
+            Default is True.
         
         Returns
         -------
@@ -1179,12 +1182,13 @@ class LinearModel(RegressionMixin, LikelihoodModel):
 
     def _fit(self, reml=True):
         """
-        Fit the linear model using the best Cholesky decomposition method available.
+        Fit the linear model
         
         Parameters
         ----------
         reml : bool, optional
-            Whether to use Restricted Maximum Likelihood (REML) estimation. Default is True.
+            Whether to use Restricted Maximum Likelihood (REML) estimation.
+            Default is True.
         
         Returns
         -------
@@ -1222,11 +1226,13 @@ class LinearModel(RegressionMixin, LikelihoodModel):
         sse : float
             Sum of squared errors.
         data : tuple
-            Tuple containing the predictor variables (X) and response variable (y).
+            Tuple containing the predictor variables (X) and 
+            response variable (y).
         C : ndarray
             Constraint matrix.
         d : array_like, optional
-            Vector of constants for the constraints. Default is None (assumed to be a zero vector).
+            Vector of constants for the constraints. Default is None 
+            (assumed to be a zero vector).
         L : ndarray, optional
             Lower-triangular Cholesky factor of the Gram matrix. Default is None.
         Linv : ndarray, optional
@@ -1235,7 +1241,8 @@ class LinearModel(RegressionMixin, LikelihoodModel):
         Returns
         -------
         tuple
-            Tuple containing the constrained coefficients and the sum of squared errors for the constrained model.
+            Tuple containing the constrained coefficients and the sum of
+            squared errors for the constrained model.
         """
         if Linv is None:
             if L is None:
@@ -1254,14 +1261,16 @@ class LinearModel(RegressionMixin, LikelihoodModel):
     
     def _bootstrap(self, n_boot, verbose=True):
         """
-        Perform a non-parametric bootstrap to estimate model coefficients and error variance.
+        Perform a non-parametric bootstrap to estimate model coefficients
+        and error variance.
         
         Parameters
         ----------
         n_boot : int
             Number of bootstrap samples to generate.
         verbose : bool, optional
-            Whether to display a progress bar during bootstrapping. Default is True.
+            Whether to display a progress bar during bootstrapping.
+            Default is True.
         
         Returns
         -------
@@ -1293,7 +1302,8 @@ class LinearModel(RegressionMixin, LikelihoodModel):
     @numba.jit(nopython=True,parallel=True)
     def bootstrap_chol(X, y, params, n_boot):
         """
-        Perform a non-parametric bootstrap using Cholesky decomposition (JIT-compiled with Numba).
+        Perform a non-parametric bootstrap using Cholesky decomposition 
+        (JIT-compiled with Numba).
         
         Parameters
         ----------
@@ -1326,7 +1336,8 @@ class LinearModel(RegressionMixin, LikelihoodModel):
 
     def _bootstrap_jitted(self, n_boot):
         """
-        Perform a non-parametric bootstrap using the JIT-compiled Cholesky decomposition method.
+        Perform a non-parametric bootstrap using the JIT-compiled Cholesky 
+        decomposition method.
     
         Parameters
         ----------
@@ -1361,8 +1372,8 @@ class LinearModel(RegressionMixin, LikelihoodModel):
         Returns
         -------
         tuple
-            Tuple containing p-values adjusted for family-wise error rate (FWER) and 
-            unadjusted p-values.
+            Tuple containing p-values adjusted for family-wise error 
+            rate (FWER) and unadjusted p-values.
         """
         rng = np.random.default_rng() if rng is None else rng
         pbar = tqdm.tqdm(total=n_perms, smoothing=0.001) if verbose else None
