@@ -551,3 +551,26 @@ class CholeskyCov(object):
         #         d2u_dx2[i] += du_dw[i, j] * d2w_dx2[j]
         return d2u_dx2
 
+    def _hess_rvs(self, u):
+        w = self.vars_to_logs._rvs(u)
+        z = self.chol_to_real._rvs(w)
+        y = self.corr_to_chol._rvs(z)
+        
+        dx_dy = self.covn_to_corr._jac_rvs(y)
+        dy_dz = self.corr_to_chol._jac_rvs(z)
+        dz_dw = self.chol_to_real._jac_rvs(w)
+        dw_du = self.vars_to_logs._jac_rvs(u)
+        
+        dz_du = dz_dw.dot(dw_du)
+        dy_du = dy_dz.dot(dz_du)
+
+        d2x_dy2 = self.covn_to_corr._hess_rvs(y)
+        d2y_dz2 = self.corr_to_chol._hess_rvs(z)
+        d2z_dw2 = self.chol_to_real._hess_rvs(w)
+        d2w_du2 = self.vars_to_logs._hess_rvs(u)
+        
+        d2z_du2 = _hess_chain_rule(d2z_dw2, dw_du, dz_dw, d2w_du2)
+        d2y_du2 = _hess_chain_rule(d2y_dz2, dz_du, dy_dz, d2z_du2)
+        d2x_du2 = _hess_chain_rule(d2x_dy2, dy_du, dx_dy, d2y_du2)
+
+        return d2x_du2

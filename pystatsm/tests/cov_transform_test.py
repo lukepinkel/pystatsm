@@ -44,4 +44,9 @@ def test_cov_transform():
     
     assert(np.allclose(d2u_dx2_nm, d2u_dx2_an))
 
+    d2x_du2_nm = jac_approx(t._jac_rvs, u)
+    d2x_du2_an = t._hess_rvs(u)
+    
+    assert(np.allclose(d2x_du2_nm, d2x_du2_an))
+
 
