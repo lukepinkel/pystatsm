@@ -8,6 +8,7 @@ Created on Sun Jul 31 01:22:10 2022
 
 import numpy as np
 import scipy as sp
+import scipy.special 
 import itertools
 
 def diag_indices(n, k=0):
@@ -472,6 +473,24 @@ def elimination_matrix_indices(n):
     r = np.arange(int(n * (n + 1) // 2))
     return r, c
 
+
+def ascending_indices_forward(inds):
+    f = lambda r: sp.special.comb(r + (inds[r - 1]) - 1, r)
+    n = len(inds)
+    inds = np.sort(inds)
+    m = int(np.sum([f(r) for r in range(1, n + 1)]))
+    return m
+
+def ascending_indices_reversed(m, n):
+    last_true = lambda x: np.max(np.nonzero(x))
+    a = np.zeros(n, dtype=int)
+    v = m
+    for k in range(n, 0, -1):
+        s = np.array([sp.special.comb(k + j - 1, k) for j in range(n)], dtype=int)
+        u = last_true(v >= s)
+        a[k - 1] = u
+        v = v - s[u]
+    return a
 
 
 
