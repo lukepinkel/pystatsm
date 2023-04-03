@@ -481,12 +481,12 @@ def ascending_indices_forward(inds):
     m = int(np.sum([f(r) for r in range(1, n + 1)]))
     return m
 
-def ascending_indices_reversed(m, n):
+def ascending_indices_reversed(m, n, p):
     last_true = lambda x: np.max(np.nonzero(x))
     a = np.zeros(n, dtype=int)
     v = m
     for k in range(n, 0, -1):
-        s = np.array([sp.special.comb(k + j - 1, k) for j in range(n)], dtype=int)
+        s = np.array([sp.special.comb(k + j - 1, k) for j in range(p)], dtype=int)
         u = last_true(v >= s)
         a[k - 1] = u
         v = v - s[u]

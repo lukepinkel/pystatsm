@@ -76,9 +76,9 @@ def test_vech_indices():
     
 
 def test_ascending_indices():
-    for ii in indexing_utils.ascending_indices((4, 4, 4, 4)):
+    for ii in indexing_utils.ascending_indices((5, 5, 5, 5)):
         m = indexing_utils.ascending_indices_forward(ii)
-        ii_rev = indexing_utils.ascending_indices_reversed(m, 4)
+        ii_rev = indexing_utils.ascending_indices_reversed(m, 4 ,5)
         assert(np.allclose(np.array(ii), np.array(ii_rev)))
     
 
