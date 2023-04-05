@@ -309,8 +309,11 @@ class CLM(RegressionMixin, LikelihoodModel):
         sumstats = {}
         self.aic, self.aicc, self.bic, self.caic = self._get_information(
             self.llf, k, self.n_obs)
-        self.r2_cs, self.r2_nk, self.r2_mc, self.r2_mb, self.llr = \
+        r2_cs, r2_nk, r2_mc, r2_mb, r2_es, r2_ea, r2_an, r2_vz, llr = \
             self._get_pseudo_rsquared(self.llf, self.lln, k, self.n_obs)
+        self.r2_cs, self.r2_nk, self.r2_mc = r2_cs, r2_nk, r2_mc
+        self.r2_mb, self.r2_es, self.r2_ea = r2_mb, r2_es, r2_ea
+        self.r2_an, self.r2_vz, self.llr = r2_an, r2_vz, llr
         sumstats["AIC"] = self.aic
         sumstats["AICC"] = self.aicc
         sumstats["BIC"] = self.bic
@@ -319,60 +322,90 @@ class CLM(RegressionMixin, LikelihoodModel):
         sumstats["R2_NK"] = self.r2_nk
         sumstats["R2_MC"] = self.r2_mc
         sumstats["R2_MB"] = self.r2_mb
+        sumstats["R2_ES"] = self.r2_es
+        sumstats["R2_EA"] = self.r2_ea
+        sumstats["R2_AN"] = self.r2_an
+        sumstats["R2_VZ"] = self.r2_vz
         sumstats["LLR"] = self.llr
         sumstats["LLF"] = self.llf
         sumstats["LLN"] = self.lln
-
         self.sumstats = pd.DataFrame(sumstats, index=["Statistic"]).T
 
 
-    def predict(self, beta=None, theta=None):
-        if beta is None:
-            beta = self.beta
-        if theta is None:
-            theta = self.theta
-        yhat = self.X.dot(beta)
-        th = np.concatenate([np.array([-1e6]), theta, np.array([1e6])])
-        yhat = pd.cut(yhat, th).codes.astype(float)
-        return yhat
-    
-    def bootstrap(self, n_boot=2000):
-        self.fit()
-        t_init = self.params.copy()
-        beta_samples = np.zeros((n_boot, len(t_init)))
-        o1, o2, ix = self.o1.copy(), self.o2.copy(), self.ix.copy()
-        B1, B2 = self.B1, self.B2
-        n = self.X.shape[0]
-        j = np.random.choice(n, n)
+    def predict(self, params=None, q=None, X=None):
+        params = self.params if params is None else params
+        q = self.q if q is None else q
+        X = self.X if X is None else X
+        tau, beta = params[:q].reshape(1, -1), params[q:]
+        eta = tau - (X.dot(beta)).reshape(-1, 1)
+        cmu = self.link.inv_link(eta)
+        mu = np.hstack([np.zeros((cmu.shape[0], 1)), cmu, np.ones((cmu.shape[0], 1))])
+        mu = np.diff(mu, axis=1)
+        return mu
         
-        B1b, B2b, o1b, o2b, ixb = B1[j], B2[j], o1[j], o2[j], ix[j]
-        self.o1, self.o2, self.ix = o1b, o2b, ixb
-        pbar = tqdm.tqdm(total=n_boot, smoothing=0.001)
+        
+    
+    def _jacknife(self, method="optimize", verbose=True):
+        if type(self.f.weights) is np.ndarray:
+            weights = self.f.weights
+        else:
+            weights = np.ones(self.n_obs)
+        if method == "optimize":
+            jacknife_samples = np.zeros((self.n_obs, self.n_params))
+            ii = np.ones(self.n_obs, dtype=bool)
+            pbar = tqdm.tqdm(total=self.n_obs) if verbose else None
+            for i in range(self.n_obs):
+                ii[i] = False
+                opt = self._optimize(data=(self.X[ii], self.y[ii], weights[ii]), f=self.f)
+                jacknife_samples[i] = opt.x
+                ii[i] = True
+                if verbose:
+                    pbar.update(1)
+            if verbose:
+                pbar.close()
+        elif method == "one-step":    
+            w = self.f.get_ehw(self.y, self.mu, phi=self.phi,
+                               dispersion=self.dispersion,
+                               weights=weights).reshape(-1, 1)
+            WX = self.X * w
+            h = self._compute_leverage_qr(WX)
+            one_step = self._one_step_approx(WX, h, self.resid_pearson_s)
+            jacknife_samples = self.params.reshape(1, -1) - one_step
+        jacknife_samples = pd.DataFrame(jacknife_samples, index=self.xinds,
+                                        columns=self.param_labels)
+        return jacknife_samples
+    
+    
+    def _bootstrap(self, n_boot=1000, verbose=True, return_info=False, rng=None):
+        rng = np.random.default_rng() if rng is None else rng 
+        n_obs, n_pars = self.n_obs, self.n_params
+        B1, B2, o1, o2, o1ix, w = self.model_data
+        params = OrderedTransform._fwd(self.params.copy(), self.q)
+        pbar = tqdm.tqdm(total=n_boot, smoothing=1e-6) if verbose else None
+        boot_samples = np.zeros((n_boot, n_pars))
+        info = np.zeros((n_boot, 10)) if return_info else None
         for i in range(n_boot):
-            j = np.random.choice(n, n)
-            B1b, B2b, o1b, o2b, ixb = B1[j], B2[j], o1[j], o2[j], ix[j]
-            self.o1, self.o2, self.ix = o1b, o2b, ixb
-            optf = self._optimize(t_init, (B1b, B2b), 
-                                  {'options':dict(verbose=0,  gtol=1e-4, 
-                                                  xtol=1e-4)})
-            beta_samples[i] = optf.x
-            pbar.update(1)
-        pbar.close()
-        self.beta_samples = beta_samples
-        self.o1, self.o2, self.ix = o1, o2, ix
-        samples_df = pd.DataFrame(self.beta_samples, columns=self.res.index)
-        boot_res = samples_df.agg(["mean", "std", "min"]).T
-        boot_res["pct1.0%"] = sp.stats.scoreatpercentile(beta_samples, 1.0, axis=0)
-        boot_res["pct2.5%"] = sp.stats.scoreatpercentile(beta_samples, 2.5, axis=0)
-        boot_res["pct97.5%"] = sp.stats.scoreatpercentile(beta_samples, 97.5, axis=0)
-        boot_res["pct99.0%"] = sp.stats.scoreatpercentile(beta_samples, 99.0, axis=0)
-        boot_res["max"] = np.max(beta_samples, axis=0)
-        boot_res["t"] = boot_res["mean"] / boot_res["std"]
-        boot_res["p"] = sp.stats.t(self.X.shape[0]).sf(np.abs(boot_res["t"] ))*2.0
-        self.boot_res =  boot_res
-                    
-    
+            ii = rng.choice(n_obs, size=n_obs, replace=True)
+            params, opt = self._fit(params=params.copy(), data=(B1[ii], B2[ii], o1[ii],
+                                                         o2[ii], o1ix[ii], w[ii]))
+            boot_samples[i] = params
+            if return_info:
+                info[i] = [opt.nfev, opt.nhev, opt.nit, opt.niter, opt.njev, 
+                           opt.optimality, opt.success, np.abs(opt.grad).max(),
+                           opt.fun, opt.execution_time]
+            if verbose:
+                pbar.update(1)
         
-        
+        if return_info:
+            info = pd.DataFrame(info,
+                                columns=["nfev", "nhev", "nit", "niter",  "njev",
+                                         "optimality", "success", "grad",  "fun",
+                                         "time"])
+        if verbose:
+            pbar.close()
+            
+        boot_samples = pd.DataFrame(boot_samples,columns=self.param_labels)
+        return boot_samples, info
+      
             
             

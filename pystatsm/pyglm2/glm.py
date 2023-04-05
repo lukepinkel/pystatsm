@@ -378,8 +378,11 @@ class GLM(RegressionMixin, LikelihoodModel):
         sumstats = {}
         self.aic, self.aicc, self.bic, self.caic = self._get_information(
             self.llf, k, self.n_obs)
-        self.r2_cs, self.r2_nk, self.r2_mc, self.r2_mb, self.llr = \
+        r2_cs, r2_nk, r2_mc, r2_mb, r2_es, r2_ea, r2_an, r2_vz, llr = \
             self._get_pseudo_rsquared(self.llf, self.lln, k, self.n_obs)
+        self.r2_cs, self.r2_nk, self.r2_mc = r2_cs, r2_nk, r2_mc
+        self.r2_mb, self.r2_es, self.r2_ea = r2_mb, r2_es, r2_ea
+        self.r2_an, self.r2_vz, self.llr = r2_an, r2_vz, llr
         self.r2 = self._rsquared(y, mu)
         sumstats["AIC"] = self.aic
         sumstats["AICC"] = self.aicc
@@ -390,6 +393,10 @@ class GLM(RegressionMixin, LikelihoodModel):
         sumstats["R2_MC"] = self.r2_mc
         sumstats["R2_MB"] = self.r2_mb
         sumstats["R2_SS"] = self.r2
+        sumstats["R2_ES"] = self.r2_es
+        sumstats["R2_EA"] = self.r2_ea
+        sumstats["R2_AN"] = self.r2_an
+        sumstats["R2_VZ"] = self.r2_vz
         sumstats["LLR"] = self.llr
         sumstats["LLF"] = self.llf
         sumstats["LLN"] = self.lln

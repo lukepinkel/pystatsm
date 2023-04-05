@@ -182,8 +182,13 @@ class LikelihoodModel(metaclass=ABCMeta):
         r2_nk = r2_cs / (1-np.exp(2.0 / n_obs * -ll_null))
         r2_mc = 1.0 - ll_model / ll_null
         r2_mb = 1.0 - (ll_model - n_params) / ll_null
+        r2_es = 1.0 - np.exp((2*ll_null/n_obs) * np.log(1.0-2.0*(ll_null - ll_model) / (2 * ll_null)))
+        r2_ea = 1.0 - np.exp((2*ll_null/n_obs) * np.log((n_params - ll_model) / -ll_null))
+        r2_an = 2.0 * (ll_null - ll_model) / (2.0 * (ll_null - ll_model) + n_obs)
+        r2_vz = (2.0 * (ll_null - ll_model) * (2*ll_null+n_obs)) /\
+                (2.0 * (ll_null * (2 * (ll_null - ll_model) + n_obs)))
         llr = 2.0 * (ll_null - ll_model)
-        return r2_cs, r2_nk, r2_mc, r2_mb, llr
+        return r2_cs, r2_nk, r2_mc, r2_mb, r2_es, r2_ea,  r2_an, r2_vz, llr
 
     @staticmethod
     def _parameter_inference(params, params_se, degfree, param_labels):
