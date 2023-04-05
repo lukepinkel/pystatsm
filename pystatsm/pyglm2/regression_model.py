@@ -208,7 +208,99 @@ class ModelData(object):
         """
         self.data[-1] = self.data[-1].flatten()
         
+    def drop_missing(self):
+        """
+        Drop rows containing nan values from the data arrays.
+        """
+        # Find rows with nan values
+        nan_rows = np.any([np.isnan(arr).any(axis=1) for arr in self.data], axis=0)
+    
+        # Remove rows with nan values from data arrays
+        for i, arr in enumerate(self.data):
+            self.data[i] = arr[~nan_rows]
+    
+        # Update indexes
+        for i, idx in enumerate(self.indexes):
+            self.indexes[i] = idx[~nan_rows]
+    
+        # Update weights if they are present
+        if self.weights is not None:
+            self.weights = self.weights[~nan_rows]
+
         
+
+class OrdinalModelData(ModelData):
+    def __init__(self, *args, weights=None):
+        super().__init__(*args, weights=weights)
+        self._regression_data = self.data
+        self.compute_ordinal_matrices()
+        
+    @classmethod
+    def from_formulas(cls, data, main_formula, *formula_args, **formula_kwargs):
+        main_formula = main_formula.replace("~", "~ 1 +")  # Add intercept to the main formula
+        return super().from_formulas(data, main_formula, *formula_args, **formula_kwargs)
+
+    def drop_intercept(self):
+        for i, d_info in enumerate(self.design_info):
+            if d_info is not None and "Intercept" in d_info.column_names:
+                intercept_idx = d_info.column_names.index("Intercept")
+                self.data[i] = np.delete(self.data[i], intercept_idx, axis=1)
+                self.columns[i] = self.columns[i].delete(intercept_idx)
+                d_info.column_names.remove("Intercept")
+                d_info.column_name_indexes.pop("Intercept")
+
+    def compute_ordinal_matrices(self):
+        self.drop_intercept()
+        self._regression_data[1] = self._regression_data[1].flatten()
+        if len(self._regression_data)==2:
+            X, y, = self._regression_data
+        else:
+            X, y, _ = self._regression_data
+        unique, indices, inverse, counts = np.unique(y, return_index=True, return_inverse=True, return_counts=True, equal_nan=True)
+        n_unique = len(unique)
+        n_obs = len(y)
+        row_ind, col_ind = np.arange(n_obs), inverse
+        Y = sp.sparse.csc_matrix((np.ones_like(y), (row_ind, col_ind)), shape=(n_obs, n_unique))
+        A1, A2 = Y[:, :-1], Y[:, 1:]
+        o1, o2 = Y[:, -1].A.flatten() * 30e1, Y[:, 0].A.flatten() * -10e5
+        o1ix = o1 != 0
+        B1, B2 = np.block([A1.A, -X]), np.block([A2.A, -X])
+        self.data = [B1, B2, o1, o2, o1ix]
+        self.counts = counts
+        self.n_cats = self.q = n_unique - 1
+        self.tau_init = self._get_initial_thresholds(counts)
+        self.unique = unique
+        self.A1, self.A2 = A1, A2
+        self.o1, self.o2 = o1, o2
+        self.o1ix = o1ix
+    
+    @staticmethod
+    def _get_initial_thresholds(counts):
+        tau_init = sp.special.ndtri(counts.cumsum()[:-1]/np.sum(counts))
+        return tau_init
+
+    def __getitem__(self, index):
+        indexed_data = tuple(x[index] for x in self.data)
+        if self.weights is not None:
+            indexed_weights = self.weights[index]
+            return (*indexed_data, indexed_weights)
+        return (*indexed_data,)
+
+    def __iter__(self):
+        if self.weights is not None:
+            return iter((*self.data, self.weights))
+        return iter(self.data)
+
+    def __len__(self):
+        l = len(self.data) if self.weights is None else len(self.data) + 1
+        return l
+    
+    def __repr__(self):
+        s = [str(d.shape) for d in self.data if d is not None]
+        if self.weights is not None:
+            s.append(str(self.weights.shape))
+        return f"OrdinalModelData({', '.join(s)})"
+    
 
 
 class RegressionMixin(object):
@@ -222,7 +314,7 @@ class RegressionMixin(object):
     """
 
     def __init__(self, formula=None, data=None, X=None, y=None, weights=None,
-                 *args, **kwargs):
+                 data_class=None, *args, **kwargs):
         """
         Initialize the RegressionMixin instance.
         
@@ -243,11 +335,12 @@ class RegressionMixin(object):
         **kwargs : dict
             Additional keyword arguments.
         """
-        self.model_data = self._process_data(formula, data, X, y, *args, **kwargs)
+        self.model_data = self._process_data(formula, data, X, y, data_class=data_class,
+                                             *args, **kwargs)
         self.model_data.add_weights(weights)
         
     @staticmethod
-    def _process_data(formula=None, data=None, X=None, y=None,
+    def _process_data(formula=None, data=None, X=None, y=None, data_class=None,
                       default_varname='x', *args, **kwargs):
         """
         Process input data for the regression model.
@@ -274,12 +367,12 @@ class RegressionMixin(object):
         ModelData
             The processed data for the model.
         """
+        data_class = ModelData if data_class is None else data_class
         if formula is not None and data is not None:
-            model_data = ModelData.from_formulas(data, formula, *args, **kwargs)
+            model_data = data_class.from_formulas(data, formula, *args, **kwargs)
             y, X = patsy.dmatrices(formula, data=data, return_type='dataframe')
         elif X is not None and y is not None:
-            model_data = ModelData(*((X,)+args+(y,)))
-        
+            model_data = data_class(*((X,)+args+(y,)))
         if np.ndim(model_data.data[-1]) == 2:
             if model_data.data[-1].shape[1] == 1:
                 model_data.flatten_y()

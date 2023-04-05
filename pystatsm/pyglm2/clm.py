@@ -1,0 +1,378 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Apr  3 16:40:37 2023
+
+@author: lukepinkel
+"""
+
+import tqdm
+import numba
+import numpy as np
+import scipy as sp
+import pandas as pd
+from .regression_model import RegressionMixin, ModelData, OrdinalModelData
+from .likelihood_model import LikelihoodModel
+import scipy.stats
+from ..utilities.data_utils import _check_type, _check_shape
+from ..utilities.optimizer_utils import process_optimizer_kwargs
+from .links import LogitLink, ProbitLink, Link
+
+from ..utilities import indexing_utils
+
+class OrderedTransform(object):
+    
+    @staticmethod
+    def _rvs(y, q):
+        x = y.copy()
+        x[1:q] = np.cumsum(np.exp(y[1:q]))+x[0]
+        return x
+
+    @staticmethod
+    def _fwd(x, q):
+        y = x.copy()
+        y[1:q] = np.log(np.diff(x[:q]))
+        return y
+    
+    
+    @staticmethod
+    def _jac_rvs(y, q):
+        p = len(y)
+        dx_dy = np.zeros((p, p))
+        dx_dy[indexing_utils.tril_indices(q)] = np.repeat(np.r_[1, np.exp(y[1:q])], 
+                                                          np.arange(q, 0, -1))
+        return dx_dy
+
+    @staticmethod
+    def _hess_rvs(y, q):
+        p = len(y)
+        d2x_dy2 = np.zeros((p, p, p))
+        z = np.exp(y)
+        for i in range(1, q):
+            for j in range(1, i+1):
+                d2x_dy2[i, j, j] = z[j]
+        return d2x_dy2
+    
+
+    @staticmethod
+    def _jac_fwd(x, q):
+        p = len(x)
+        dy_dx = np.zeros((p, p))
+        dy_dx[0, 0] = 1
+        ii = np.arange(1, q)
+        dy_dx[ii, ii] = 1 / (x[ii] - x[ii-1])
+        dy_dx[ii, ii-1] =  -1 / (x[ii] - x[ii - 1])
+        # for i in range(1, q):
+        #     dy_dx[i, i] = 1 / (x[i] - x[i - 1])
+        #     dy_dx[i, i - 1] = -1 / (x[i] - x[i - 1])
+        return dy_dx
+    
+    @staticmethod
+    def _hess_fwd(x, q):
+        p = len(x)
+        d2y_dx2 = np.zeros((p, p, p))
+        for i in range(1, q):
+            d2y_dx2[i, i, i] = -1 / (x[i] - x[i - 1])**2
+            d2y_dx2[i, i - 1, i - 1] = -1 / (x[i] - x[i - 1])**2
+            d2y_dx2[i, i, i - 1] = 1 / (x[i] - x[i - 1])**2
+            d2y_dx2[i, i - 1, i] = d2y_dx2[i, i, i - 1]  # Use symmetry
+        return d2y_dx2
+
+
+
+class CLM(RegressionMixin, LikelihoodModel):
+    
+    
+    def __init__(self, formula, data,X=None, y=None, weights=None, link=LogitLink,
+                 *args,**kwargs):
+        super().__init__(formula=formula, data=data, X=X, y=y, weights=weights, 
+                         data_class=OrdinalModelData, *args, **kwargs)
+        self.xinds, self.yinds = self.model_data.indexes
+        self.xcols, self.ycols = self.model_data.columns
+        self.X, self.y = self.model_data._regression_data
+        self.n = self.n_obs = self.X.shape[0]
+        self.p = self.n_var = self.X.shape[1]
+        self.x_design_info, self.y_design_info = self.model_data.design_info
+        self.formula = formula
+        self.beta_labels = list(self.xcols)
+        self.A1, self.A2 =  self.model_data.A1, self.model_data.A2
+        self.o1, self.o2 =  self.model_data.o1, self.model_data.o2
+        self.o1ix = self.model_data.o1ix
+        self.weights = self.model_data.weights
+        unique = self.model_data.unique
+        if isinstance(link, Link) is False:
+            link = link()
+        self.link = link
+        self.q = self.model_data.q
+        self.tau_labels = [f"{unique[i-1]}|{unique[i]}" for i in range(1, self.q+1)]
+        self.param_labels = self.tau_labels+self.beta_labels
+        params_init = np.r_[self.model_data.tau_init,  np.zeros(self.p)]
+        self.params_init = OrderedTransform._fwd(params_init, self.q)
+        
+        
+    
+    @staticmethod
+    def _loglike_unconstrained(params, data, link, q):
+        params = OrderedTransform._rvs(params, q)
+        B1, B2, o1, o2, o1ix, w = data
+        eta1, eta2 = B1.dot(params) + o1, B2.dot(params) + o2
+        mu1, mu2 = link.inv_link(eta1), link.inv_link(eta2)
+        prob = mu1 - mu2
+        ll = -np.sum(w * np.log(prob))
+        return ll
+    
+    def loglike_unconstrained(self, params, data=None, link=None, q=None):
+        link = self.link if link is None else link
+        data = self.model_data if data is None else data 
+        q = self.q if q is None else q
+        ll = self._loglike_unconstrained(params=params, data=data, link=link, q=q)
+        return ll
+    
+    @staticmethod
+    def _loglike(params, data, link, q):
+        B1, B2, o1, o2, o1ix, w = data
+        eta1, eta2 = B1.dot(params) + o1, B2.dot(params) + o2
+        mu1, mu2 = link.inv_link(eta1), link.inv_link(eta2)
+        prob = mu1 - mu2
+        ll = -np.sum(w * np.log(prob))
+        return ll
+    
+    def loglike(self, params, data=None, link=None, q=None):
+        link = self.link if link is None else link
+        data = self.model_data if data is None else data 
+        q = self.q if q is None else q
+        ll = self._loglike(params=params, data=data, link=link, q=q)
+        return ll
+    
+    @staticmethod
+    def _gradient_unconstrained(params, data, link, q):
+        pars = OrderedTransform._rvs(params, q)
+        B1, B2, o1, o2, o1ix, w = data
+        
+        eta1, eta2 = B1.dot(pars) + o1, B2.dot(pars) + o2
+        mu1, mu2 = link.inv_link(eta1), link.inv_link(eta2)
+        mu1[o1ix] = 1.0
+        prob = mu1 - mu2
+        
+        d1eta1, d1eta2 = link.dinv_link(eta1), link.dinv_link(eta2)
+        d1eta1[o1ix] = 0.0
+        
+        dprob = (B1 * d1eta1[:, None]).T - (B2 * d1eta2[:, None]).T
+        g = -np.dot(dprob, w / prob)
+        g[:q] = np.dot(g[:q], OrderedTransform._jac_rvs(params[:q], q))
+        return g
+        
+    def gradient_unconstrained(self, params, data=None, link=None, q=None):
+        link = self.link if link is None else link
+        data = self.model_data if data is None else data 
+        q = self.q if q is None else q
+        g = self._gradient_unconstrained(params=params, data=data, link=link, q=q)
+        return g
+    
+    @staticmethod
+    def _gradient(params, data, link, q):
+        B1, B2, o1, o2, o1ix, w = data
+        
+        eta1, eta2 = B1.dot(params) + o1, B2.dot(params) + o2
+        mu1, mu2 = link.inv_link(eta1), link.inv_link(eta2)
+        mu1[o1ix] = 1.0
+        prob = mu1 - mu2
+        
+        d1eta1, d1eta2 = link.dinv_link(eta1), link.dinv_link(eta2)
+        d1eta1[o1ix] = 0.0
+        
+        dprob = (B1 * d1eta1[:, None]).T - (B2 * d1eta2[:, None]).T
+        g = -np.dot(dprob, w / prob)
+        return g
+        
+    def gradient(self, params, data=None, link=None, q=None):
+        link = self.link if link is None else link
+        data = self.model_data if data is None else data 
+        q = self.q if q is None else q
+        g = self._gradient(params=params, data=data, link=link, q=q)
+        return g
+    
+    @staticmethod
+    def _hessian_unconstrained(params, data, link, q):
+        pars = OrderedTransform._rvs(params, q)
+        B1, B2,o1, o2, o1ix, w = data
+        eta1, eta2 = B1.dot(pars), B2.dot(pars) + o2
+        mu1, mu2 = link.inv_link(eta1+o1), link.inv_link(eta2)
+        mu1[o1ix] = 1.0
+        prob = mu1 - mu2
+        
+        
+        d1eta1, d1eta2 = link.dinv_link(eta1+o1), link.dinv_link(eta2)
+        d2eta1, d2eta2 = link.d2inv_link(eta1), link.d2inv_link(eta2)
+        
+         
+        d1eta1[o1ix], d2eta1[o1ix] = 0.0, 0.0
+        
+        w3 =  w / prob**2
+        dprob = (B1 * d1eta1[:, None]) - (B2 * d1eta2[:, None])
+        T0 = (B1 * (d2eta1 / prob)[:, None]).T.dot(B1)
+        T1 = (B2 * (d2eta2 / prob)[:, None]).T.dot(B2)
+        T2 = (dprob * w3[:, None]).T.dot(dprob)
+        H = -(T0 - T1 - T2)
+        g = -np.dot(dprob[:, :q].T, w / prob)
+        k = len(params)
+        D1 = np.eye(k)
+        D1[:q,:q] = OrderedTransform._jac_rvs(params[:q], q)
+        D2 = OrderedTransform._hess_rvs(params[:q], q)
+        H = D1.T.dot(H).dot(D1)
+        H[:q, :q] = H[:q,:q] + np.einsum("i,ijk->jk", g, D2)
+        return H
+    
+    def hessian_unconstrained(self, params, data=None, link=None, q=None):
+        link = self.link if link is None else link
+        data = self.model_data if data is None else data 
+        q = self.q if q is None else q
+        H = self._hessian_unconstrained(params=params, data=data, link=link, q=q)
+        return H
+      
+    @staticmethod
+    def _hessian(params, data, link, q):
+        B1, B2,o1, o2, o1ix, w = data
+        eta1, eta2 = B1.dot(params), B2.dot(params) + o2
+        mu1, mu2 = link.inv_link(eta1+o1), link.inv_link(eta2)
+        mu1[o1ix] = 1.0
+        prob = mu1 - mu2
+        
+        
+        d1eta1, d1eta2 = link.dinv_link(eta1+o1), link.dinv_link(eta2)
+        d2eta1, d2eta2 = link.d2inv_link(eta1), link.d2inv_link(eta2)
+        
+         
+        d1eta1[o1ix], d2eta1[o1ix] = 0.0, 0.0
+        
+        w3 =  w / prob**2
+        dprob = (B1 * d1eta1[:, None]) - (B2 * d1eta2[:, None])
+        T0 = (B1 * (d2eta1 / prob)[:, None]).T.dot(B1)
+        T1 = (B2 * (d2eta2 / prob)[:, None]).T.dot(B2)
+        T2 = (dprob * w3[:, None]).T.dot(dprob)
+        H = -(T0 - T1 - T2)
+        return H
+    
+    def hessian(self, params, data=None, link=None, q=None):
+        link = self.link if link is None else link
+        data = self.model_data if data is None else data 
+        q = self.q if q is None else q
+        H = self._hessian(params=params, data=data, link=link, q=q)
+        return H
+    
+    def _fit(self, params=None, data=None, link=None, q=None,
+                  opt_kws=None):
+        params = self.params_init.copy() if params is None else params
+        
+        opt_kws = {} if opt_kws is None else opt_kws
+        default_kws = dict(method='trust-constr',
+                           options=dict(verbose=0, gtol=1e-6, xtol=1e-6))
+        opt_kws = {**default_kws, **opt_kws}
+        link = self.link if link is None else link
+        data = self.model_data if data is None else data 
+        q = self.q if q is None else q 
+        args = (data, link, q)
+        opt = sp.optimize.minimize(self.loglike_unconstrained, 
+                                   jac=self.gradient_unconstrained,
+                                   hess=self.hessian_unconstrained,
+                                   x0=params,
+                                   args=args,
+                                   **opt_kws)
+        params = OrderedTransform._rvs(opt.x, q)
+        return params, opt
+    
+    def fit(self, method=None, opt_kws=None):
+        self.params, self.opt = self._fit(method, opt_kws)
+        n, n_params = self.n, len(self.params)
+        q = self.q
+        self.n_params = n_params
+        self.params_hess = self.hessian(self.params)
+        self.params_cov = np.linalg.pinv(self.params_hess)
+        self.params_se = np.sqrt(np.diag(self.params_cov))
+        self.res = self._parameter_inference(self.params, self.params_se,
+                                             n-n_params,
+                                             self.param_labels)
+
+        self.beta_cov = self.coefs_cov = self.params_cov[q:, q:]
+        self.beta_se = self.coefs_se = self.params_se[q:]
+        self.beta = self.coefs = self.params[q:]
+                
+        intercept = np.ones((self.n_obs, 1))
+        B1 = np.block([self.A1.A, -intercept])
+        B2 = np.block([self.A2.A, -intercept])
+        dat = ModelData(B1, B2,  self.o1, self.o2, self.o1ix, self.weights)
+        
+        self.paramsn, self.optn = self._fit(self.params_init[:B1.shape[1]], data=dat)
+        self.llf = self.loglike(self.params)
+        self.lln = self.loglike(self.paramsn, data=dat)
+        k = len(self.params)
+        sumstats = {}
+        self.aic, self.aicc, self.bic, self.caic = self._get_information(
+            self.llf, k, self.n_obs)
+        self.r2_cs, self.r2_nk, self.r2_mc, self.r2_mb, self.llr = \
+            self._get_pseudo_rsquared(self.llf, self.lln, k, self.n_obs)
+        sumstats["AIC"] = self.aic
+        sumstats["AICC"] = self.aicc
+        sumstats["BIC"] = self.bic
+        sumstats["CAIC"] = self.caic
+        sumstats["R2_CS"] = self.r2_cs
+        sumstats["R2_NK"] = self.r2_nk
+        sumstats["R2_MC"] = self.r2_mc
+        sumstats["R2_MB"] = self.r2_mb
+        sumstats["LLR"] = self.llr
+        sumstats["LLF"] = self.llf
+        sumstats["LLN"] = self.lln
+
+        self.sumstats = pd.DataFrame(sumstats, index=["Statistic"]).T
+
+
+    def predict(self, beta=None, theta=None):
+        if beta is None:
+            beta = self.beta
+        if theta is None:
+            theta = self.theta
+        yhat = self.X.dot(beta)
+        th = np.concatenate([np.array([-1e6]), theta, np.array([1e6])])
+        yhat = pd.cut(yhat, th).codes.astype(float)
+        return yhat
+    
+    def bootstrap(self, n_boot=2000):
+        self.fit()
+        t_init = self.params.copy()
+        beta_samples = np.zeros((n_boot, len(t_init)))
+        o1, o2, ix = self.o1.copy(), self.o2.copy(), self.ix.copy()
+        B1, B2 = self.B1, self.B2
+        n = self.X.shape[0]
+        j = np.random.choice(n, n)
+        
+        B1b, B2b, o1b, o2b, ixb = B1[j], B2[j], o1[j], o2[j], ix[j]
+        self.o1, self.o2, self.ix = o1b, o2b, ixb
+        pbar = tqdm.tqdm(total=n_boot, smoothing=0.001)
+        for i in range(n_boot):
+            j = np.random.choice(n, n)
+            B1b, B2b, o1b, o2b, ixb = B1[j], B2[j], o1[j], o2[j], ix[j]
+            self.o1, self.o2, self.ix = o1b, o2b, ixb
+            optf = self._optimize(t_init, (B1b, B2b), 
+                                  {'options':dict(verbose=0,  gtol=1e-4, 
+                                                  xtol=1e-4)})
+            beta_samples[i] = optf.x
+            pbar.update(1)
+        pbar.close()
+        self.beta_samples = beta_samples
+        self.o1, self.o2, self.ix = o1, o2, ix
+        samples_df = pd.DataFrame(self.beta_samples, columns=self.res.index)
+        boot_res = samples_df.agg(["mean", "std", "min"]).T
+        boot_res["pct1.0%"] = sp.stats.scoreatpercentile(beta_samples, 1.0, axis=0)
+        boot_res["pct2.5%"] = sp.stats.scoreatpercentile(beta_samples, 2.5, axis=0)
+        boot_res["pct97.5%"] = sp.stats.scoreatpercentile(beta_samples, 97.5, axis=0)
+        boot_res["pct99.0%"] = sp.stats.scoreatpercentile(beta_samples, 99.0, axis=0)
+        boot_res["max"] = np.max(beta_samples, axis=0)
+        boot_res["t"] = boot_res["mean"] / boot_res["std"]
+        boot_res["p"] = sp.stats.t(self.X.shape[0]).sf(np.abs(boot_res["t"] ))*2.0
+        self.boot_res =  boot_res
+                    
+    
+        
+        
+            
+            

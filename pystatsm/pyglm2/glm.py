@@ -19,8 +19,8 @@ from .families import (Binomial, Gamma, Gaussian, InverseGaussian, Poisson,
                        NegativeBinomial, ExponentialFamily)
 from ..utilities import output
 from ..utilities.func_utils import symmetric_conf_int, handle_default_kws
-
 from ..utilities.linalg_operations import wdiag_outer_prod, wls_qr, nwls   
+
 LN2PI = np.log(2 * np.pi)
 
 class GLM(RegressionMixin, LikelihoodModel):
