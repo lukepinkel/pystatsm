@@ -20,10 +20,6 @@ from pystatsm.pyglm2.links import LogitLink, LogLink, IdentityLink
 from pystatsm.utilities import func_utils
 from pystatsm.utilities import numerical_derivs 
 
-seed = 23644
-rng = np.random.default_rng(seed)
-
-
 def check_model(model):
     assert(model.opt.success)
     x = model.params_init
@@ -56,6 +52,9 @@ def check_ordinal_model(model):
 
 
 def test_glm():
+    seed = 23644
+    rng = np.random.default_rng(seed)
+
     clmlg_data = pd.DataFrame(
         {'parameter': {'0.0|1.0': -3.227757246973489,
          '1.0|2.0': -1.5874718317572294,

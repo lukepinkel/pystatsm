@@ -26,8 +26,10 @@ rng = np.random.default_rng(seed)
 class LinearModelSim(object):
     
     def __init__(self, n_obs=1000, n_var=10, formula=None, cat_terms=None,
-                 x_vars=None, nlevels=None, corr_kws=None, coef_kws=None):
-
+                 x_vars=None, nlevels=None, corr_kws=None, coef_kws=None,
+                 rng=None, seed=None):
+        self.rng = rng if rng is None else np.random.default_rng(seed)
+        self.seed = seed
         self.cat_terms = [] if cat_terms is None else cat_terms
         self.x_vars = [f"x{i}" for i in range(n_var)] if x_vars is None else x_vars
         self.formula = "+".join(self.x_vars) if formula is None else formula
@@ -39,9 +41,9 @@ class LinearModelSim(object):
         self.n_obs = n_obs
         self.n_var = n_var
         self.cat_inds = [self.x_vars.index(x) for x in self.cat_terms]
-        corr_kws = func_utils.handle_default_kws(corr_kws, {})
+        corr_kws = func_utils.handle_default_kws(corr_kws, {"rng":self.rng})
         self.corr = self._make_corr_matrix(self.n_var, **corr_kws)
-        self.Z1 = self._make_underlying_matrix(self.n_obs, self.corr)
+        self.Z1 = self._make_underlying_matrix(self.n_obs, self.corr, seed=self.seed)
         self.Z2 = self.Z1.copy()
         
         for i in self.cat_inds:
@@ -57,20 +59,24 @@ class LinearModelSim(object):
         self.terms = self.design_info.terms
         self.term_class = self._classify_terms(self.n_coef, self.terms, self.factor_infos,
                                                self.term_name_slices)
-        coef_kws = func_utils.handle_default_kws(coef_kws, {})
+        coef_kws = func_utils.handle_default_kws(coef_kws, {"rng":self.rng})
         self.beta = self.make_coefs(**coef_kws)
         self.linpred = self.X.dot(self.beta)
         self.linpred_var = np.var(self.linpred)
         
     @staticmethod
-    def _make_corr_matrix(n_var, corr_method=cov_utils.get_eig_corr, corr_method_kws=None, 
-                          eig_kws=None):
+    def _make_corr_matrix(n_var, corr_method=cov_utils.get_eig_corr, 
+                          corr_method_kws=None, 
+                          eig_kws=None,
+                          rng=None):
+        rng = np.random.default_rng() if rng is None else rng
         if n_var>1:
             corr_method_kws = func_utils.handle_default_kws(corr_method_kws, {"n_var":n_var})
             if corr_method == cov_utils.get_eig_corr:
                 default_eig_kws = {"n_var":n_var, "p_eff":0.5, "a":1.0, "b":0.1, "c":0.5}
                 eig_kws = func_utils.handle_default_kws(eig_kws, default_eig_kws)
                 corr_method_kws["u"] = cov_utils.get_eigvals(**eig_kws)
+                corr_method_kws["rng"] = rng
             R = corr_method(**corr_method_kws)
         else:
             R = np.eye(1)
@@ -78,8 +84,9 @@ class LinearModelSim(object):
 
     
     @staticmethod
-    def _make_underlying_matrix(n_obs, corr, mat_kws=None):
-        mat_kws = func_utils.handle_default_kws(mat_kws, {"n":n_obs})
+    def _make_underlying_matrix(n_obs, corr, mat_kws=None, seed=None):
+        mat_kws = func_utils.handle_default_kws(mat_kws, 
+                            {"n":n_obs, "seed":seed})
         X = random.exact_rmvnorm(corr, **mat_kws)
         return X
     
@@ -114,7 +121,8 @@ class LinearModelSim(object):
         return y
     
     @staticmethod
-    def _make_coef(n_var, p_nnz=0.5):
+    def _make_coef(n_var, p_nnz=0.5, rng=None):
+        rng = np.random.default_rng() if rng is None else rng
         n_nnz = max(int(p_nnz * n_var), 1)
         beta = np.zeros(n_var)
         i_nnz = rng.choice(np.arange(n_var), size=n_nnz, replace=False)
@@ -161,7 +169,8 @@ class LinearModelSim(object):
         n_var = len(x_vars)
         return cls(n_obs, n_var, formula, cat_terms, x_vars, nlevels, **kws)
     
-    def make_coefs(self, p_nnz=0.5, zero_intercept=True):
+    def make_coefs(self, p_nnz=0.5, zero_intercept=True, rng=None):
+        rng = self.rng if rng is None else rng
         beta = np.zeros(self.n_coef)
         u = np.unique(self.term_class)
         if not hasattr(p_nnz, "__len__"):
@@ -170,7 +179,7 @@ class LinearModelSim(object):
             ix = self.term_class==c
             n_var = int(np.sum(ix))
             if c==-1:
-                beta[ix] = self._make_coef(n_var, p_nnz[i])
+                beta[ix] = self._make_coef(n_var, p_nnz[i], rng=rng)
             else:
                 beta[ix] = self._make_coef_cat(n_var)
         if zero_intercept:
