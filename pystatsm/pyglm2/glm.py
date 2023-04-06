@@ -437,7 +437,7 @@ class GLM(RegressionMixin, LikelihoodModel):
         res = {}
         eta = np.dot(X, coefs)
         if linpred_se or mean_ci:
-            eta_se = wdiag_outer_prod(X, coefs_cov, X)
+            eta_se = np.sqrt(wdiag_outer_prod(X, coefs_cov, X))
 
         if mean or mean_ci or predicted_ci:
             mu = f.inv_link(eta)

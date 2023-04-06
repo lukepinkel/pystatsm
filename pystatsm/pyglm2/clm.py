@@ -15,8 +15,10 @@ from .regression_model import RegressionMixin, ModelData, OrdinalModelData
 from .likelihood_model import LikelihoodModel
 import scipy.stats
 from ..utilities.data_utils import _check_type, _check_shape
+from ..utilities.linalg_opertaions import wdiag_outer_prod
 from ..utilities.optimizer_utils import process_optimizer_kwargs
 from .links import LogitLink, ProbitLink, Link
+from ..utilities.func_utils import symmetric_conf_int, handle_default_kws
 
 from ..utilities import indexing_utils
 
@@ -332,8 +334,18 @@ class CLM(RegressionMixin, LikelihoodModel):
         self.sumstats = pd.DataFrame(sumstats, index=["Statistic"]).T
 
 
-    def predict(self, params=None, q=None, X=None):
+    def predict(self, params=None, q=None, X=None, se=True, params_cov=None,
+                ci_level=0.95):
         params = self.params if params is None else params
+        params_cov = self.params_cov if params_cov is None else params_cov
+        cols = self.model_data.unique
+        if X is not None:
+            if type(X) is pd.DataFrame:
+                xinds = X.index
+            else:
+                xinds = None
+        else:
+            xinds = self.xinds
         q = self.q if q is None else q
         X = self.X if X is None else X
         tau, beta = params[:q].reshape(1, -1), params[q:]
@@ -341,10 +353,39 @@ class CLM(RegressionMixin, LikelihoodModel):
         cmu = self.link.inv_link(eta)
         mu = np.hstack([np.zeros((cmu.shape[0], 1)), cmu, np.ones((cmu.shape[0], 1))])
         mu = np.diff(mu, axis=1)
-        return mu
+        if se:
+            ind = np.ones(len(params), dtype=bool)
+            ind[:q] = False
+            eta_se = np.zeros_like(eta)
+            Xi = np.concatenates([np.ones((X.shape[0], 1)), -X], axis=1)
+            for i in range(q):
+                ind[i] = True
+                V = params_cov[ind][:, ind]
+                eta_se[: i] = np.sqrt(wdiag_outer_prod(Xi, V, Xi))
+                ind[i] = False
+            ci_level = symmetric_conf_int(ci_level)
+            ci_lmult = sp.special.ndtri(ci_level)
+            eta_lower = eta - eta_se * ci_lmult
+            eta_upper = eta + eta_se * ci_lmult
+            mu_lower = self.link.inv_link(eta_lower)
+            mu_upper = self.link.inv_link(eta_upper)
+            
         
+      
+            mu_lower = pd.DataFrame(mu_lower, index=xinds, columns=cols)
+            mu_upper = pd.DataFrame(mu_upper, index=xinds, columns=cols)
+            
+            eta_se = pd.DataFrame(eta_se, index=xinds, columns=cols)
+            eta_lower = pd.DataFrame(eta_lower, index=xinds, columns=cols)
+            eta_upper = pd.DataFrame(eta_upper, index=xinds, columns=cols)
+        else:
+            mu_lower, mu_upper = None, None
+            eta_se, eta_lower, eta_upper = None, None, None
+            
+        mu = pd.DataFrame(mu, index=xinds, columns=cols)
+        eta = pd.DataFrame(eta, index=xinds, columns=cols)
+        return mu, eta, mu_lower, mu_upper, eta_se, eta_lower, eta_upper
         
-    
     def _jacknife(self, method="optimize", verbose=True):
         if type(self.f.weights) is np.ndarray:
             weights = self.f.weights
