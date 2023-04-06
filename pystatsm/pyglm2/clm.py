@@ -15,7 +15,7 @@ from .regression_model import RegressionMixin, ModelData, OrdinalModelData
 from .likelihood_model import LikelihoodModel
 import scipy.stats
 from ..utilities.data_utils import _check_type, _check_shape
-from ..utilities.linalg_opertaions import wdiag_outer_prod
+from ..utilities.linalg_operations import wdiag_outer_prod
 from ..utilities.optimizer_utils import process_optimizer_kwargs
 from .links import LogitLink, ProbitLink, Link
 from ..utilities.func_utils import symmetric_conf_int, handle_default_kws
