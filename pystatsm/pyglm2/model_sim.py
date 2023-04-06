@@ -126,12 +126,15 @@ class LinearModelSim(object):
     
     @staticmethod
     def _make_coef_cat(n_var):
-        coef = np.zeros(n_var)
-        n = n_var // 2
-        m = n_var - n
-        coef[:n] = np.linspace(0, -1, n+1)[1:][::-1]
-        coef[n:] = np.linspace(0, 1, m+1)[1:]
-        coef[:n] -= (coef[:n].sum()+coef[n:].sum()) / n
+        if n_var>1:
+            coef = np.zeros(n_var)
+            n = n_var // 2
+            m = n_var - n
+            coef[:n] = np.linspace(0, -1, n+1)[1:][::-1]
+            coef[n:] = np.linspace(0, 1, m+1)[1:]
+            coef[:n] -= (coef[:n].sum()+coef[n:].sum()) / n
+        else:
+            coef = np.ones(n_var)
         return coef
     
     @staticmethod

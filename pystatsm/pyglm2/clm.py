@@ -338,7 +338,7 @@ class CLM(RegressionMixin, LikelihoodModel):
                 ci_level=0.95):
         params = self.params if params is None else params
         params_cov = self.params_cov if params_cov is None else params_cov
-        cols = self.model_data.unique[:-1]
+        cols = self.model_data.unique
         if X is not None:
             if type(X) is pd.DataFrame:
                 xinds = X.index
@@ -367,22 +367,39 @@ class CLM(RegressionMixin, LikelihoodModel):
             ci_lmult = sp.special.ndtri(ci_level)
             eta_lower = eta - eta_se * ci_lmult
             eta_upper = eta + eta_se * ci_lmult
-            mu_lower = self.link.inv_link(eta_lower)
-            mu_upper = self.link.inv_link(eta_upper)
-      
+            
+            cmu_l = self.link.inv_link(eta_lower)
+            cmu_u = self.link.inv_link(eta_upper)
+            
+            mu_lower = np.hstack([np.zeros((cmu.shape[0], 1)), cmu_l, np.ones((cmu.shape[0], 1))])
+            mu_lower = np.diff(mu_lower, axis=1)
+            
+            mu_upper = np.hstack([np.zeros((cmu.shape[0], 1)), cmu_u, np.ones((cmu.shape[0], 1))])
+            mu_upper = np.diff(mu_upper, axis=1)
+            
+            cprob_lower = pd.DataFrame(cmu_l, index=xinds, columns=cols[:-1])
+            cprob_upper = pd.DataFrame(cmu_u, index=xinds, columns=cols[:-1])
+
+            
             mu_lower = pd.DataFrame(mu_lower, index=xinds, columns=cols)
             mu_upper = pd.DataFrame(mu_upper, index=xinds, columns=cols)
             
-            eta_se = pd.DataFrame(eta_se, index=xinds, columns=cols)
-            eta_lower = pd.DataFrame(eta_lower, index=xinds, columns=cols)
-            eta_upper = pd.DataFrame(eta_upper, index=xinds, columns=cols)
+            eta_se = pd.DataFrame(eta_se, index=xinds, columns=cols[:-1])
+            eta_lower = pd.DataFrame(eta_lower, index=xinds, columns=cols[:-1])
+            eta_upper = pd.DataFrame(eta_upper, index=xinds, columns=cols[:-1])
         else:
+            cprob_lower, cprob_upper = None, None
             mu_lower, mu_upper = None, None
             eta_se, eta_lower, eta_upper = None, None, None
             
+        cprob = pd.DataFrame(cmu, index=xinds, columns=cols[:-1])
         mu = pd.DataFrame(mu, index=xinds, columns=cols)
-        eta = pd.DataFrame(eta, index=xinds, columns=cols)
-        return mu, eta, mu_lower, mu_upper, eta_se, eta_lower, eta_upper
+        eta = pd.DataFrame(eta, index=xinds, columns=cols[:-1])
+        
+        linpred = dict(mean=eta, se=eta_se, lower=eta_lower, upper=eta_upper)
+        prob = dict(mean=mu, loewr=mu_lower, upper=mu_upper)
+        cumulative_prob = dict(mean=cprob, lower=cprob_lower, uppwer=cprob_upper)
+        return linpred, prob, cumulative_prob
         
     def _jacknife(self, method="optimize", verbose=True):
         if type(self.f.weights) is np.ndarray:
@@ -425,9 +442,9 @@ class CLM(RegressionMixin, LikelihoodModel):
         info = np.zeros((n_boot, 10)) if return_info else None
         for i in range(n_boot):
             ii = rng.choice(n_obs, size=n_obs, replace=True)
-            params, opt = self._fit(params=params.copy(), data=(B1[ii], B2[ii], o1[ii],
+            params_i, opt = self._fit(params=params.copy(), data=(B1[ii], B2[ii], o1[ii],
                                                          o2[ii], o1ix[ii], w[ii]))
-            boot_samples[i] = params
+            boot_samples[i] = params_i
             if return_info:
                 info[i] = [opt.nfev, opt.nhev, opt.nit, opt.niter, opt.njev, 
                            opt.optimality, opt.success, np.abs(opt.grad).max(),
