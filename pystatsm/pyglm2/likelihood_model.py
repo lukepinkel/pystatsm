@@ -395,6 +395,7 @@ class LikelihoodModel(metaclass=ABCMeta):
         tuple
             The lower and upper bounds of the confidence interval.
         """
+        # TODO: Try implement Venzon and Moolgavkar Method
         if method == "lstq":
             left=sp.optimize.minimize(lambda x:(profile_loglike(x)-lli)**2,
                                         par-2 * par_se)
