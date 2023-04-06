@@ -248,6 +248,35 @@ class OrdinalModelData(ModelData):
                 self.columns[i] = self.columns[i].delete(intercept_idx)
                 d_info.column_names.remove("Intercept")
                 d_info.column_name_indexes.pop("Intercept")
+                                
+                                
+                intercept_term = None
+                for term in d_info.terms:
+                    if term.name() == "Intercept":
+                        intercept_term = term
+                        break
+                
+                
+                if intercept_term:
+                    d_info.terms.remove(intercept_term)
+                    d_info.term_codings.pop(intercept_term)
+                    d_info.term_slices.pop(intercept_term)
+                    d_info.term_names.remove("Intercept")
+                
+                # Update term_slices and term_name_slices by removing intercept-related slices
+                intercept_slice = d_info.term_name_slices.pop("Intercept")
+                for term_name in d_info.term_name_slices:
+                    current_slice = d_info.term_name_slices[term_name]
+                    if current_slice.start > intercept_slice.start:
+                        d_info.term_name_slices[term_name] = slice(current_slice.start - 1, current_slice.stop - 1, current_slice.step)
+                
+                for term in d_info.term_slices:
+                    current_slice = d_info.term_slices[term]
+                    if current_slice.start > intercept_slice.start:
+                        d_info.term_slices[term] = slice(current_slice.start - 1, current_slice.stop - 1, current_slice.step)
+
+
+
 
     def compute_ordinal_matrices(self):
         self.drop_intercept()
@@ -485,12 +514,14 @@ class RegressionMixin(object):
         r2 = 1.0 - np.sum(rh**2) / np.sum(rb**2)
         return r2
     
-    def make_termwise_constraint_matrices(self, scale=True):
+    def make_termwise_constraint_matrices(self, scale=False, offset=0):
         ii = np.arange(self.n_params)
         constraint_matrices = {}
         names = [x for x in self.x_design_info.term_names if x!="Intercept"]
         for name in names:
             term_slice = self.x_design_info.term_name_slices[name]
+            term_slice = slice(term_slice.start+offset,
+                               term_slice.stop+offset, term_slice.step)
             C = np.zeros((len(ii[term_slice]), self.n_params))
             C[np.arange(len(ii[term_slice])), ii[term_slice]] = 1.0
             constraint_matrices[name] = C.copy()
