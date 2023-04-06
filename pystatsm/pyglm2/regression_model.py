@@ -496,13 +496,21 @@ class RegressionMixin(object):
             constraint_matrices[name] = C.copy()
         self.constraint_matrices = constraint_matrices
         
-    def ll_tests(self, scale=True):
+    def ll_tests(self, ll=None, grad=None, hess=None, grad_i=None, params=None, 
+                 scale=False, offset=0):
+        func = self.full_loglike if ll is None else ll
+        grad = self.gradient if grad is None else grad
+        hess = self.hessian if hess is None else hess
+        grad_i = self.gradient_i if grad_i is None else grad_i
+        params = self.params if params is None else params
+        params_unconstrained = params.copy()
         names = [x for x in self.x_design_info.term_names if x!="Intercept"]
         wald_tests = {}
         score_tests = {}
         for name in names:
             term_slice = self.x_design_info.term_name_slices[name]
-            params_unconstrained = self.params
+            term_slice = slice(term_slice.start+offset,
+                               term_slice.stop+offset, term_slice.step)
             zero_indices = np.arange(self.n_params)
             zero_indices = zero_indices[:-1] if scale else zero_indices
             zero_indices = zero_indices[term_slice]
@@ -515,8 +523,7 @@ class RegressionMixin(object):
             
             constraints = [constraint]
             
-            default_minimize_kws = dict(fun=self.full_loglike, jac=self.gradient, 
-                                        hess=self.hessian,
+            default_minimize_kws = dict(fun=func, jac=grad, hess=hess,
                                         method="trust-constr",
                                         constraints=constraints)
             minimize_kws = func_utils.handle_default_kws(None, default_minimize_kws)
@@ -525,10 +532,10 @@ class RegressionMixin(object):
             opt = sp.optimize.minimize(x0=x0, **minimize_kws)
             params_constrained = opt.x
             constraint_derivative = constraint.jac(params_constrained)
-            hess_unconstrained_inv = np.linalg.inv(self.hessian(params_unconstrained))
-            hess_constrained_inv = np.linalg.inv(self.hessian(params_constrained))
-            grad_i_unconstrained = self.gradient_i(params_unconstrained)
-            grad_i_constrained = self.gradient_i(params_constrained)
+            hess_unconstrained_inv = np.linalg.inv(hess(params_unconstrained))
+            hess_constrained_inv = np.linalg.inv(hess(params_constrained))
+            grad_i_unconstrained = grad_i(params_unconstrained)
+            grad_i_constrained = grad_i(params_constrained)
             grad_constrained = np.sum(grad_i_constrained, axis=0)
             grad_unconstrained_cov = np.dot(grad_i_unconstrained.T, grad_i_unconstrained)
             grad_constrained_cov =  np.dot(grad_i_constrained.T, grad_i_constrained)
