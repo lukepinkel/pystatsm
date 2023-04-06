@@ -338,7 +338,7 @@ class CLM(RegressionMixin, LikelihoodModel):
                 ci_level=0.95):
         params = self.params if params is None else params
         params_cov = self.params_cov if params_cov is None else params_cov
-        cols = self.model_data.unique
+        cols = self.model_data.unique[:-1]
         if X is not None:
             if type(X) is pd.DataFrame:
                 xinds = X.index
@@ -357,11 +357,11 @@ class CLM(RegressionMixin, LikelihoodModel):
             ind = np.ones(len(params), dtype=bool)
             ind[:q] = False
             eta_se = np.zeros_like(eta)
-            Xi = np.concatenates([np.ones((X.shape[0], 1)), -X], axis=1)
+            Xi = np.concatenate([np.ones((X.shape[0], 1)), -X], axis=1)
             for i in range(q):
                 ind[i] = True
                 V = params_cov[ind][:, ind]
-                eta_se[: i] = np.sqrt(wdiag_outer_prod(Xi, V, Xi))
+                eta_se[:, i] = np.sqrt(wdiag_outer_prod(Xi, V, Xi))
                 ind[i] = False
             ci_level = symmetric_conf_int(ci_level)
             ci_lmult = sp.special.ndtri(ci_level)
@@ -369,8 +369,6 @@ class CLM(RegressionMixin, LikelihoodModel):
             eta_upper = eta + eta_se * ci_lmult
             mu_lower = self.link.inv_link(eta_lower)
             mu_upper = self.link.inv_link(eta_upper)
-            
-        
       
             mu_lower = pd.DataFrame(mu_lower, index=xinds, columns=cols)
             mu_upper = pd.DataFrame(mu_upper, index=xinds, columns=cols)
