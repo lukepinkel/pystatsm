@@ -649,8 +649,8 @@ class FactorAnalysis(object):
                        np.arange(self.nl+self.ns, self.nl+self.ns+self.nr)]
             lix = vec(np.tril(np.ones((self.m, self.m)), -1)!=0)
             H[:nt, :nt] = self.H[ixp, ixp[:, None]] 
-            H[-nc:, :nl] = dCdL[lix]
-            H[:nl, -nc:] = dCdL[lix].T 
+            H[H.shape[0]-nc:, :nl] = dCdL[lix]
+            H[:nl, H.shape[1]-nc:] = dCdL[lix].T 
         else:
             dCdL = self.constraint_derivs(self.theta)
             nl, nt, nc = self.nl, self.nl + self.nr, self.nc
