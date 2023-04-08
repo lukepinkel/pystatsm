@@ -103,6 +103,7 @@ class RotationMethod(object):
         ft, Gq = vgq(L)
         G = -np.linalg.multi_dot([L.T, Gq, Tinv]).T
         opt_hist = []
+        ftol = np.finfo(float).eps*2
         for i in range(n_iters):
             TG = T*G
             Gp = G - np.dot(T, np.diag(np.sum(TG, axis=0)))
@@ -123,7 +124,7 @@ class RotationMethod(object):
                     break
                 else:
                     alpha = alpha * 0.5
-            if abs(ft - ft_new) < 1e-16:
+            if abs(ft - ft_new) <= ftol:
                 break
             ft, T =ft_new, Tt
             G = -np.linalg.multi_dot([L.T, Gq, Tinv]).T
