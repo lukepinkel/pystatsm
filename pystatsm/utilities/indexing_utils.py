@@ -355,7 +355,66 @@ def kronecker_indices_forward(i, j, p, q):
     B_ind = t, u
     return A_ind, B_ind
 
+def vecl_inds_reverse(i, n):
+    """
+    Returns the row and column indices of the lower triangular matrix element
+    corresponding to the i-th element of the half vectorization, excluding the diagonal.
+    
+    Parameters
+    ----------
+    i : int
+        Index in the half vectorization excluding the diagonal elements.
+    n : int
+        The number of rows (and columns) of the square matrix.
+        
+    Returns
+    -------
+    j : int
+        Row index
+    k : int
+        Column index
+        
+    The tuple (j, k) represents the row and column indices in the lower
+    triangular part of a matrix corresponding to the i-th element of the
+    half vectorization, excluding the diagonal elements.
+    """
+    q = n * (n - 1) // 2                    # Number of elements in the vectorization of the lower half of the matrix, excluding the diagonal
+    r = q - i - 1                           # Distance of i from the bottom of the vector
+    s = largest_triangular(r)              # Index of the largest triangular number less than r, i.e., less than the distance from the bottom of the vector
+    t = s * (s + 1) // 2                    # t is the s-th triangular number
+    p = r - t                               # Row index counting from the bottom
+    j = n - p - 1                           # Row index
+    k = n - s - 2                           # Column index, accounting for the exclusion of the diagonal elements
+    return j, k
 
+def vecl_inds_forwards(r, s, m):
+    """
+    Returns the index of the (r, s)-th element in the lower triangle of a
+    square matrix of size (m x m) that has been half vectorized, excluding
+    the diagonal.
+    
+    Parameters
+    ----------
+    r : int
+        The row index of the element in the original matrix.
+    s : int
+        The column index of the element in the original matrix.
+    m : int
+        The number of rows (and columns) of the square matrix.
+        
+    Returns
+    -------
+    int
+        The index in the half vectorized form corresponding to the
+        (r, s)-th element in the original matrix, excluding the diagonal elements.
+    """
+    # Index i is computed by summing the total number of elements in the matrix
+    #above the current row (s * m), subtracting the triangular number 
+    #associated with the current column (s * (s + 1) // 2), adding the current
+    #row index (r), and subtracting s to account for the exclusion of the 
+    #diagonal elements
+    i = r + s * m - (s * (s + 1) // 2) - s  -1
+    return i
 
 def kronecker_indices_reverse(r, s, t, u, p, q):
     """
