@@ -322,7 +322,7 @@ class FactorAnalysis(object):
         params = self.model_matrices_to_params(L, Phi, psi)
         H = self.hessian_aug(params)
         Acov = np.linalg.inv(H)
-        se_params = np.sqrt(np.diag(Acov)[:-self.nc]/self.n_obs * 2.0) 
+        se_params = np.sqrt(np.diag(Acov)[:Acov.shape[0]-self.nc]/self.n_obs * 2.0) 
         L_se = invec(se_params[self.ixl], self.n_vars, self.n_facs)
         if self.rotation_type == "oblique":
             Phi_se = invecl(se_params[self.ixs])
@@ -342,7 +342,7 @@ class FactorAnalysis(object):
             
     def fit(self):
         self._fit()
-        z = self.params[self.ixa[:-self.nc]] / self.se_params
+        z = self.params[self.ixa[:len(self.ixa)-self.nc]] / self.se_params
         p = sp.stats.norm(0, 1).sf(np.abs(z)) * 2.0
         
         param_labels = []
@@ -357,7 +357,7 @@ class FactorAnalysis(object):
             param_labels.append(f"Psi[{i}]")
         res_cols = ["param", "SE", "z", "p"]
         fcols = [f"Factor{i}" for i in range(self.n_facs)]
-        self.res = pd.DataFrame(np.vstack((self.params[self.ixa[:-self.nc]], self.se_params, z, p)).T,
+        self.res = pd.DataFrame(np.vstack((self.params[self.ixa[:len(self.ixa)-self.nc]], self.se_params, z, p)).T,
                                 columns=res_cols, index=param_labels)
         self.Loadings = pd.DataFrame(self.L, index=self.cols, columns=fcols)
         self.FactorCorr = pd.DataFrame(self.Phi, index=fcols, columns=fcols)
