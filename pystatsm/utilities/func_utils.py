@@ -15,32 +15,155 @@ ROOT2PI = np.sqrt(2.0 * np.pi)
 TWOPI = 6.283185307179586
 
 def poisson_logp(x, mu, logp=True):
-     p = sp.special.xlogy(x, mu) - sp.special.gammaln(x + 1) - mu
-     if logp==False:
-         p = np.exp(p)
-     return p
+    """
+    Calculate the logarithm of the Poisson probability mass function.
+    
+    Parameters:
+    -----------
+    x : int or array_like
+        The number of events.
+    mu : float or array_like
+        The mean of the Poisson distribution.
+    logp : bool, optional
+        If True, the natural logarithm of the probability mass function is 
+        returned. If False, the probability mass function is returned.
+    
+    Returns:
+    --------
+    p : float or ndarray
+        The logarithm of the Poisson probability mass function if `logp=True`,
+        else the Poisson probability mass function.
+    
+    Note:
+    -----
+    This function calculates the logarithm of the Poisson probability mass
+    function using the `sp.special.xlogy()` and `sp.special.gammaln()` functions
+    from the SciPy library.
+    """
+    p = sp.special.xlogy(x, mu) - sp.special.gammaln(x + 1) - mu
+    if logp==False:
+        p = np.exp(p)
+    return p
  
     
 def logbinom(n, k):
+    """
+    Calculate the logarithm of the binomial coefficient.
+    
+    Parameters:
+    -----------
+    n : int or array_like
+        The total number of trials.
+    k : int or array_like
+        The number of successes.
+        
+    Returns:
+    --------
+    y : float or ndarray
+        The logarithm of the binomial coefficient.
+    
+    Note:
+    -----
+    This function calculates the logarithm of the binomial coefficient using
+    the `sp.special.gammaln()` function from the SciPy library.
+    """
     y=sp.special.gammaln(n+1)-sp.special.gammaln(k+1)-sp.special.gammaln(n-k+1)
     return y
 
     
 def log1p(x):
+    """
+    Calculate the logarithm of 1 + `x`.
+    
+    Parameters:
+    -----------
+    x : float or array_like
+        The input values.
+    
+    Returns:
+    --------
+    y : float or ndarray
+        The logarithm of 1 + `x`.
+    
+    Note:
+    -----
+    This function calculates the logarithm of 1 + `x` using the `np.log()`
+    function from the NumPy library.
+    """
     return np.log(1+x)
 
 
 def norm_cdf(x, mean=0.0, sd=1.0):
+    """
+    Calculate the cumulative distribution function of the normal distribution.
+    
+    Parameters:
+    -----------
+    x : float or array_like
+        The input values.
+    mean : float, optional
+        The mean of the normal distribution. Default is 0.0.
+    sd : float, optional
+        The standard deviation of the normal distribution. Default is 1.0.
+    
+    Returns:
+    --------
+    p : float or ndarray
+        The cumulative distribution function of the normal distribution.
+    
+    Note:
+    -----
+    This function calculates the cumulative distribution function of the normal
+    distribution using the `sp.special.erf()` function from the SciPy library.
+    """
     z = (x - mean) / sd
     p = (sp.special.erf(z/SQRT2) + 1.0) / 2.0
     return p
 
 def norm_pdf(x, mean=0.0, sd=1.0):
+    """
+    Calculate the probability density function of the normal distribution.
+    
+    Parameters:
+    -----------
+    x : float or array_like
+        The input values.
+    mean : float, optional
+        The mean of the normal distribution. Default is 0.0.
+    sd : float, optional
+        The standard deviation of the normal distribution. Default is 1.0.
+    
+    Returns:
+    --------
+    p : float or ndarray
+        The probability density function of the normal distribution.
+    
+    Note:
+    -----
+    This function calculates the probability density function of the normal distribution using the `np.exp()` and `np.power()` functions from the NumPy library.
+    """
     z = (x - mean) / sd
     p = np.exp(-z**2 / 2.0) / (ROOT2PI * sd)
     return p
 
 def symmetric_conf_int(level):
+    """
+    Calculate the upper limit of a symmetric confidence interval given the confidence level.
+    
+    Parameters:
+    -----------
+    level : float
+        The confidence level.
+    
+    Returns:
+    --------
+    upper : float
+        The upper limit of the symmetric confidence interval.
+    
+    Note:
+    -----
+    This function calculates the upper limit of a symmetric confidence interval using the input `level` to determine the quantile of the standard normal distribution.
+    """
     if level > 1.0:
         q = level / 100
     else:
@@ -51,6 +174,23 @@ def symmetric_conf_int(level):
 
 
 def get_part(arr, sol, size, step, maximum, res):
+    """
+    Calculate all possible partitions of a set of integers.
+    
+    Parameters:
+    -----------
+    n : int
+        The size of the set to partition.
+    
+    Returns:
+    --------
+    res : list of tuples
+        A list of all possible partitions of the set.
+    
+    Note:
+    -----
+    This function generates all possible partitions of a set of integers using recursive backtracking.
+    """
     if step==size:
         res.append(sol.copy())
     else:
@@ -60,7 +200,20 @@ def get_part(arr, sol, size, step, maximum, res):
             sol[step] += 1
         get_part(arr, sol, size, step+1, maximum+1, res)
 
-def partition_set(n):    
+def partition_set(n):  
+    """
+    Generates all the partitions of the integer `n`.
+    
+    Parameters:
+    -----------
+    n : int
+        The integer to partition.
+        
+    Returns:
+    --------
+    res : list
+        A list of tuples, where each tuple contains a partition of `n`.
+    """
     size = n
     arr = np.arange(1, size+1)-1
     sol = np.zeros(size, dtype=int)
@@ -70,17 +223,60 @@ def partition_set(n):
 
 @numba.jit(nopython=True)
 def soft_threshold(x, t):
+    """
+    Computes the soft-thresholding function of the input `x` at level `t`.
+    
+    Parameters:
+    -----------
+    x : array_like
+        The input array.
+    t : float
+        The threshold level.
+        
+    Returns:
+    --------
+    y : ndarray
+        The result of the soft-thresholding of `x` at level `t`.
+    """
     y = np.maximum(np.abs(x) - t, 0) * np.sign(x)
     return y
 
 @numba.jit(nopython=True)
 def expit(x):
+    """
+    Computes the sigmoid function of the input `x`.
+    
+    Parameters:
+    -----------
+    x : array_like
+        The input array.
+        
+    Returns:
+    --------
+    y : ndarray
+        The result of the sigmoid function applied to `x`.
+    """
     u = np.exp(x)
     y = u / (1.0 + u)
     return y
 
 
 def sum_preserving_round(arr):
+    """
+    Rounds each element of the input array `arr` to the nearest integer,
+    while preserving the sum of the array.
+    
+    Parameters:
+    -----------
+    arr : array_like
+        The input array.
+        
+    Returns:
+    --------
+    arr_floor : ndarray
+        The result of rounding each element of `arr` to the nearest integer, 
+        while preserving the sum of the array.
+    """
     arr_floor = np.floor(arr)
     arr_fract = arr - arr_floor
     arr_fract_sort = np.argsort(arr_fract)
@@ -91,6 +287,23 @@ def sum_preserving_round(arr):
 
 
 def sum_preserving_min(arr, min_):
+    """
+    Subtracts the difference between the minimum value of the input array
+    `arr` and `min_` from elements of `arr` that are smaller than `min_`.
+    
+    Parameters:
+    -----------
+    arr : array_like
+        The input array.
+    min_ : float
+        The minimum value to subtract from.
+        
+    Returns:
+    --------
+    arr : ndarray
+        The input array with the adjustments made to elements that were smaller
+        than `min_`.
+    """
     arr_ind = arr < min_
     arr_diff= arr - min_
     n_lt = np.sum(arr_ind)
@@ -101,14 +314,56 @@ def sum_preserving_min(arr, min_):
     return arr
     
 def sizes_to_inds(sizes):
+    """
+    Return an array of indices given an array of sizes.
+    
+    Parameters
+    ----------
+    sizes : array-like
+        An array of sizes of the desired intervals
+        
+    Returns
+    -------
+    numpy.ndarray
+        The indices of the intervals
+    """
     return np.r_[0, np.cumsum(sizes)]
     
 def sizes_to_slice_vals(sizes):
+    """
+    Return a list of slices given an array of sizes.
+    
+    Parameters
+    ----------
+    sizes : array-like
+        An array of sizes of the desired intervals
+        
+    Returns
+    -------
+    list of tuple
+        The slice values for the intervals
+    """
     inds = sizes_to_inds(sizes)
     return list(zip(inds[:-1], inds[1:]))
 
 
 def allocate_from_proportions(n, proportions):
+    """
+    Allocate an integer value given a list of proportions.
+
+    Parameters
+    ----------
+    n : int
+        The total number of values to allocate.
+    proportions : array-like
+        A list of proportions for each value.
+
+    Returns
+    -------
+    tuple
+        A tuple containing an array of the allocated values and a list of tuples that indicate the slice values.
+    """
+
     if np.abs(1.0 - np.sum(proportions)) > 1e-12:
         raise ValueError("Proportions Don't Sum to One")
     k = proportions * n
@@ -119,12 +374,42 @@ def allocate_from_proportions(n, proportions):
 
 
 def handle_default_kws(kws, default_kws):
+    """
+    Return a dictionary that includes default keyword arguments as well as custom keyword arguments.
+    
+    Parameters
+    ----------
+    kws : dict or None
+        The dictionary of custom keyword arguments
+    default_kws : dict
+        The dictionary of default keyword arguments
+        
+    Returns
+    -------
+    dict
+        A dictionary that includes both the default and custom keyword arguments
+    """
     kws = {} if kws is None else kws
     kws = {**default_kws, **kws}
     return kws
     
 
 def _harmonic(a, b): 
+    """
+    Compute the harmonic fraction from a to b.
+    
+    Parameters
+    ----------
+    a : int
+        The starting integer for the fraction
+    b : int
+        The ending integer for the fraction
+        
+    Returns
+    -------
+    tuple
+        A tuple containing the numerator and denominator of the fraction.
+    """
     if b - a == 1:
         return 1, a
     m = (a+b)//2
@@ -133,16 +418,55 @@ def _harmonic(a, b):
     return p*s+q*r, q*s
 
 def harmonic_fraction(n):
+    """
+    Compute the harmonic fraction for the integer n.
+    
+    Parameters
+    ----------
+    n : int
+        The integer value for which the harmonic fraction is to be computed
+        
+    Returns
+    -------
+    tuple
+        A tuple containing the numerator and denominator of the fraction.
+    """
     num, den = _harmonic(1, n+1)
     return num, den
 
 
 def harmonic_exact(n):
+    """
+    Compute the exact harmonic value for the integer n.
+    
+    Parameters
+    ----------
+    n : int
+        The integer value for which the harmonic value is to be computed
+        
+    Returns
+    -------
+    float
+        The exact harmonic value for n.
+    """
     num, den = _harmonic(1, n+1)
     h = num / den
     return h
 
 def harmonic_asymptotic(n):
+    """
+    Compute an asymptotic approximation of the nth harmonic number.
+    
+    Parameters:
+    -----------
+    n : int
+        The nth harmonic number to compute the approximation for.
+    
+    Returns:
+    --------
+    h : float
+        An approximation of the nth harmonic number computed using the given formula.
+    """
     euler_mascheronic = 0.57721566490153286060651209008240243104215933593992
     h = euler_mascheronic + np.log(n) + 1 / (2.0 * n) - 1 / (12.0 * n**2) + 1 / (120.8 * n**4)
     return h
@@ -151,6 +475,20 @@ def harmonic_asymptotic(n):
 
 @numba.jit(nopython=True)
 def _norm_cdf(z):
+    """
+    Compute the cumulative distribution function (CDF) of the standard normal 
+    distribution for a given value `z`.
+    
+    Parameters
+    ----------
+    z : float
+        The value for which the standard normal CDF is to be computed.
+    
+    Returns
+    -------
+    float
+        The value of the standard normal CDF at `z`.
+    """
     p0 = 220.2068679123761 
     p1 = 221.2135961699311  
     p2 = 112.0792914978709
@@ -196,6 +534,26 @@ def _norm_cdf(z):
 
 @numba.jit(nopython=True)
 def norm_cdf_jit(x, mu=0.0, sigma=1.0):
+    """
+    Compute the cumulative distribution function (CDF) of the normal
+    distribution with mean `mu` and standard deviation `sigma`
+    for a given value `x` using _norm_cdf 
+    
+    Parameters
+    ----------
+    x : float
+        The value for which the normal CDF is to be computed.
+    mu : float, optional, default: 0.0
+        The mean of the normal distribution.
+    sigma : float, optional, default: 1.0
+        The standard deviation of the normal distribution.
+    
+    Returns
+    -------
+    float
+        The value of the normal CDF at `x` for the specified mean `mu` and 
+        standard deviation `sigma`.
+    """
     z = (x - mu) / sigma
     pp = _norm_cdf(z)
     return pp
@@ -204,6 +562,34 @@ def norm_cdf_jit(x, mu=0.0, sigma=1.0):
 
 @numba.jit(nopython=True)
 def binorm_pdf_jit(x, y, r, mu_x=0, mu_y=0, sx=1, sy=1):
+    """
+    Compute the probability density function (PDF) of the bivariate normal
+    distribution with means `mu_x` and `mu_y`, standard deviations `sx` and 
+    `sy`, and correlation coefficient `r`  for given values `x` and `y`. 
+    
+    Parameters
+    ----------
+    x : float
+        The x-value for which the bivariate normal PDF is to be computed.
+    y : float
+        The y-value for which the bivariate normal PDF is to be computed.
+    r : float
+        The correlation coefficient between the two normal distributions.
+    mu_x : float, optional, default: 0
+        The mean of the normal distribution for the x variable.
+    mu_y : float, optional, default: 0
+        The mean of the normal distribution for the y variable.
+    sx : float, optional, default: 1
+        The standard deviation of the normal distribution for the x variable.
+    sy : float, optional, default: 1
+        The standard deviation of the normal distribution for the y variable.
+    
+    Returns
+    -------
+    float
+        The value of the bivariate normal PDF at the specified `x` and `y`
+        values, and the given parameters.
+    """
     r2 = (1 - r**2)
     c0 = 1 / (2 * np.pi *sx * sy * np.sqrt(r2))
     c1 = -1/(2 * r2)
@@ -225,6 +611,27 @@ def binorm_dl_jit(h, k, r):
 
 @numba.jit(nopython=True)
 def binorm_l2_jit(h, k, r):
+    """
+     Compute the value of the bivariate normal distribution function for given 
+     values `h` and `k`, and correlation coefficient `r`.
+     
+     Parameters
+     ----------
+     h : float
+         The first variable for which the bivariate normal distribution
+         function is to be computed.
+     k : float
+         The second variable for which the bivariate normal distribution 
+         function is to be computed.
+     r : float
+         The correlation coefficient between the two normal distributions.
+     
+     Returns
+     -------
+     float
+         The value of the bivariate normal distribution function at the 
+         specified `h` and `k` values, and the given correlation coefficient `r`.
+     """
     r2 = r/2.0
     
     weights = np.array(
@@ -276,12 +683,56 @@ def binorm_l2_jit(h, k, r):
 
 @numba.jit(nopython=True)
 def binorm_cdf_jit(h, k, r):
+    """
+    Compute the bivariate normal distribution likelihood function L2 for
+    given values `h`, `k`, and correlation coefficient `r` using Gaussian 
+    quadrature integration.
+    
+    Parameters
+    ----------
+    h : float
+        The first variable for which the bivariate normal likelihood function
+        is to be computed.
+    k : float
+        The second variable for which the bivariate normal likelihood function
+        is to be computed.
+    r : float
+        The correlation coefficient between the two normal distributions.
+    
+    Returns
+    -------
+    float
+        The value of the bivariate normal likelihood function at the specified
+        `h` and `k` values, and the given correlation coefficient `r`.
+    """
     likelihood = binorm_l2_jit(h, k, r)
     phi = likelihood + norm_cdf_jit(h) + norm_cdf_jit(k) - 1
     return phi
 
 @numba.jit(nopython=True)
 def _binorm_cdf_arr(h, k, r):
+    """
+    Compute the cumulative distribution function (CDF) of the bivariate 
+    normal distribution for given arrays of `h` and `k` values, and a
+    correlation coefficient `r`.
+    
+    Parameters
+    ----------
+    h : array_like
+        The array of first variable values for which the bivariate normal CDF
+        is to be computed.
+    k : array_like
+        The array of second variable values for which the bivariate normal CDF
+        is to be computed.
+    r : float
+        The correlation coefficient between the two normal distributions.
+    
+    Returns
+    -------
+    ndarray
+        The values of the bivariate normal CDF at the specified arrays of `h` 
+        and `k` values, and the given correlation coefficient `r`.
+    """
     res = np.zeros_like(h)
     for ii in np.ndindex(*h.shape):
         res[ii] = binorm_cdf_jit(h[ii], k[ii], r)
@@ -290,11 +741,58 @@ def _binorm_cdf_arr(h, k, r):
 @numba.jit(nopython=True)
 def _binorm_pdf_arr(h, k, r):
     res = np.zeros_like(h)
+    """
+    Calculate the bivariate normal probability density function for each element
+    of the input arrays.
+    
+    Parameters:
+    -----------
+    h : numpy.ndarray
+        The array of first variable values for which the bivariate normal CDF
+       is to be computed.
+    k : numpy.ndarray
+        The array of second variable values for which the bivariate normal CDF
+        is to be computed.
+    r : float
+        Correlation coefficient between the two variables.
+    
+    Returns:
+    --------
+    res : numpy.ndarray
+        Output array of shape (M, N), representing the probability density 
+        function of the bivariate normal distribution.
+    
+    Note:
+    -----
+    """
     for ii in np.ndindex(*h.shape):
         res[ii] = binorm_pdf_jit(h[ii], k[ii], r)
     return res
         
 def binorm_cdf(h, k, r):
+    """
+    Compute the cumulative distribution function (CDF) of the bivariate normal
+    distribution for given values `h`, `k`, 
+    and correlation coefficient `r`. This function can handle scalar or
+    array-like input.
+    
+    Parameters
+    ----------
+    h : float or array_like
+        The first variable or array of first variable values for which the
+        bivariate normal CDF is to be computed.
+    k : float or array_like
+        The second variable or array of second variable values for which the
+        bivariate normal CDF is to be computed.
+    r : float
+        The correlation coefficient between the two normal distributions.
+    
+    Returns
+    -------
+    float or ndarray
+        The value(s) of the bivariate normal CDF at the specified `h` and `k`
+        values, and the given correlation coefficient `r`.
+    """
     if type(h) in [float, int]:
         ret_float = True
     else:
@@ -308,6 +806,33 @@ def binorm_cdf(h, k, r):
     return pr
 
 def binorm_pdf(h, k, r):
+    """
+    Calculate the bivariate normal probability density function for the
+    given input arrays.
+    
+    Parameters:
+    -----------
+    h : float or numpy.ndarray
+        Input array or scalar representing the values of the first variable.
+    k : float or numpy.ndarray
+        Input array or scalar representing the values of the second variable.
+    r : float or numpy.ndarray
+        Correlation coefficient between the two variables.
+    
+    Returns:
+    --------
+    p : float or numpy.ndarray
+        Output array or scalar representing the probability density function
+        of the bivariate normal distribution.
+    
+    Note:
+    -----
+    If the input `h` or `k` is a scalar, the output is a scalar. Otherwise,
+    the output is an array of the same shape as `h` and `k`.
+    
+    This function uses the `_binorm_pdf_arr()` function to compute the 
+    bivariate normal probability density function.
+    """
     if type(h) in [float, int]:
         ret_float = True
     else:
@@ -323,6 +848,30 @@ def binorm_pdf(h, k, r):
 
 
 def binorm_cdf_region(lower, upper, r):
+    """
+    Calculate the bivariate normal cumulative distribution function for
+    a rectangular region defined by the lower and upper bounds.
+    
+    Parameters:
+    -----------
+    lower : tuple or list
+        Lower bound of the rectangular region as a tuple or list of two values.
+    upper : tuple or list
+        Upper bound of the rectangular region as a tuple or list of two values.
+    r : float or numpy.ndarray
+        Correlation coefficient between the two variables.
+    
+    Returns:
+    --------
+    pr : float
+        Output scalar representing the cumulative distribution function of 
+        the bivariate normal distribution over the region.
+    
+    Note:
+    -----
+    This function uses the `binorm_cdf()` function to compute the bivariate
+    normal cumulative distribution function.
+    """
     pr_uu = binorm_cdf(upper[0], upper[1], r)
     pr_ul = binorm_cdf(upper[0], lower[1], r)
     pr_lu = binorm_cdf(lower[0], upper[1], r)
@@ -331,6 +880,30 @@ def binorm_cdf_region(lower, upper, r):
     return pr
 
 def binorm_pdf_region(lower, upper, r):
+    """
+    Calculate the bivariate normal probability density function for a 
+    rectangular region defined by the lower and upper bounds.
+    
+    Parameters:
+    -----------
+    lower : tuple or list
+        Lower bound of the rectangular region as a tuple or list of two values.
+    upper : tuple or list
+        Upper bound of the rectangular region as a tuple or list of two values.
+    r : float or numpy.ndarray
+        Correlation coefficient between the two variables.
+    
+    Returns:
+    --------
+    p : float
+        Output scalar representing the probability density function of the
+        bivariate normal distribution over the region.
+    
+    Note:
+    -----
+    This function uses the `binorm_pdf()` function to compute the bivariate
+    normal probability density function.
+    """
     p_uu = binorm_pdf(upper[0], upper[1], r)
     p_ul = binorm_pdf(upper[0], lower[1], r)
     p_lu = binorm_pdf(lower[0], upper[1], r)
@@ -341,6 +914,30 @@ def binorm_pdf_region(lower, upper, r):
 
 
 def dbinorm_pdf(x, y, r):
+    """
+    Calculate the probability density function of the bivariate normal
+    distribution for the given input variables.
+    
+    Parameters:
+    -----------
+    x : float
+        Value of the first variable.
+    y : float
+        Value of the second variable.
+    r : float
+        Correlation coefficient between the two variables.
+    
+    Returns:
+    --------
+    g : float
+        Probability density function of the bivariate normal distribution
+        for the given input variables.
+    
+    Note:
+    -----
+    This function implements the equation for the probability density
+    function of the bivariate normal distribution using the given input variables.
+    """
     xy, x2, y2 = x * y, x**2, y**2
     
     r2 = r**2
@@ -359,6 +956,30 @@ def dbinorm_pdf(x, y, r):
 
 
 def dbinorm_pdf_region(lower, upper, r):
+    """
+    Calculate the probability density function of the bivariate normal 
+    distribution over a rectangular region defined by the lower and upper bounds.
+    
+    Parameters:
+    -----------
+    lower : tuple or list
+        Lower bound of the rectangular region as a tuple or list of two values.
+    upper : tuple or list
+        Upper bound of the rectangular region as a tuple or list of two values.
+    r : float
+        Correlation coefficient between the two variables.
+    
+    Returns:
+    --------
+    dp : float
+        Probability density function of the bivariate normal distribution
+        over the rectangular region.
+    
+    Note:
+    -----
+    This function uses the `dbinorm_pdf()` function to calculate the 
+    probability density function of the bivariate normal distribution for the given input variables.
+    """
     dp_uu = dbinorm_pdf(upper[0], upper[1], r)
     dp_ul = dbinorm_pdf(upper[0], lower[1], r)
     dp_lu = dbinorm_pdf(lower[0], upper[1], r)
@@ -370,6 +991,39 @@ def dbinorm_pdf_region(lower, upper, r):
 
 
 def quantile_cut(arr, n, quantile_kws=None, digitize_kws=None, return_quantiles=False):
+    """
+    Discretize an input array into `n` equally sized bins based on quantiles.
+    
+    Parameters:
+    -----------
+    arr : array_like
+        Input array to be discretized.
+    n : int
+        Number of bins to discretize the input array into.
+    quantile_kws : dict, optional
+        Keyword arguments for the `np.quantile()` function to calculate the
+        quantiles of the input array. Default is None.
+    digitize_kws : dict, optional
+        Keyword arguments for the `np.digitize()` function to discretize the
+        input array into bins. Default is None.
+    return_quantiles : bool, optional
+        If True, return the quantiles used to discretize the input array. 
+        Default is False.
+    
+    Returns:
+    --------
+    x : ndarray
+        Output array representing the discretized input array.
+    t : ndarray, optional
+        Array of the quantiles used to discretize the input array, returned 
+        only if `return_quantiles` is True.
+    
+    Note:
+    -----
+    This function uses the `np.quantile()` and `np.digitize()` functions to 
+    discretize the input array into bins based on quantiles.
+    """
+
     q = np.linspace(0, 1, n, endpoint=False)[1:]
     t = np.quantile(arr, **handle_default_kws(quantile_kws, {"q":q}))
     x = np.digitize(arr, **handle_default_kws(digitize_kws, {"bins":t}))
