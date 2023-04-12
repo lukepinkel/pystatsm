@@ -50,16 +50,6 @@ class ParameterTransformBase(ABC):
         """Compute reverse transform second derivative"""
         pass
 
-    def _apply_method_unreadable(self, x, method):
-        input_shape = x.shape[:-1] if x.ndim > 1 else ()
-        x_iter = np.nditer(x, flags=['multi_index', 'refs_ok']) if x.ndim > 1 else iter([x])
-        output_shape = input_shape + (getattr(self, method)(x[0]).shape[0],) if x.ndim > 1 else (getattr(self, method)(x).shape[0],)
-        res = np.empty(output_shape, dtype=x.dtype)
-        for x_val in x_iter:
-            idx = x_iter.multi_index if x.ndim > 1 else ()
-            res[idx] = getattr(self, method)(x_val)
-        return res
-    
     def _apply_method(self, x, method):
         if np.isscalar(x):
             return getattr(self, method)(x)
