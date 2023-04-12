@@ -337,6 +337,14 @@ def mat_size_to_lhv_size(mat_size):
     lhv_size = int(mat_size * (mat_size - 1) // 2)
     return lhv_size
 
+def hv_size_to_mat_size(lhv_size):
+    mat_size = int((np.sqrt(8 * lhv_size + 1) - 1) // 2)
+    return mat_size
+
+def mat_size_to_hv_size(mat_size):
+    lhv_size = int(mat_size * (mat_size + 1) // 2)
+    return lhv_size
+
 def lower_half_vec(x):
     mat_size = x.shape[-1]
     i, j = np.triu_indices(mat_size, k=1)
@@ -357,6 +365,12 @@ def lhv_indices(shape):
     arr_inds = np.indices(shape)
     lhv_inds = [lower_half_vec(x) for x in arr_inds]
     return lhv_inds
+
+def hv_indices(shape):
+    arr_inds = np.indices(shape)
+    hv_inds = [_vech(x) for x in arr_inds]
+    return hv_inds
+
 
 def lhv_ind_parts(mat_size):
     i = np.cumsum(np.arange(mat_size))

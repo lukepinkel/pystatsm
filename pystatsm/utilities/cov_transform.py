@@ -12,6 +12,17 @@ import numpy as np
 from .special_mats import lmat, nmat
 from .numerical_derivs import jac_approx
 from .dchol import dchol, unit_matrices
+from .linalg_operations import (_vecl, _invecl, _vech, _invech, 
+                                lhv_size_to_mat_size,
+                                mat_size_to_lhv_size,
+                                hv_size_to_mat_size,
+                                mat_size_to_hv_size,
+                                lower_half_vec,
+                                inv_lower_half_vec,
+                                lhv_indices,
+                                hv_indices,
+                                lhv_ind_parts,
+                                lhv_row_norms)
 
 def _hess_chain_rule(d2z_dy2, dy_dx, dz_dy, d2y_dx2):
     H1 = np.einsum("ijk,kl->ijl", d2z_dy2, dy_dx, optimize=True)
@@ -20,111 +31,111 @@ def _hess_chain_rule(d2z_dy2, dy_dx, dz_dy, d2y_dx2):
     d2z_dx2 = H1 + H2
     return d2z_dx2
 
-def _vecl(x):
-    m = x.shape[-1]
-    ix, jx = np.triu_indices(m, k=1)
-    res = x[...,jx, ix]
-    return res
+# def _vecl(x):
+#     m = x.shape[-1]
+#     ix, jx = np.triu_indices(m, k=1)
+#     res = x[...,jx, ix]
+#     return res
 
-def _invecl(x):
-    old_shape = x.shape
-    n = x.shape[-1]
-    m = int((np.sqrt(8 * n + 1) + 1) // 2)
-    out_shape = old_shape[:-1] + (m, m)
-    res = np.zeros(out_shape, dtype=x.dtype)
-    ix, jx = np.triu_indices(m, k=1)
-    is_diag = ix == jx
-    off_diag_elem = x[...,~is_diag]
-    ixo, jxo = ix[~is_diag], jx[~is_diag]
-    ixd = jxd = np.arange(m)
-    res[..., jxo, ixo] = off_diag_elem
-    res[..., ixo, jxo] = off_diag_elem
-    res[..., ixd, jxd] = 1
-    return res
+# def _invecl(x):
+#     old_shape = x.shape
+#     n = x.shape[-1]
+#     m = int((np.sqrt(8 * n + 1) + 1) // 2)
+#     out_shape = old_shape[:-1] + (m, m)
+#     res = np.zeros(out_shape, dtype=x.dtype)
+#     ix, jx = np.triu_indices(m, k=1)
+#     is_diag = ix == jx
+#     off_diag_elem = x[...,~is_diag]
+#     ixo, jxo = ix[~is_diag], jx[~is_diag]
+#     ixd = jxd = np.arange(m)
+#     res[..., jxo, ixo] = off_diag_elem
+#     res[..., ixo, jxo] = off_diag_elem
+#     res[..., ixd, jxd] = 1
+#     return res
 
 
 
-def _vech(x):
-    m = x.shape[-1]
-    ix, jx = np.triu_indices(m, k=0)
-    res = x[...,jx, ix]
-    return res
+# def _vech(x):
+#     m = x.shape[-1]
+#     ix, jx = np.triu_indices(m, k=0)
+#     res = x[...,jx, ix]
+#     return res
 
-def _invech(x):
-    old_shape = x.shape
-    n = x.shape[-1]
-    m = int((np.sqrt(8 * n + 1) - 1) // 2)
-    out_shape = old_shape[:-1] + (m, m)
-    res = np.zeros(out_shape, dtype=x.dtype)
-    ix, jx = np.triu_indices(m, k=0)
-    is_diag = ix == jx
-    diag_elements = x[..., is_diag]
-    off_diag_elem = x[...,~is_diag]
-    ixo, jxo = ix[~is_diag], jx[~is_diag]
-    ixd, jxd = ix[is_diag],  jx[is_diag]
-    res[..., jxo, ixo] = off_diag_elem
-    res[..., ixo, jxo] = off_diag_elem
-    res[..., ixd, jxd] = diag_elements
-    return res
+# def _invech(x):
+#     old_shape = x.shape
+#     n = x.shape[-1]
+#     m = int((np.sqrt(8 * n + 1) - 1) // 2)
+#     out_shape = old_shape[:-1] + (m, m)
+#     res = np.zeros(out_shape, dtype=x.dtype)
+#     ix, jx = np.triu_indices(m, k=0)
+#     is_diag = ix == jx
+#     diag_elements = x[..., is_diag]
+#     off_diag_elem = x[...,~is_diag]
+#     ixo, jxo = ix[~is_diag], jx[~is_diag]
+#     ixd, jxd = ix[is_diag],  jx[is_diag]
+#     res[..., jxo, ixo] = off_diag_elem
+#     res[..., ixo, jxo] = off_diag_elem
+#     res[..., ixd, jxd] = diag_elements
+#     return res
 
-def lhv_size_to_mat_size(lhv_size):
-    mat_size = int((np.sqrt(8 * lhv_size + 1) + 1) // 2)
-    return mat_size
+# def lhv_size_to_mat_size(lhv_size):
+#     mat_size = int((np.sqrt(8 * lhv_size + 1) + 1) // 2)
+#     return mat_size
 
-def mat_size_to_lhv_size(mat_size):
-    lhv_size = int(mat_size * (mat_size - 1) // 2)
-    return lhv_size
+# def mat_size_to_lhv_size(mat_size):
+#     lhv_size = int(mat_size * (mat_size - 1) // 2)
+#     return lhv_size
 
-def hv_size_to_mat_size(lhv_size):
-    mat_size = int((np.sqrt(8 * lhv_size + 1) - 1) // 2)
-    return mat_size
+# def hv_size_to_mat_size(lhv_size):
+#     mat_size = int((np.sqrt(8 * lhv_size + 1) - 1) // 2)
+#     return mat_size
 
-def mat_size_to_hv_size(mat_size):
-    lhv_size = int(mat_size * (mat_size + 1) // 2)
-    return lhv_size
+# def mat_size_to_hv_size(mat_size):
+#     lhv_size = int(mat_size * (mat_size + 1) // 2)
+#     return lhv_size
 
-def lower_half_vec(x):
-    mat_size = x.shape[-1]
-    i, j = np.triu_indices(mat_size, k=1)
-    y = x[...,j, i]
-    return y
+# def lower_half_vec(x):
+#     mat_size = x.shape[-1]
+#     i, j = np.triu_indices(mat_size, k=1)
+#     y = x[...,j, i]
+#     return y
 
-def inv_lower_half_vec(y):
-    old_shape = y.shape
-    lhv_size = y.shape[-1]
-    mat_size = lhv_size_to_mat_size(lhv_size)
-    out_shape = old_shape[:-1] + (mat_size, mat_size)
-    x = np.zeros(out_shape, dtype=y.dtype)
-    i, j = np.triu_indices(mat_size, k=1)
-    x[..., j, i] = y
-    return x
+# def inv_lower_half_vec(y):
+#     old_shape = y.shape
+#     lhv_size = y.shape[-1]
+#     mat_size = lhv_size_to_mat_size(lhv_size)
+#     out_shape = old_shape[:-1] + (mat_size, mat_size)
+#     x = np.zeros(out_shape, dtype=y.dtype)
+#     i, j = np.triu_indices(mat_size, k=1)
+#     x[..., j, i] = y
+#     return x
 
-def lhv_indices(shape):
-    arr_inds = np.indices(shape)
-    lhv_inds = [lower_half_vec(x) for x in arr_inds]
-    return lhv_inds
+# def lhv_indices(shape):
+#     arr_inds = np.indices(shape)
+#     lhv_inds = [lower_half_vec(x) for x in arr_inds]
+#     return lhv_inds
 
-def hv_indices(shape):
-    arr_inds = np.indices(shape)
-    hv_inds = [_vech(x) for x in arr_inds]
-    return hv_inds
+# def hv_indices(shape):
+#     arr_inds = np.indices(shape)
+#     hv_inds = [_vech(x) for x in arr_inds]
+#     return hv_inds
 
-def lhv_ind_parts(mat_size):
-    i = np.cumsum(np.arange(mat_size))
-    return list(zip(*(i[:-1], i[1:])))
+# def lhv_ind_parts(mat_size):
+#     i = np.cumsum(np.arange(mat_size))
+#     return list(zip(*(i[:-1], i[1:])))
 
-def lhv_row_norms(y):
-    lhv_size = y.shape[-1]
-    mat_size = lhv_size_to_mat_size(lhv_size)
-    r, c = lhv_indices((mat_size, mat_size))
-    rj = np.argsort(r)
-    ind_partitions = lhv_ind_parts(mat_size)
-    row_norms = np.zeros(mat_size)
-    row_norms[0] = 1.0
-    for i, (a, b) in enumerate(ind_partitions):
-        ii = rj[a:b]
-        row_norms[i+1] = np.sqrt(np.sum(y[ii]**2)+1)
-    return row_norms
+# def lhv_row_norms(y):
+#     lhv_size = y.shape[-1]
+#     mat_size = lhv_size_to_mat_size(lhv_size)
+#     r, c = lhv_indices((mat_size, mat_size))
+#     rj = np.argsort(r)
+#     ind_partitions = lhv_ind_parts(mat_size)
+#     row_norms = np.zeros(mat_size)
+#     row_norms[0] = 1.0
+#     for i, (a, b) in enumerate(ind_partitions):
+#         ii = rj[a:b]
+#         row_norms[i+1] = np.sqrt(np.sum(y[ii]**2)+1)
+#     return row_norms
 
 
 class UnconstrainedCholeskyCorr(object):

@@ -51,6 +51,7 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cov.xml
+.coveragerc
 
 
 # Translations

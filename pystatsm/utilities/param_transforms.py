@@ -7,7 +7,11 @@ Created on Tue Apr  4 23:32:16 2023
 import numpy as np
 import scipy as sp
 from . import indexing_utils
-from .linalg_operations import gb_diag
+from .linalg_operations import (gb_diag, mat_size_to_lhv_size, mat_size_to_hv_size, 
+                                lhv_indices, hv_indices, lhv_ind_parts, lower_half_vec,
+                                inv_lower_half_vec, _invecl)
+from .special_mats import lmat, nmat
+from .dchol import dchol, unit_matrices
 
 from abc import ABC, abstractmethod
 
@@ -103,7 +107,7 @@ class CombinedTransform(ParameterTransformBase):
             if isinstance(index_obj, (int, np.integer)):
                 stop = start + index_obj
             elif isinstance(index_obj, (slice, tuple, list, np.ndarray)):
-                stop = index_obj[-1] + 1
+                start, stop = index_obj  # Unpack the tuple into start and stop
             else:
                 raise ValueError("Invalid index object type")
             index_ranges.append((start, stop))
@@ -111,19 +115,40 @@ class CombinedTransform(ParameterTransformBase):
         return index_ranges
 
     def _apply_transform(self, params, method_name):
-        transformed_params_list = []
-        for (start, stop), transform in zip(self.index_ranges, self.transforms):
-            method = getattr(transform, method_name)
-            transformed_params_list.append(method(params[..., start:stop]))
-
+        input_len = params.shape[-1]
         if method_name in ('_fwd', '_rvs'):
-            return np.concatenate(transformed_params_list, axis=-1)
+            result = np.zeros_like(params)
+        elif method_name in ('_jac_fwd', '_jac_rvs'):
+            result = np.eye(input_len)
+        elif method_name in ('_hess_fwd', '_hess_rvs'):
+            result = np.zeros((input_len, input_len, input_len))
 
-        if method_name in ('_jac_fwd', '_jac_rvs'):
-            return gb_diag(*transformed_params_list)
+        prev_stop = 0
+        for (start, stop), transform in zip(self.index_ranges, self.transforms):
+            # Apply the identity transform for the range between the previous stop and the current start
+            if prev_stop < start:
+                if method_name in ('_fwd', '_rvs'):
+                    result[..., prev_stop:start] = params[..., prev_stop:start]
 
-        if method_name in ('_hess_fwd', '_hess_rvs'):
-            return  gb_diag(*transformed_params_list)
+            method = getattr(transform, method_name)
+            sliced_params = params[..., start:stop]
+            transformed_slice = method(sliced_params)
+            
+            if method_name in ('_fwd', '_rvs'):
+                result[..., start:stop] = transformed_slice
+            elif method_name in ('_jac_fwd', '_jac_rvs'):
+                result[..., start:stop, start:stop] = transformed_slice
+            elif method_name in ('_hess_fwd', '_hess_rvs'):
+                result[..., start:stop, start:stop, start:stop] = transformed_slice
+
+            prev_stop = stop
+
+        # Apply the identity transform for the remaining range after the last stop
+        if prev_stop < input_len:
+            if method_name in ('_fwd', '_rvs'):
+                result[..., prev_stop:] = params[..., prev_stop:]
+
+        return result
 
     def _fwd(self, params):
         return self._apply_transform(params, '_fwd')
@@ -143,6 +168,88 @@ class CombinedTransform(ParameterTransformBase):
     def _hess_rvs(self, transformed_params):
         return self._apply_transform(transformed_params, '_hess_rvs')
     
+def _hess_chain_rule(d2z_dy2, dy_dx, dz_dy, d2y_dx2):
+    H1 = np.einsum("ijk,kl->ijl", d2z_dy2, dy_dx, optimize=True)
+    H1 = np.einsum("ijk,jl->ilk", H1, dy_dx, optimize=True)
+    H2 = np.einsum("ij,jkl->ikl", dz_dy, d2y_dx2, optimize=True)
+    d2z_dx2 = H1 + H2
+    return d2z_dx2
+
+class ComposedTransform(ParameterTransformBase):
+    def __init__(self, transforms):
+        self.transforms = transforms
+
+    def _fwd(self, params):
+        for transform in self.transforms:
+            params = transform.fwd(params)
+        return params
+
+    def _rvs(self, transformed_params):
+        for transform in reversed(self.transforms):
+            transformed_params = transform.rvs(transformed_params)
+        return transformed_params
+
+    def _jac_fwd(self, params):
+        jacobian = np.eye(params.shape[0])
+        for transform in self.transforms:
+            jac = transform.jac_fwd(params)
+            params = transform.fwd(params)
+            jacobian = np.dot(jac,  jacobian)
+        return jacobian
+
+    def _jac_rvs(self, transformed_params):
+        jacobian = np.eye(transformed_params.shape[0])
+        for transform in reversed(self.transforms):
+            jac = transform.jac_rvs(transformed_params)
+            transformed_params = transform.rvs(transformed_params)
+            jacobian = np.dot(jac,  jacobian)
+        return jacobian
+
+    def _hess_fwd(self, x0):
+                
+        input_vars = [x0]
+        for transform in self.transforms:
+            input_vars.append(transform._fwd(input_vars[-1]))
+        
+        jacobians = []
+        for i, transform in enumerate(self.transforms):
+            jacobians.append(transform._jac_fwd(input_vars[i]))
+        
+        jacs = [jacobians[0]]
+        for i in range(1, len(self.transforms)-1):
+            jacs.append(jacobians[i].dot(jacs[i-1]))
+        
+        hessians = []
+        for i, transform in enumerate(self.transforms):
+            hessians.append(transform._hess_fwd(input_vars[i]))
+        
+        
+        hess = [hessians[0]]
+        for i in range(1, len(self.transforms)):
+            hess.append(_hess_chain_rule(hessians[i], jacs[i-1], jacobians[i], hess[i-1]))
+        return hess[-1]
+
+    def _hess_rvs(self, u):
+        output_vars = [u]
+        for transform in reversed(self.transforms):
+            output_vars.append(transform._rvs(output_vars[-1]))
+        
+        jacobians = []
+        for i, transform in enumerate(reversed(self.transforms)):
+            jacobians.append(transform._jac_rvs(output_vars[i]))
+        
+        jacs = [jacobians[0]]
+        for i in range(1, len(self.transforms) - 1):
+            jacs.append(jacobians[i].dot(jacs[i - 1]))
+        
+        hessians = []
+        for i, transform in enumerate(reversed(self.transforms)):
+            hessians.append(transform._hess_rvs(output_vars[i]))
+        
+        hess = [hessians[0]]
+        for i in range(1, len(self.transforms)):
+            hess.append(_hess_chain_rule(hessians[i], jacs[i - 1], jacobians[i], hess[i - 1]))
+        return hess[-1]
 
 class OrderedTransform(ParameterTransformBase):
     """
@@ -416,4 +523,354 @@ class TanhTransform(ParameterTransformBase):
             hess = np.zeros((n, n, n))
             hess[np.arange(n), np.arange(n), np.arange(n)] = 2 * params / (1 - params ** 2) ** 2
             return hess
+
+class UnconstrainedCholeskyCorr(ParameterTransformBase):
+    
+    def __init__(self, mat_size):
+        self.mat_size = mat_size
+        self.lhv_size = mat_size_to_lhv_size(mat_size)
+        self.row_inds, self.col_inds = lhv_indices((mat_size, mat_size))
+        self.row_sort = np.argsort(self.row_inds)
+        self.ind_parts = lhv_ind_parts(mat_size)
+        self.row_norm_inds = [self.row_sort[a:b] for a, b in self.ind_parts]
+    
+    def _fwd(self, x):
+        row_norms = np.zeros_like(x)
+        for ii in self.row_norm_inds:
+            row_norms[ii] = np.sqrt(np.sum(x[ii]**2)+1)
+        y = x / row_norms
+        return y
+    
+    def _rvs(self, y):
+        diag = np.zeros_like(y)
+        for ii in self.row_norm_inds:
+            diag[ii] = np.sqrt(1-np.sum(y[ii]**2))
+        x = y / diag
+        return x
+    
+    def _jac_fwd(self, x):
+        dy_dx = np.zeros((x.shape[0],)*2)
+        for ii in self.row_norm_inds:
+            xii = x[ii]
+            s = np.sqrt(np.sum(xii**2)+1)
+            v1 = 1.0 / s * np.eye(len(ii))
+            v2 = 1.0 / (s**3) * xii[:, None] * xii[:,None].T
+            dy_dx[ii, ii[:, None]] = v1 - v2
+        return dy_dx
+    
+    def _hess_fwd(self, x):
+        d2y_dx2 = np.zeros((x.shape[0],)*3)
+        for ii in self.row_norm_inds:
+            x_ii = x[ii]
+            s = np.sqrt(1.0 + np.sum(x_ii**2))
+            s3 = s**3
+            s5 = s**5
+            for i in ii:
+                for j in ii:
+                    for k in ii:
+                        t1 = -1.0*(j==k) / s3 * x[i]
+                        t2 = -1.0*(j==i) / s3 * x[k]
+                        t3 = -1.0*(k==i) / s3 * x[j]
+                        t4 = 3.0 / (s5) * x[j] * x[k] * x[i]
+                        d2y_dx2[i, j, k] = t1+t2+t3+t4
+        return d2y_dx2
+                        
+    def _jac_rvs(self, y):
+        dx_dy = np.zeros((y.shape[0],)*2)
+        for ii in self.row_norm_inds:
+            yii = y[ii]
+            s = np.sqrt(1.0 - np.sum(yii**2))
+            v1 = 1.0 / s * np.eye(len(ii))
+            v2 = 1.0 / (s**3) * yii[:, None] * yii[:,None].T
+            dx_dy[ii, ii[:, None]] = v1 + v2
+        return dx_dy
+    
+    def _hess_rvs(self, y):
+        d2x_dy2 = np.zeros((y.shape[0],)*3)
+        for ii in self.row_norm_inds:
+            y_ii = y[ii]
+            s = np.sqrt(1.0 - np.sum(y_ii**2))
+            s3 = s**3
+            s5 = s**5
+            for i in ii:
+                for j in ii:
+                    for k in ii:
+                        t1 = 1.0*(j==k) / s3 * y[i]
+                        t2 = 1.0*(j==i) / s3 * y[k]
+                        t3 = 1.0*(k==i) / s3 * y[j]
+                        t4 = 3.0 / s5 * y[i] * y[j] * y[k]
+                        d2x_dy2[i, j, k] = t1 + t2 + t3 + t4
+        return d2x_dy2
+    
+
+
+class CovCorr(ParameterTransformBase):
+    
+    def __init__(self, mat_size):
+        self.mat_size = mat_size
+        self.hv_size = mat_size_to_hv_size(mat_size)
+        self.row_inds, self.col_inds = hv_indices((mat_size, mat_size))
+        self.diag_inds, = np.where(self.row_inds==self.col_inds)
+        self.tril_inds, = np.where(self.row_inds!=self.col_inds)
+        self.row_diag_inds = self.diag_inds[self.row_inds]
+        self.col_diag_inds = self.diag_inds[self.col_inds]
+        ii = self.row_diag_inds!=self.col_diag_inds
+        self.dr_perm = np.vstack((self.col_diag_inds[ii], self.row_diag_inds[ii])).T.flatten()
+        self.dc_perm = np.repeat(self.tril_inds, 2)
+        self.ii = ii
+
+        
+    def _fwd(self, x):
+        sj = np.sqrt(x[self.row_diag_inds])
+        sk = np.sqrt(x[self.col_diag_inds])
+        y = x / (sj * sk)
+        y[self.diag_inds] = x[self.diag_inds] #np.log(x[self.diag_inds])
+        return y
+    
+    def _rvs(self, y):
+        sj = np.sqrt(y[self.row_diag_inds])
+        sk = np.sqrt(y[self.col_diag_inds])
+        x = y * sj * sk
+        x[self.diag_inds] = y[self.diag_inds]
+        return x
+    
+    def _jac_fwd(self, x):
+        dy_dx = np.zeros((x.shape[0],)*2)
+        sj = np.sqrt(x[self.row_diag_inds])
+        sk = np.sqrt(x[self.col_diag_inds])
+        t1 = 1 / (sj*sk)
+        t2 = -1.0 / 2.0 * x / (sj**3 * sk)
+        t3 = -1.0 / 2.0 * x / (sk**3 * sj)
+        t = np.vstack((t3, t2)).T[self.ii].flatten()
+        dy_dx[self.diag_inds, self.diag_inds] = 1.0# / x[self.diag_inds]
+        dy_dx[self.tril_inds, self.tril_inds] = t1[self.tril_inds]
+        dy_dx[self.dc_perm, self.dr_perm] = t
+        return dy_dx
+    
+    def _jac_rvs(self, y):
+        dx_dy = np.zeros((y.shape[0],)*2)
+        sj = np.sqrt(y[self.row_diag_inds])
+        sk = np.sqrt(y[self.col_diag_inds])
+        t1 = (sj*sk)
+        t2 = 1.0 / 2.0 * y * sk / sj
+        t3 = 1.0 / 2.0 * y * sj / sk
+        t = np.vstack((t3, t2)).T[self.ii].flatten()
+        dx_dy[self.diag_inds, self.diag_inds] = 1.0#np.exp(y[self.diag_inds])
+        dx_dy[self.tril_inds, self.tril_inds] = t1[self.tril_inds]
+        dx_dy[self.dc_perm, self.dr_perm] = t
+        return dx_dy
+    
+    def _hess_fwd(self, x):
+        rix, cix = self.row_diag_inds, self.col_diag_inds
+        d2y_dx2 = np.zeros((self.hv_size,)*3)
+        for i in range(self.hv_size):
+            j, k = rix[i], cix[i]
+            if j!=k:
+                xi, xj, xk = x[i], x[j], x[k] #w, y, z = x[i], x[j], x[k]
+                sjk =  np.sqrt(xj * xk)       #syz = np.sqrt(y * z)
+                d2yi_dxidxj = -xk / (2.0 * sjk**3) #d2y_dwdy = -z / (2.0 * syz**3)
+                d2yi_dxidxk = -xj / (2.0 * sjk**3) #d2y_dwdz = -y / (2.0 * syz**3)
+                d2yi_dxjdxj = (3.0 * xi * xk**2)   / (4.0 * sjk**5)  #d2y_dydy = (3.0 * w * z**2)  / (4.0 * syz**5)
+                d2yi_dxjdxk = (3.0 * xi * xj * xk) / (4.0 * sjk**5) - xi / (2.0 * sjk**3) #d2y_dydz = (3.0 * w * y * z) / (4.0 * syz**5) - (w) / (2.0 * syz**3)
+                d2yi_dxkdxk = (3.0 * xi * xj**2)   / (4.0 * sjk**5) #d2y_dzdz = (3.0 * w * y**2)  / (4.0 * syz**5)
+                
+                d2y_dx2[i, i, j] = d2y_dx2[i, j, i] = d2yi_dxidxj
+                d2y_dx2[i, i, k] = d2y_dx2[i, k, i] = d2yi_dxidxk
+                d2y_dx2[i, j, j] = d2yi_dxjdxj
+                d2y_dx2[i, j, k] = d2y_dx2[i, k, j] = d2yi_dxjdxk
+                d2y_dx2[i, k, k] = d2yi_dxkdxk
+        return d2y_dx2
+    
+    def _hess_rvs(self, y):
+        rix, cix = self.row_diag_inds, self.col_diag_inds
+        d2x_dy2 = np.zeros((self.hv_size,)*3)
+        for i in range(self.hv_size):
+            j, k = rix[i], cix[i]
+            if j!=k:
+               yi, yj, yk = y[i], y[j], y[k]  
+               d2xi_dyidyj = np.sqrt(yk) / (2.0 * np.sqrt(yj))
+               d2xi_dyidyk = np.sqrt(yj) / (2.0 * np.sqrt(yk))
+               d2xi_dyjdyj = (-yi * np.sqrt(yk)) / (4.0 * np.sqrt(yj)**3)
+               d2xi_dyjdyk = yi / (4.0 * np.sqrt(yj * yk))
+               d2xi_dykdyk = (-yi * np.sqrt(yj)) / (4.0 * np.sqrt(yk)**3)
+               
+               d2x_dy2[i, i, j] = d2x_dy2[i, j, i] = d2xi_dyidyj
+               d2x_dy2[i, i, k] = d2x_dy2[i, k, i] = d2xi_dyidyk
+               d2x_dy2[i, j, j] = d2xi_dyjdyj
+               d2x_dy2[i, j, k] = d2x_dy2[i, k, j] = d2xi_dyjdyk
+               d2x_dy2[i, k, k] = d2xi_dykdyk
+        return d2x_dy2
+        
+   
+class LogScale(ParameterTransformBase):
+    
+    def __init__(self, mat_size):
+        self.mat_size = mat_size
+        self.hv_size = mat_size_to_hv_size(mat_size)
+        self.row_inds, self.col_inds = hv_indices((mat_size, mat_size))
+        self.diag_inds, = np.where(self.row_inds==self.col_inds)
+        self.tril_inds, = np.where(self.row_inds!=self.col_inds)
+    
+    def _fwd(self, x):
+        ix = self.diag_inds
+        y = x.copy()
+        y[ix] = np.log(x[ix])
+        return y
+    
+    def _rvs(self, y):
+        ix = self.diag_inds
+        x = y.copy()
+        x[ix] = np.exp(y[ix])
+        return x
+        
+    def _jac_fwd(self, x):
+        ix = self.diag_inds
+        dy_dx = np.eye(x.shape[-1])
+        dy_dx[ix, ix] = 1 / x[ix]
+        return dy_dx
+    
+    def _jac_rvs(self, y):
+        ix = self.diag_inds
+        dx_dy = np.eye(y.shape[-1])
+        dx_dy[ix, ix] = np.exp(y[ix])
+        return dx_dy
+    
+    def _hess_fwd(self, x):
+        ix = self.diag_inds
+        d2y_dx2 = np.zeros((x.shape[-1],)*3)
+        d2y_dx2[ix, ix, ix] = -1 / x[ix]**2
+        return d2y_dx2
+        
+    def _hess_rvs(self, y):
+        ix = self.diag_inds
+        d2x_dy2 = np.zeros((y.shape[-1],)*3)
+        d2x_dy2[ix, ix, ix] = np.exp(y[ix])
+        return d2x_dy2
+    
+    
+class CorrCholesky(ParameterTransformBase):
+    
+    def __init__(self, mat_size):
+        self.n = self.mat_size = mat_size
+        self.m = self.vec_size = int((mat_size + 1) * mat_size / 2)
+        self.I = np.eye(self.n)
+        self.N = nmat(self.n)
+        self.E = lmat(self.n)
+        self.diag_inds = np.diag_indices(self.mat_size)
+        self.lhv_size = mat_size_to_lhv_size(mat_size)
+        self.row_inds, self.col_inds = lhv_indices((mat_size, mat_size))
+        self.row_sort = np.argsort(self.row_inds)
+        self.ind_parts = lhv_ind_parts(mat_size)
+        self.row_norm_inds = [self.row_sort[a:b] for a, b in self.ind_parts]
+        j, i = np.triu_indices(self.n)
+        self.non_diag, = np.where(j!=i)
+        self.dM, self.d2M = unit_matrices(mat_size)
+        row_inds, col_inds = hv_indices((self.mat_size, self.mat_size))
+        self.tril_inds, = np.where(row_inds!=col_inds)
+        
+    def _fwd(self, x):
+        R = _invecl(x)
+        L = np.linalg.cholesky(R)
+        y = lower_half_vec(L)
+        return y
+    
+    def _rvs(self, y):
+        L = inv_lower_half_vec(y)
+        L[self.diag_inds] = np.sqrt(1-np.linalg.norm(L, axis=-1)**2)
+        R = np.dot(L, L.T)
+        x = lower_half_vec(R)
+        return x
+    
+    def _jac_fwd(self, x):
+        M = _invecl(x)
+        _, dL, _ = dchol(M, self.dM, self.d2M, order=1)
+        dL = dL.reshape(np.product(dL.shape[:2]), dL.shape[2], order='F')
+        dy_dx = self.E.dot(dL)[np.ix_(self.tril_inds, self.tril_inds)]
+        return dy_dx
+    
+    def _jac_rvs(self, y):
+        x = self._rvs(y)
+        dx_dy = np.linalg.inv(self._jac_fwd(x))
+        return dx_dy
+    
+    def _hess_fwd(self, x):
+        M = _invecl(x)
+        _, _, d2L = dchol(M, self.dM, self.d2M, order=2)
+        k = (np.product(d2L.shape[:2]),)
+        d2L = d2L.reshape(k+d2L.shape[2:], order='F')
+        d2L = d2L[self.E.tocoo().col]
+        d2y_dx2 = d2L[np.ix_(self.tril_inds, self.tril_inds, self.tril_inds)]
+        return d2y_dx2
+    
+    def _hess_rvs(self, y):
+        x = self._rvs(y)
+        d2y_dx2 = self._hess_fwd(x)
+        dx_dy = self._jac_rvs(y)
+        d2x_dy2 = np.einsum("rst,ir,sj,tk->ijk", -d2y_dx2, dx_dy, dx_dy, dx_dy, optimize=True)
+        return d2x_dy2
+        
+
+class OffDiagMask(ParameterTransformBase):
+    
+    def __init__(self, transform):
+        self.mat_size = transform.mat_size
+        self.hv_size = mat_size_to_hv_size(self.mat_size)
+        self.row_inds, self.col_inds = hv_indices((self.mat_size, self.mat_size))
+        self.diag_inds, = np.where(self.row_inds==self.col_inds)
+        self.tril_inds, = np.where(self.row_inds!=self.col_inds)
+        self.transform = transform
+        
+    def _fwd(self, x):
+        y = x.copy()
+        y[self.tril_inds] = self.transform._fwd(y[self.tril_inds])
+        return y
+    
+    def _rvs(self, y):
+        x = y.copy()
+        x[self.tril_inds] = self.transform._rvs(x[self.tril_inds])
+        return x
+    
+    def _jac_fwd(self, x):
+        dy_dx = np.zeros((self.hv_size, self.hv_size))
+        ii, ij = self.diag_inds, self.tril_inds
+        dy_dx[np.ix_(ij, ij)] = self.transform._jac_fwd(x[ij].copy())
+        dy_dx[np.ix_(ii, ii)] = np.eye(len(ii))
+        return dy_dx
+    
+    def _jac_rvs(self, y):
+        dx_dy = np.zeros((self.hv_size, self.hv_size))
+        ii, ij = self.diag_inds, self.tril_inds
+        dx_dy[np.ix_(ij, ij)] = self.transform._jac_rvs(y[ij].copy())
+        dx_dy[np.ix_(ii, ii)] = np.eye(len(ii))
+        return dx_dy
+    
+    def _hess_fwd(self, x):
+        d2y_dx2 = np.zeros((self.hv_size, self.hv_size, self.hv_size))
+        ij = self.tril_inds
+        d2y_dx2[np.ix_(ij, ij, ij)] = self.transform._hess_fwd(x[ij].copy())
+        return d2y_dx2
+    
+    def _hess_rvs(self, y):
+        d2x_dy2 = np.zeros((self.hv_size, self.hv_size, self.hv_size))
+        ij = self.tril_inds
+        d2x_dy2[np.ix_(ij, ij, ij)] = self.transform._hess_rvs(y[ij].copy())
+        return d2x_dy2
+
+  
+    
+class CholeskyCov(ComposedTransform):
+    
+    def __init__(self, mat_size):
+        self.covn_to_corr = CovCorr(mat_size)
+        self.corr_to_chol = OffDiagMask(CorrCholesky(mat_size))
+        self.chol_to_real = OffDiagMask(UnconstrainedCholeskyCorr(mat_size))
+        self.vars_to_logs = LogScale(mat_size)
+        
+        super().__init__(
+            [self.covn_to_corr,
+            self.corr_to_chol,
+            self.chol_to_real,
+            self.vars_to_logs]
+        )
+
 
