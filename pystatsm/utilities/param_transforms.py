@@ -12,7 +12,7 @@ from .linalg_operations import (gb_diag, mat_size_to_lhv_size, mat_size_to_hv_si
                                 inv_lower_half_vec, _invecl)
 from .special_mats import lmat, nmat
 from .dchol import dchol, unit_matrices
-
+from . import unconstrained_chol 
 from abc import ABC, abstractmethod
 
 
@@ -524,83 +524,117 @@ class TanhTransform(ParameterTransformBase):
             hess[np.arange(n), np.arange(n), np.arange(n)] = 2 * params / (1 - params ** 2) ** 2
             return hess
 
+
+
 class UnconstrainedCholeskyCorr(ParameterTransformBase):
+    
     
     def __init__(self, mat_size):
         self.mat_size = mat_size
-        self.lhv_size = mat_size_to_lhv_size(mat_size)
-        self.row_inds, self.col_inds = lhv_indices((mat_size, mat_size))
-        self.row_sort = np.argsort(self.row_inds)
-        self.ind_parts = lhv_ind_parts(mat_size)
-        self.row_norm_inds = [self.row_sort[a:b] for a, b in self.ind_parts]
+        
+    @staticmethod
+    def _fwd(x):
+        return unconstrained_chol.fwd(x)
+        
+    @staticmethod
+    def _rvs(y):
+        return unconstrained_chol.rvs(y)
     
-    def _fwd(self, x):
-        row_norms = np.zeros_like(x)
-        for ii in self.row_norm_inds:
-            row_norms[ii] = np.sqrt(np.sum(x[ii]**2)+1)
-        y = x / row_norms
-        return y
+    @staticmethod
+    def _jac_fwd(x):
+        return unconstrained_chol.jac_fwd(x)
+        
+    @staticmethod
+    def _jac_rvs(y):
+        return unconstrained_chol.jac_rvs(y)
     
-    def _rvs(self, y):
-        diag = np.zeros_like(y)
-        for ii in self.row_norm_inds:
-            diag[ii] = np.sqrt(1-np.sum(y[ii]**2))
-        x = y / diag
-        return x
+    @staticmethod
+    def _hess_fwd(x):
+        return unconstrained_chol.hess_fwd(x)
     
-    def _jac_fwd(self, x):
-        dy_dx = np.zeros((x.shape[0],)*2)
-        for ii in self.row_norm_inds:
-            xii = x[ii]
-            s = np.sqrt(np.sum(xii**2)+1)
-            v1 = 1.0 / s * np.eye(len(ii))
-            v2 = 1.0 / (s**3) * xii[:, None] * xii[:,None].T
-            dy_dx[ii, ii[:, None]] = v1 - v2
-        return dy_dx
+    @staticmethod
+    def _hess_rvs(y):
+        return unconstrained_chol.hess_rvs(y)
     
-    def _hess_fwd(self, x):
-        d2y_dx2 = np.zeros((x.shape[0],)*3)
-        for ii in self.row_norm_inds:
-            x_ii = x[ii]
-            s = np.sqrt(1.0 + np.sum(x_ii**2))
-            s3 = s**3
-            s5 = s**5
-            for i in ii:
-                for j in ii:
-                    for k in ii:
-                        t1 = -1.0*(j==k) / s3 * x[i]
-                        t2 = -1.0*(j==i) / s3 * x[k]
-                        t3 = -1.0*(k==i) / s3 * x[j]
-                        t4 = 3.0 / (s5) * x[j] * x[k] * x[i]
-                        d2y_dx2[i, j, k] = t1+t2+t3+t4
-        return d2y_dx2
+    
+    
+# class UnconstrainedCholeskyCorr(ParameterTransformBase):
+    
+#     def __init__(self, mat_size):
+#         self.mat_size = mat_size
+#         self.lhv_size = mat_size_to_lhv_size(mat_size)
+#         self.row_inds, self.col_inds = lhv_indices((mat_size, mat_size))
+#         self.row_sort = np.argsort(self.row_inds)
+#         self.ind_parts = lhv_ind_parts(mat_size)
+#         self.row_norm_inds = [self.row_sort[a:b] for a, b in self.ind_parts]
+    
+#     def _fwd(self, x):
+#         row_norms = np.zeros_like(x)
+#         for ii in self.row_norm_inds:
+#             row_norms[ii] = np.sqrt(np.sum(x[ii]**2)+1)
+#         y = x / row_norms
+#         return y
+    
+#     def _rvs(self, y):
+#         diag = np.zeros_like(y)
+#         for ii in self.row_norm_inds:
+#             diag[ii] = np.sqrt(1-np.sum(y[ii]**2))
+#         x = y / diag
+#         return x
+    
+#     def _jac_fwd(self, x):
+#         dy_dx = np.zeros((x.shape[0],)*2)
+#         for ii in self.row_norm_inds:
+#             xii = x[ii]
+#             s = np.sqrt(np.sum(xii**2)+1)
+#             v1 = 1.0 / s * np.eye(len(ii))
+#             v2 = 1.0 / (s**3) * xii[:, None] * xii[:,None].T
+#             dy_dx[ii, ii[:, None]] = v1 - v2
+#         return dy_dx
+    
+#     def _hess_fwd(self, x):
+#         d2y_dx2 = np.zeros((x.shape[0],)*3)
+#         for ii in self.row_norm_inds:
+#             x_ii = x[ii]
+#             s = np.sqrt(1.0 + np.sum(x_ii**2))
+#             s3 = s**3
+#             s5 = s**5
+#             for i in ii:
+#                 for j in ii:
+#                     for k in ii:
+#                         t1 = -1.0*(j==k) / s3 * x[i]
+#                         t2 = -1.0*(j==i) / s3 * x[k]
+#                         t3 = -1.0*(k==i) / s3 * x[j]
+#                         t4 = 3.0 / (s5) * x[j] * x[k] * x[i]
+#                         d2y_dx2[i, j, k] = t1+t2+t3+t4
+#         return d2y_dx2
                         
-    def _jac_rvs(self, y):
-        dx_dy = np.zeros((y.shape[0],)*2)
-        for ii in self.row_norm_inds:
-            yii = y[ii]
-            s = np.sqrt(1.0 - np.sum(yii**2))
-            v1 = 1.0 / s * np.eye(len(ii))
-            v2 = 1.0 / (s**3) * yii[:, None] * yii[:,None].T
-            dx_dy[ii, ii[:, None]] = v1 + v2
-        return dx_dy
+#     def _jac_rvs(self, y):
+#         dx_dy = np.zeros((y.shape[0],)*2)
+#         for ii in self.row_norm_inds:
+#             yii = y[ii]
+#             s = np.sqrt(1.0 - np.sum(yii**2))
+#             v1 = 1.0 / s * np.eye(len(ii))
+#             v2 = 1.0 / (s**3) * yii[:, None] * yii[:,None].T
+#             dx_dy[ii, ii[:, None]] = v1 + v2
+#         return dx_dy
     
-    def _hess_rvs(self, y):
-        d2x_dy2 = np.zeros((y.shape[0],)*3)
-        for ii in self.row_norm_inds:
-            y_ii = y[ii]
-            s = np.sqrt(1.0 - np.sum(y_ii**2))
-            s3 = s**3
-            s5 = s**5
-            for i in ii:
-                for j in ii:
-                    for k in ii:
-                        t1 = 1.0*(j==k) / s3 * y[i]
-                        t2 = 1.0*(j==i) / s3 * y[k]
-                        t3 = 1.0*(k==i) / s3 * y[j]
-                        t4 = 3.0 / s5 * y[i] * y[j] * y[k]
-                        d2x_dy2[i, j, k] = t1 + t2 + t3 + t4
-        return d2x_dy2
+#     def _hess_rvs(self, y):
+#         d2x_dy2 = np.zeros((y.shape[0],)*3)
+#         for ii in self.row_norm_inds:
+#             y_ii = y[ii]
+#             s = np.sqrt(1.0 - np.sum(y_ii**2))
+#             s3 = s**3
+#             s5 = s**5
+#             for i in ii:
+#                 for j in ii:
+#                     for k in ii:
+#                         t1 = 1.0*(j==k) / s3 * y[i]
+#                         t2 = 1.0*(j==i) / s3 * y[k]
+#                         t3 = 1.0*(k==i) / s3 * y[j]
+#                         t4 = 3.0 / s5 * y[i] * y[j] * y[k]
+#                         d2x_dy2[i, j, k] = t1 + t2 + t3 + t4
+#         return d2x_dy2
     
 
 
@@ -865,12 +899,17 @@ class CholeskyCov(ComposedTransform):
         self.corr_to_chol = OffDiagMask(CorrCholesky(mat_size))
         self.chol_to_real = OffDiagMask(UnconstrainedCholeskyCorr(mat_size))
         self.vars_to_logs = LogScale(mat_size)
+        tanh = TanhTransform()
+        tanh.mat_size = mat_size
+        self.tanh = OffDiagMask(tanh)
         
         super().__init__(
             [self.covn_to_corr,
             self.corr_to_chol,
             self.chol_to_real,
-            self.vars_to_logs]
+            self.tanh,
+            self.vars_to_logs,
+            ]
         )
 
 
