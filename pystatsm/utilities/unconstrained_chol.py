@@ -47,7 +47,7 @@ def lhv_size_to_mat_size(lhv_size):
 
 
 @numba.jit(nopython=True)
-def fwd(x):
+def rvs(x):
     n = lhv_size_to_mat_size(len(x))
     y = np.zeros_like(x)
     for i in range(1, n):
@@ -65,12 +65,12 @@ def fwd(x):
 
 
 @numba.jit(nopython=True)
-def jac_fwd(x):
+def jac_rvs(x):
     m = len(x)
     n = lhv_size_to_mat_size(m)
     J = np.zeros((m, m))
     ds_dx = np.zeros(m)
-    y = fwd(x)
+    y = rvs(x)
     for i in range(1, n):
         k1 = vecl_inds_forwards(i, 0, n)
         J[k1, k1] = 1.0
@@ -93,12 +93,12 @@ def jac_fwd(x):
 
 
 @numba.jit(nopython=True)
-def hess_fwd(x):
+def hess_rvs(x):
     m = len(x)
     n = lhv_size_to_mat_size(m)
     J = np.zeros((m, m))
     H = np.zeros((m, m, m))
-    y = fwd(x)
+    y = rvs(x)
     ds_dx = np.zeros(m)
     d2s_dx2 = np.zeros((m, m))
     for i in range(1, n):
@@ -138,7 +138,7 @@ def hess_fwd(x):
     return H
 
 @numba.jit(nopython=True)
-def rvs(y):
+def fwd(y):
     n = lhv_size_to_mat_size(len(y))
     x = np.zeros_like(y)
     for i in range(1, n):
@@ -152,7 +152,7 @@ def rvs(y):
     return x
 
 @numba.jit(nopython=True)
-def jacobian_rvs(y):
+def jac_fwd(y):
     m = len(y)
     n = lhv_size_to_mat_size(m)
     J = np.zeros((m, m))
@@ -177,7 +177,7 @@ def jacobian_rvs(y):
     return J
 
 @numba.jit(nopython=True)
-def hess_rvs(y):
+def hess_fwd(y):
     m = len(y)
     n = lhv_size_to_mat_size(m)
     J = np.zeros((m, m))
