@@ -341,7 +341,6 @@ class RegressionMixin(object):
     model_data : ModelData
         Contains the processed data for the model.
     """
-
     def __init__(self, formula=None, data=None, X=None, y=None, weights=None,
                  data_class=None, *args, **kwargs):
         """
@@ -367,6 +366,7 @@ class RegressionMixin(object):
         self.model_data = self._process_data(formula, data, X, y, data_class=data_class,
                                              *args, **kwargs)
         self.model_data.add_weights(weights)
+        
         
     @staticmethod
     def _process_data(formula=None, data=None, X=None, y=None, data_class=None,
@@ -397,16 +397,22 @@ class RegressionMixin(object):
             The processed data for the model.
         """
         data_class = ModelData if data_class is None else data_class
+        
         if formula is not None and data is not None:
-            model_data = data_class.from_formulas(data, formula, *args, **kwargs)
-            y, X = patsy.dmatrices(formula, data=data, return_type='dataframe')
+            if isinstance(formula, str):
+                formula = [formula]
+            model_data = data_class.from_formulas(data, *formula, *args, **kwargs)
+           #y, X = patsy.dmatrices(formula[-1], data=data, return_type='dataframe')
         elif X is not None and y is not None:
-            model_data = data_class(*((X,)+args+(y,)))
+            if not isinstance(X, (list, tuple)):
+                X = [X]
+            model_data = data_class(*((*X,)+args+(y,)))
+        
         if np.ndim(model_data.data[-1]) == 2:
             if model_data.data[-1].shape[1] == 1:
                 model_data.flatten_y()
+                
         return model_data
-
                            
     @staticmethod
     def sandwich_cov(grad_weight, X, leverage=None, kind="HC0"):
