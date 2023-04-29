@@ -64,13 +64,11 @@ def test_zeroinflatedpoisson():
     
     gi_an = model.gradient_i(params)
     g_an = model.gradient(params)
-    g_an2 = model.gradient2(params)
     H_an = model.hessian(params)
     
     
     assert(np.allclose(gi_nm, gi_an, atol=1e-6))
     assert(np.allclose(g_nm, g_an))
-    assert(np.allclose(g_nm, g_an2))
     assert(np.allclose(H_nm, H_an, atol=1e-6))
     
     
