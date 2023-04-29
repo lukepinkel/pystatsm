@@ -45,6 +45,7 @@ class OLS(RegressionMixin, LikelihoodModel):
         self.X, self.y, self.weights = self.model_data
         self.n = self.n_obs = self.X.shape[0]
         self.p = self.n_var = self.X.shape[1]
+        self.design_info = self.model_data.design_info
         self.x_design_info, self.y_design_info = self.model_data.design_info
         self.formula = formula
         self.data = data
