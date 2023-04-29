@@ -86,6 +86,7 @@ class GLM(RegressionMixin, LikelihoodModel):
         self.n = self.n_obs = self.X.shape[0]
         self.p = self.n_var = self.X.shape[1]
         self.x_design_info, self.y_design_info = self.model_data.design_info
+        self.design_info = self.model_data.design_info
         self.formula = formula
         #self.data = data
         if isinstance(family, ExponentialFamily) is False:

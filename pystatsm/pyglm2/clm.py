@@ -95,6 +95,7 @@ class CLM(RegressionMixin, LikelihoodModel):
         self.n = self.n_obs = self.X.shape[0]
         self.p = self.n_var = self.X.shape[1]
         self.x_design_info, self.y_design_info = self.model_data.design_info
+        self.design_info = self.model_data.design_info
         self.formula = formula
         self.beta_labels = list(self.xcols)
         self.A1, self.A2 =  self.model_data.A1, self.model_data.A2
@@ -217,6 +218,29 @@ class CLM(RegressionMixin, LikelihoodModel):
         data = self.model_data if data is None else data 
         q = self.q if q is None else q
         g = self._gradient(params=params, data=data, link=link, q=q)
+        return g
+    
+    @staticmethod
+    def _gradient_i(params, data, link, q):
+        B1, B2, o1, o2, o1ix, w = data
+        
+        eta1, eta2 = B1.dot(params) + o1, B2.dot(params) + o2
+        mu1, mu2 = link.inv_link(eta1), link.inv_link(eta2)
+        mu1[o1ix] = 1.0
+        prob = mu1 - mu2
+        
+        d1eta1, d1eta2 = link.dinv_link(eta1), link.dinv_link(eta2)
+        d1eta1[o1ix] = 0.0
+        
+        dprob = (B1 * d1eta1[:, None]) - (B2 * d1eta2[:, None])
+        g = -dprob * (w/prob)[:, None]
+        return g
+    
+    def gradient_i(self, params, data=None, link=None, q=None):
+        link = self.link if link is None else link
+        data = self.model_data if data is None else data 
+        q = self.q if q is None else q
+        g = self._gradient_i(params=params, data=data, link=link, q=q)
         return g
     
     @staticmethod
