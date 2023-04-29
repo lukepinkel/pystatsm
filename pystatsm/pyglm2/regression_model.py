@@ -533,6 +533,23 @@ class RegressionMixin(object):
             constraint_matrices[name] = C.copy()
         self.constraint_matrices = constraint_matrices
         
+    def make_termwise_constraint_matrices2(self, scale=False, offset=0):
+        ii = np.arange(self.n_params)
+        constraint_matrices = {}
+        dinfo = self.design_info[:-1]
+        for i, d in enumerate(dinfo):
+            names = [x for x in d.term_names if x != "Intercept"]
+            constraint_matrices[i] = {}
+            for name in names:
+                term_slice = d.term_name_slices[name]
+                term_slice = slice(term_slice.start+offset, term_slice.stop+offset, 
+                                   term_slice.step)
+                C = np.zeros((len(ii[term_slice]), self.n_params))
+                C[np.arange(len(ii[term_slice])), ii[term_slice]] = 1.0
+                constraint_matrices[i][name] = C.copy()
+            offset = offset + len(d.column_names)
+        self.constraint_matrices = constraint_matrices
+        
     def ll_tests(self, ll=None, grad=None, hess=None, grad_i=None, params=None, 
                  scale=False, offset=0):
         func = self.full_loglike if ll is None else ll
@@ -593,7 +610,71 @@ class RegressionMixin(object):
         self.score_tests = pd.concat(score_tests)
         
         
+    def ll_tests2(self, ll=None, grad=None, hess=None, grad_i=None, params=None, 
+                 scale=False, offset=0):
+        func = self.full_loglike if ll is None else ll
+        grad = self.gradient if grad is None else grad
+        hess = self.hessian if hess is None else hess
+        grad_i = self.gradient_i if grad_i is None else grad_i
+        params = self.params if params is None else params
+        params_unconstrained = params.copy()
     
+        wald_tests = {}
+        score_tests = {}
+    
+        # Iterate over design_info objects and their corresponding constraint_matrices
+        for i, design_info in enumerate(self.design_info[:-1]):
+            names = [x for x in design_info.term_names if x != "Intercept"]
+            for name in names:
+                term_slice = design_info.term_name_slices[name]
+                term_slice = slice(term_slice.start + offset,
+                                   term_slice.stop + offset, term_slice.step)
+                zero_indices = np.arange(self.n_params)
+                zero_indices = zero_indices[:-1] if scale else zero_indices
+                zero_indices = zero_indices[term_slice]
+                constraint = optimizer_utils.ZeroConstraint(self.n_params, zero_indices)
+    
+                constraint = sp.optimize.NonlinearConstraint(constraint.func, 
+                                                jac=constraint.grad, 
+                                                lb=np.zeros(len(zero_indices)), 
+                                                ub=np.zeros(len(zero_indices)))
+    
+                constraints = [constraint]
+    
+                default_minimize_kws = dict(fun=func, jac=grad, hess=hess,
+                                            method="trust-constr",
+                                            constraints=constraints)
+                minimize_kws = func_utils.handle_default_kws(None, default_minimize_kws)
+                x0 = params_unconstrained.copy()
+                x0[zero_indices] = 0
+                opt = sp.optimize.minimize(x0=x0, **minimize_kws)
+                params_constrained = opt.x
+                constraint_derivative = constraint.jac(params_constrained)
+                hess_unconstrained_inv = np.linalg.inv(hess(params_unconstrained))
+                hess_constrained_inv = np.linalg.inv(hess(params_constrained))
+                grad_i_unconstrained = grad_i(params_unconstrained)
+                grad_i_constrained = grad_i(params_constrained)
+                grad_constrained = np.sum(grad_i_constrained, axis=0)
+                grad_unconstrained_cov = np.dot(grad_i_unconstrained.T, grad_i_unconstrained)
+                grad_constrained_cov =  np.dot(grad_i_constrained.T, grad_i_constrained)
+    
+                wald_tests[f"array_{i}_{name}"] = self._wald_test(params_unconstrained, 
+                                                   params_constrained,
+                                                   constraint_derivative,
+                                                   hess_unconstrained_inv,
+                                                   grad_unconstrained_cov,
+                                                   return_dataframe=True)
+    
+                score_tests[f"array_{i}_{name}"] =  self._score_test(grad_constrained, 
+                                                constraint_derivative,
+                                                hess_constrained_inv, 
+                                                grad_constrained_cov,
+                                                return_dataframe=True)
+            # Update the offset based on the number of parameters in the current array (design_info)
+            offset += len(design_info.column_names)
+    
+        self.wald_tests = pd.concat(wald_tests, axis=0, names=["array", "term"])
+        self.score_tests = pd.concat(score_tests, axis=0, names=["array", "term"])
     
     
     

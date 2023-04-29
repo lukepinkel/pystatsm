@@ -41,7 +41,7 @@ class ZeroInflatedPoisson(RegressionMixin, LikelihoodModel):
         labels = poiss_labels + binom_labels
         labels = pd.MultiIndex.from_tuples(labels, names=["ModelComponent", "Parameter"])
         self.param_labels = labels#[f"beta{i}" for i in range(1, self.p+1)]+[f"gamma{i}" for i in range(1, self.q+1)]
-
+        self.design_info = self.model_data.design_info
     @staticmethod
     def _loglike_i(params, data, link, zero_link):
         X, Z, y, w = data
@@ -84,27 +84,7 @@ class ZeroInflatedPoisson(RegressionMixin, LikelihoodModel):
         ll = self._loglike(params=params, data=data, link=link, zero_link=zero_link)
         return ll
     
-    @staticmethod
-    def _gradient2(params, data, link, zero_link):
-        X, Z, y, w = data
-        ixb, ixg = np.arange(X.shape[1]), np.arange(X.shape[1], len(params))
-        lambda_lp, omega_lp = X.dot(params[:X.shape[1]]), Z.dot(params[X.shape[1]:])
-        lambd, omega = link.inv_link(lambda_lp), zero_link.inv_link(omega_lp)
-        exlam = np.exp(lambd)
-        g = np.zeros(len(params))
-        ix = y==0
-        u = np.zeros(len(y))
-        den = (omega[ix] * exlam[ix] - omega[ix] + 1.0)
-        u[ix]  = w[ix] * (1 - omega[ix]) * link.dinv_link(lambda_lp[ix]) / den
-        u[~ix] = w[~ix] * (lambd[~ix] - y[~ix]) * link.dinv_link(lambda_lp[~ix]) / lambd[~ix]
-        g[ixb] = np.dot(X.T, u)
-        
-        u = u * 0.0
-        u[ix]  = w[ix] * (1 - exlam[ix]) * zero_link.dinv_link(omega_lp[ix]) /den
-        u[~ix] = w[~ix] * zero_link.dinv_link(omega_lp[~ix])  / (1.0 - omega[~ix])
-        g[ixg] = np.dot(Z.T, u)
-        return g
-    
+
     @staticmethod
     def _gradient(params, data, link, zero_link):
         X, Z, y, w = data
@@ -156,14 +136,7 @@ class ZeroInflatedPoisson(RegressionMixin, LikelihoodModel):
         zero_link = self.zero_link if zero_link is None else zero_link
         g = self._gradient(params=params, data=data, link=link, zero_link=zero_link)
         return g
-    
-       
-    def gradient2(self, params, data=None, link=None, zero_link=None):
-        data = self.model_data if data is None else data 
-        link = self.link if link is None else link
-        zero_link = self.zero_link if zero_link is None else zero_link
-        g = self._gradient2(params=params, data=data, link=link, zero_link=zero_link)
-        return g
+
     
     @staticmethod
     def _gradient_i(params, data, link, zero_link):
