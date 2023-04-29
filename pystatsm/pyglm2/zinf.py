@@ -36,7 +36,11 @@ class ZeroInflatedPoisson(RegressionMixin, LikelihoodModel):
         self.q = self.model_data.data[1].shape[1]
         self.X, self.Z, self.y, self.weights = self.model_data
         self.params_init = np.zeros(self.p+self.q)
-        self.param_labels = [f"beta{i}" for i in range(1, self.p+1)]+[f"gamma{i}" for i in range(1, self.q+1)]
+        poiss_labels = [("Poiss",x) for x in self.model_data.columns[0].to_list()]
+        binom_labels = [("Binom",x) for x in self.model_data.columns[1].to_list()]
+        labels = poiss_labels + binom_labels
+        labels = pd.MultiIndex.from_tuples(labels, names=["ModelComponent", "Parameter"])
+        self.param_labels = labels#[f"beta{i}" for i in range(1, self.p+1)]+[f"gamma{i}" for i in range(1, self.q+1)]
 
     @staticmethod
     def _loglike_i(params, data, link, zero_link):
