@@ -419,3 +419,15 @@ def expand_crosstab(table):
     return arr
 
 
+def extremal_indices(arr, n, axis=-1, largest=True):
+    if largest:
+        return np.argpartition(arr, -n, axis=axis)[-n:]
+    else:
+        return np.argpartition(arr, n, axis=axis)[:n]
+
+
+
+
+
+
+
