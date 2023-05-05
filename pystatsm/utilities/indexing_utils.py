@@ -10,6 +10,7 @@ import numpy as np
 import scipy as sp
 import scipy.special 
 import itertools
+from .ordered_indices import ascending_indices
 
 def diag_indices(n, k=0):
     """
@@ -552,7 +553,33 @@ def ascending_indices_reversed(m, n, p):
     return a
 
 
+def multiset_permutations(seq):
+    #https://stackoverflow.com/a/12837695
+    i_indices = list(range(len(seq) - 1, -1, -1))
+    k_indices = i_indices[1:]
+    seq = sorted(seq)
+    while True:
+        yield seq
+        for k in k_indices:
+            if seq[k] < seq[k + 1]:
+                break
+        else:
+            return
+        k_val = seq[k]
+        for i in i_indices:
+            if k_val < seq[i]:
+                break
+        (seq[k], seq[i]) = (seq[i], seq[k])                
+        seq[k + 1:] = seq[-1:k:-1]
 
 
+def fill_tensor(arr, shape):
+    ascending_idx = ascending_indices(shape)
+    tensor = np.zeros(arr.shape[:-1]+shape)
+    for i in range(arr.shape[-1]):
+        index = ascending_idx[i]
+        for perm in multiset_permutations(index):
+            tensor[(Ellipsis, *tuple(perm))] = arr[...,i]
+    return tensor
 
 
