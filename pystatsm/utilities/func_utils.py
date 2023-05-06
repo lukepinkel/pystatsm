@@ -1032,6 +1032,37 @@ def quantile_cut(arr, n, quantile_kws=None, digitize_kws=None, return_quantiles=
     else:
         return x
 
+def dbinorm_cdf_du(u, v, r):
+    den = np.sqrt(1 - r**2)
+    num = v - r * u
+    dPhi_du = norm_cdf(num / den) * norm_pdf(u)
+    return dPhi_du
+
+def d2binorm_cdf_du2(u, v, r):
+    x0 = np.sqrt(2)
+    x1 = np.exp(-u**2/2)
+    x2 = v - r * u
+    x3 = 1.0 - r**2
+    x4 = 1.0 / (2 * np.sqrt(x3))
+    t1 = -r * x1 * x4 * np.exp(-x2**2/(2*x3)) / np.pi
+    t2 = u * x0 * x1 * (sp.special.erf(x0 * x2 * x4) / 2 + 1 / 2)/(2*np.sqrt(np.pi))
+    d2Phi_du2 = t1 - t2
+    return d2Phi_du2
+
+def d2binorm_cdf_duv(u, v, r):
+    x0 = 1.0 - r**2
+    d2Phi_duv = np.exp(-u**2/2)*np.exp(-(v-r*u)**2/(2 * x0))/(2*np.pi*np.sqrt(x0))
+    return d2Phi_duv
+
+def d2binorm_cdf_dur(u, v, r):
+    x0 = 1 / ((r-1) * (r + 1))
+    x1 = 2 * r * v - 2 * u
+    x2 = -x0 * (2 * r * u * v - u**2 - v**2)/2
+    x3 = 4.0 * np.pi * np.sqrt(1 - r**2)
+    d2Phi_dur = -x0 * x1 * np.exp(x2) / (x3)
+    return d2Phi_dur
+
+
 
 
 
