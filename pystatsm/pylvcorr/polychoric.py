@@ -416,3 +416,46 @@ def threshold_dict_to_array(t_dict):
 
 
 
+def convert_acm(acm, p):
+    """
+    Primarily for testing purposes for converting a matrix indexed using
+    descending co-lexicographic order to one with ascending 
+    lexicographic order.
+
+    Args:
+        acm (numpy.ndarray): Input matrix of size p * (p - 1) // 2 by p * (p - 1) // 2.
+            This is the matrix to be converted.
+        p (int): Size of the correlation matrix whose lower half below diagonal elements
+                 the acm is the covariance matrix for
+
+    Returns:
+        numpy.ndarray: The converted matrix with indices in the new order.
+    
+    """
+    p1 = p
+    p2 = p1 * (p1 - 1) // 2
+
+    ix1 = generate_indices((p1,)*2, first_indices_change_fastest=False, ascending=False, strict=True)
+    ix2 = generate_indices((p2,)*2, first_indices_change_fastest=False, ascending=False, strict=False)
+    ix1, ix2 = np.array(ix1), np.array(ix2)
+    
+    iy1 = generate_indices((p1,)*2, first_indices_change_fastest=False, ascending=True, strict=True)
+    iy2 = generate_indices((p2,)*2, first_indices_change_fastest=False, ascending=True, strict=False)
+    iy1, iy2 = np.array(iy1), np.array(iy2)
+
+    ij = ix1[ix2[:, 0]]
+    kl = ix1[ix2[:, 1]]
+    a, b = np.sort(ij, axis=1).T
+    c, d = np.sort(kl, axis=1).T
+
+    ab_to_ii = np.zeros((p1, p1), dtype=int)
+    ab_to_ii[(iy1[:, 0], iy1[:, 1])] = ab_to_ii[(iy1[:, 1], iy1[:,0])] = np.arange(p2)
+
+    ab, cd = np.sort(np.vstack([ab_to_ii[(a, b)], ab_to_ii[(c, d)]]), axis=0)
+    (a, b), (c, d)  = iy1[ab].T, iy1[cd].T
+    abcd = np.argsort(np.lexsort(np.vstack((a, b, c, d))))
+    acm_flat =  acm[np.tril_indices(len(acm))]
+    acm2 = np.zeros_like(acm)
+    acm2[ix2[:, 0], ix2[:, 1]] = acm2[ix2[:, 1], ix2[:, 0]] = acm_flat[abcd]
+    return acm2
+
