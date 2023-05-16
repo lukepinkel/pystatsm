@@ -55,7 +55,7 @@ def random_thresholds(nvar, ncat=None, min_cat=None, max_cat=None, rng=None):
     quantiles = {}
     taus = {}
     for i in range(nvar):
-        q = np.r_[0, rng.dirichlet(np.ones(ncat[i]-2)).cumsum()]
+        q = np.r_[0, rng.dirichlet(20*np.ones(ncat[i]-2)).cumsum()]
         q[-1] = 1.0
         quantiles[i] = q
         taus[i] = sp.special.ndtri(q)
@@ -71,9 +71,16 @@ class PolycoricSim(object):
         self.p = R.shape[0]
         self.cat_sizes = [len(self.taus[i]) for i in range(len(self.taus))]
         
-    def simulate_data(self, n_obs=1000, exact=False):
-        Z = self.rng.multivariate_normal(mean=np.zeros(self.p), cov=self.R, size=n_obs)
+    def simulate_data(self, size=1000, exact=False):
+        Z = self.rng.multivariate_normal(mean=np.zeros(self.p), cov=self.R, size=size)
         Y = np.zeros_like(Z)
         for i in range(self.p):
-            Y[:, i] = np.digitize(Z[:, i], self.taus[i])
+            Y[..., i] = np.digitize(Z[..., i], self.taus[i])
         return Z, Y
+    
+    
+    
+    
+    
+    
+    

@@ -10,7 +10,7 @@ import numpy as np
 import scipy as sp
 import scipy.special 
 import itertools
-from .ordered_indices import ascending_indices
+from .ordered_indices import ascending_indices, generate_indices
 
 def diag_indices(n, k=0):
     """
