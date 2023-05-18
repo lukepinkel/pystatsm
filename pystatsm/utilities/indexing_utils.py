@@ -5,7 +5,7 @@ Created on Sun Jul 31 01:22:10 2022
 
 @author: lukepinkel
 """
-
+import numba
 import numpy as np
 import scipy as sp
 import scipy.special 
@@ -581,5 +581,116 @@ def fill_tensor(arr, shape):
         for perm in multiset_permutations(index):
             tensor[(Ellipsis, *tuple(perm))] = arr[...,i]
     return tensor
+
+
+@numba.jit(nopython=True)
+def colex_index_forward(index, shape):
+    """
+    Converts a multidimensional index to a single-dimensional index using 
+    colexicographic (column-major) order.
+
+    Parameters
+    ----------
+    index : array_like
+        The multidimensional index to be converted.
+    shape : array_like
+        The shape of the multidimensional space.
+
+    Returns
+    -------
+    int
+        The single-dimensional index.
+    """
+    index = np.asarray(index)
+    shape = np.asarray(shape)
+    i = np.sum(index[1:] * np.cumprod(shape)[:-1]) + index[0]
+    return i
+
+
+@numba.jit(nopython=True)
+def _colex_index_reverse_nb(a, shape):
+    prod = np.cumprod(shape)[:-1]
+    index = np.zeros_like(shape)
+    for j in range(len(shape)-1, 0, -1):
+        index[j], a = divmod(a, prod[j-1])
+    index[0] = a
+    return index
+
+def colex_index_reverse(i, shape):
+    """
+    Converts a single-dimensional index to a multidimensional index using
+    colexicographic (column-major) order.
+
+    Parameters
+    ----------
+    i : int
+        The single-dimensional index to be converted.
+    shape : array_like
+        The shape of the multidimensional space.
+
+    Returns
+    -------
+    ndarray
+        The multidimensional index.
+    """
+    i = int(i)
+    shape=  np.asarray(shape)
+    return _colex_index_reverse_nb(i, shape)
+
+
+@numba.jit(nopython=True)
+def lex_index_forward(index, shape):
+    """
+    Converts a multidimensional index to a single-dimensional index using 
+    lexicographic (row-major) order.
+
+    Parameters
+    ----------
+    index : array_like
+        The multidimensional index to be converted.
+    shape : array_like
+        The shape of the multidimensional space.
+
+    Returns
+    -------
+    int
+        The single-dimensional index.
+
+    """
+    index = np.asarray(index)[::-1]
+    shape = np.asarray(shape)[::-1]
+    i = np.sum(index[1:] * np.cumprod(shape)[:-1]) + index[0]
+    return i
+
+
+@numba.jit(nopython=True)
+def _lex_index_reverse_nb(a, shape):
+    prod = np.cumprod(shape[::-1])[::-1][1:]
+    index = np.zeros_like(shape)
+    for j in range(len(shape) - 1):
+        index[j], a = divmod(a, prod[j])
+    index[-1] = a
+    return index
+
+def lex_index_reverse(i, shape):
+    """
+    Converts a single-dimensional index to a multidimensional index 
+    using lexicographic (row-major) order.
+
+    Parameters
+    ----------
+    i : int
+        The single-dimensional index to be converted.
+    shape : array_like
+        The shape of the multidimensional space.
+
+    Returns
+    -------
+    ndarray
+        The multidimensional index.
+    """
+    i = int(i)
+    shape = np.asarray(shape)
+    return _lex_index_reverse_nb(i, shape)
 
 
