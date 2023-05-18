@@ -148,8 +148,8 @@ def test_indexing():
 
     
     shape = np.array([1, 1])
-    assert(test_indexing(shape, indexing_utils.lex_index_reverse, indexing_utils.lex_index_forward, 'C'))
-    assert(test_indexing(shape, indexing_utils.colex_index_reverse, indexing_utils.colex_index_forward, 'F'))
+    assert(check_indexing(shape, indexing_utils.lex_index_reverse, indexing_utils.lex_index_forward, 'C'))
+    assert(check_indexing(shape, indexing_utils.colex_index_reverse, indexing_utils.colex_index_forward, 'F'))
     
 
 
