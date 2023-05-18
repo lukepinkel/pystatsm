@@ -124,6 +124,20 @@ def check_indexing(shape, rvs, fwd, order, verbose=False):
     return all_tests_passed
     
 
+def check_monotone_indices(fwd, rvs, enum, shape=None):
+    shape = (5,)*4 if shape is None else shape
+    t = True
+    for ii in enum(shape):
+        m = fwd(ii)
+        ii_rev = rvs(m, shape)
+        m_rev = fwd(ii_rev)
+        t1 = np.array_equal(np.array(ii), np.array(ii_rev))
+        t2 = np.array_equal(np.array(m_rev), np.array(m))
+        t = t and t1 and t2
+    return t
+    
+
+
 def check_edge_cases(rvs, fwd):
     # Test single-dimensional shape
     all_tests_passed = True
@@ -150,6 +164,11 @@ def test_indexing():
     shape = np.array([1, 1])
     assert(check_indexing(shape, indexing_utils.lex_index_reverse, indexing_utils.lex_index_forward, 'C'))
     assert(check_indexing(shape, indexing_utils.colex_index_reverse, indexing_utils.colex_index_forward, 'F'))
+    
+    assert(check_monotone_indices(indexing_utils.colex_ascending_indices_forward, 
+                           indexing_utils.colex_ascending_indices_reverse,
+                           indexing_utils.ascending_indices,
+                           shape=(5,)*4))
     
 
 
