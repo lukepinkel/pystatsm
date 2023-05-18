@@ -534,6 +534,19 @@ def elimination_matrix_indices(n):
     return r, c
 
 
+@numba.njit
+def comb_numba(n, k):
+    if k < 0 or k > n:
+        return 0
+    if k == 0 or k == n:
+        return 1
+    k = min(k, n - k) 
+    c = 1
+    for i in range(k):
+        c = c * (n - i) // (i + 1)
+    return c
+    
+
 def ascending_indices_forward(inds):
     f = lambda r: sp.special.comb(r + (inds[r - 1]) - 1, r)
     n = len(inds)
