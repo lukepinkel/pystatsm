@@ -508,7 +508,8 @@ def duplication_matrix_indices(n):
     r1 = j * n + i
     r2 = i * n + j
     c1 = c2 = i + j * n - (j * (j + 1) // 2).astype(int)
-    r, c = np.concatenate([r1, r2]), np.concatenate([c1, c2])
+    dup = r1==r2
+    r, c = np.concatenate([r1, r2[~dup]]), np.concatenate([c1, c2[~dup]])
     return r, c
 
 def elimination_matrix_indices(n):
