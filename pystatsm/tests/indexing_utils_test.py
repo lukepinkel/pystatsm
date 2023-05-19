@@ -16,26 +16,32 @@ def test_commutation_matrix_indices():
     sizes = list(itertools.product(range(1, 18), range(1, 18)))
     for m, n in sizes:
         K1 = spmats.kmat(m, n).A
-        K2 = np.zeros((m*n, m*n))
-        K2[indexing_utils.commutation_matrix_indices(m, n)]=1
-        assert(np.allclose(K1, K2))
+        i1, i2 = np.where(K1)
+        k1, k2 = indexing_utils.commutation_matrix_indices(m, n)
+        order = np.argsort(k1)
+        assert(np.array_equal(k1[order], i1))
+        assert(np.array_equal(k2[order], i2))
 
 
 def test_duplication_matrix_indices():
     sizes = np.arange(20)
     for n in sizes:
         D1 = spmats.dmat(n).A
-        D2 = np.zeros_like(D1)
-        D2[indexing_utils.duplication_matrix_indices(n)]=1
-        assert(np.allclose(D1, D2))
+        d1, d2 = indexing_utils.duplication_matrix_indices(n)
+        i1, i2 = np.where(D1)
+        order = np.argsort(d1)
+        assert(np.array_equal(d1[order], i1))
+        assert(np.array_equal(d2[order], i2))
 
 def test_elimination_matrix_indices():
     sizes = np.arange(20)
     for n in sizes:
         L1 = spmats.lmat(n).A
-        L2 = np.zeros_like(L1)
-        L2[indexing_utils.elimination_matrix_indices(n)]=1
-        assert(np.allclose(L1, L2))
+        i1, i2 = np.where(L1)
+        l1, l2 = indexing_utils.elimination_matrix_indices(n)
+        order = np.argsort(l1)
+        assert(np.array_equal(l1[order], i1))
+        assert(np.array_equal(l2[order], i2))
 
 
 def test_vec_indices():
