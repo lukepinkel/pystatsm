@@ -169,6 +169,10 @@ def test_indexing():
                            indexing_utils.colex_ascending_indices_reverse,
                            indexing_utils.ascending_indices,
                            shape=(5,)*4))
+    assert(check_monotone_indices(indexing_utils.colex_descending_indices_forward, 
+                           indexing_utils.colex_descending_indices_reverse,
+                           lambda shape: indexing_utils.generate_indices(shape, ascending=False),
+                           shape=(5,)*4))
     
 
 
