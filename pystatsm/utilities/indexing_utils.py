@@ -735,3 +735,34 @@ def colex_ascending_indices_reverse(i, shape):
     n = len(shape)
     p = shape[0]
     return _colex_ascending_indices_reverse_nb(m, n, p)
+
+
+@numba.jit(nopython=True)
+def _colex_descending_indices_forward_nb(inds):
+    n = len(inds)
+    inds = np.sort(inds)  # sorting in descending order
+    m = sum([comb_numba(r + inds[r - 1] - 1, r) for r in range(1, n + 1)])
+    return m
+
+def colex_descending_indices_forward(inds):
+    inds = np.asarray(inds)
+    i = _colex_descending_indices_forward_nb(inds)
+    return i
+
+@numba.jit(nopython=True)
+def _colex_descending_indices_reverse_nb(m, n, p):
+    a = np.zeros(n, dtype=np.int64)
+    v = m
+    for k in range(n, 0, -1):
+        s = np.array([comb_numba(k + j - 1, k) for j in range(p)], dtype=np.int64)
+        u = np.max(np.nonzero(v >= s)[0])
+        a[k - 1] = u
+        v = v - s[u]
+    return a[::-1]  # reverse to make it descending
+
+def colex_descending_indices_reverse(i, shape):
+    m = int(i)
+    n = len(shape)
+    p = shape[0]
+    return _colex_descending_indices_reverse_nb(m, n, p)
+
