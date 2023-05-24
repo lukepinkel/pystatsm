@@ -346,7 +346,7 @@ def sizes_to_slice_vals(sizes):
     inds = sizes_to_inds(sizes)
     return list(zip(inds[:-1], inds[1:]))
 
-def sizes_to_ind_arrs(sizes):
+def sizes_to_ind_arrs(sizes, keys=None):
     """
     Return a list of slices given an array of sizes.
     
@@ -361,7 +361,9 @@ def sizes_to_ind_arrs(sizes):
         The slice values for the intervals
     """
     inds = sizes_to_inds(sizes)
-    return {i:np.arange(inds[i], inds[i+1]) for i in range(len(inds)-1)}
+    keys = range(len(inds)-1) if keys is None else keys
+    ind_dict = {key:np.arange(inds[i], inds[i+1]) for i, key in enumerate(keys)}
+    return ind_dict
 
 def allocate_from_proportions(n, proportions):
     """
