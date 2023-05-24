@@ -10,6 +10,7 @@ import numba
 import numpy as np
 import scipy as sp
 import scipy.special
+from .indexing_utils import ndindex
 
 def fo_fc_fd(f, x, eps=None, args=()):
     if eps is None:
@@ -231,6 +232,42 @@ def jac_approx2(f, x, eps=1e-4, tol=None, d=1e-4, nr=6, v=2):
         A = (A[1:(nr-i)]*t - A[:(nr-i-1)]) / (t-1.0)
     return A
 
+def hess_approx(F, X, eps=1e-4, tol=None, d=1e-4, args=(), progress_bar=False):
+    def Func(X, args=()):
+        return np.atleast_1d(F(X, *args))
+    X = np.asarray(X)
+    Y = np.asarray(Func(X, *args))
+    tol = np.finfo(float).eps**(1/3) if tol is None else tol
+    Hjj, Hkk = np.zeros_like(X), np.zeros_like(X)
+    J = np.zeros(Y.shape+X.shape+X.shape)
+    if progress_bar:
+        pbar = tqdm.tqdm(total=np.product(Y.shape)*np.product(X.shape)*np.product(X.shape), smoothing=1e-4)
+    for ii in ndindex(Y.shape):
+        for jj in ndindex(X.shape):
+            for kk in ndindex(X.shape):
+                Hjj[jj] = np.abs(d * X[jj]) + eps * (np.abs(X[jj]) < tol)
+                Hkk[kk] = np.abs(d * X[kk]) + eps * (np.abs(X[kk]) < tol)
+                if jj == kk:
+                    t1 =  -1.0 * Func(X+2*Hjj, *args)[ii]
+                    t2 =  16.0 * Func(X+1*Hjj, *args)[ii]
+                    t3 = -30.0 * Func(X      , *args)[ii] 
+                    t4 =  16.0 * Func(X-1*Hjj, *args)[ii]
+                    t5 =  -1.0 * Func(X-2*Hjj, *args)[ii]
+                    num = t1 + t2 + t3 + t4 + t5
+                    J[ii+jj+kk] = num / (12 * Hjj[jj]**2)
+                else:
+                    t1 = Func(X+Hjj+Hkk, *args)[ii] + Func(X-Hjj-Hkk, *args)[ii]
+                    t2 = Func(X+Hjj-Hkk, *args)[ii] + Func(X-Hjj+Hkk, *args)[ii]
+                    num = t1 - t2
+                    J[ii+jj+kk] = num / (4 * Hjj[jj] * Hkk[kk])
+                Hjj[jj] = 0.0
+                Hkk[kk] = 0.0
+                if progress_bar:
+                    pbar.update(1)
+    if progress_bar:
+        pbar.close()
+    return J
+
 
 
 def _hess_approx(f, x, a_eps=1e-4, r_eps=1e-4, xtol=None, nr=6, s=2):
@@ -288,7 +325,7 @@ def _hess_approx(f, x, a_eps=1e-4, r_eps=1e-4, xtol=None, nr=6, s=2):
     return D
    
  
-def hess_approx(f, x, a_eps=1e-4, r_eps=1e-4, xtol=None, nr=6, s=2):
+def hess_approx2(f, x, a_eps=1e-4, r_eps=1e-4, xtol=None, nr=6, s=2):
     D = _hess_approx(f, x, a_eps, r_eps, xtol, nr, s)
     y = f(x)
     nx, ny = len(x), len(y)
