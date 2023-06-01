@@ -42,57 +42,232 @@ def _vech_nb(x):
     return res
 
 
-class ModelSpec:
+class CovarianceStructure:
+    """
+    A class for specifying a structural equation model (SEM) in matrix form.
+
+    Attributes
+    ----------
+    matrix_names : list of str
+        The names of the matrices in the model ("L", "B", "F", "P").
+        
+    is_symmetric : dict
+        A dictionary indicating whether each matrix is symmetric.
+        
+    matrix_order : dict
+        A dictionary mapping each matrix name to an index.
+        
+    {name}_free : np.ndarray
+        The free parameters for the {name} matrix.
+        
+    {name}_fixed : np.ndarray
+        The fixed parameters for the {name} matrix.
+        
+    {name}_fixed_loc : np.ndarray
+        The locations of the fixed parameters for the {name} matrix.
+        
+    p1, q1 : int
+        The dimensions of the L matrix.
+        
+    p2, q2 : int
+        The number of parameters for each matrix.
+        
+    pq, qq : int
+        The number of parameters for the L and B matrices.
+        
+    n_par : int
+        The total number of parameters.
+        
+    Iq : np.ndarray
+        An identity matrix of size q1.
+        
+    par_inds_by_mat : dict
+        A dictionary mapping each matrix name to the indices of its parameters.
+        
+    par_mats : np.ndarray
+        A 2D array storing the parameters and their corresponding matrix indices.
+        the first column has integers 0,...,n_par-1 and the second an integer
+        between 0 and 3
+        
+    mat_dims : dict
+        A dictionary storing the dimensions of each matrix.
+        {'L': (p1, q1), 'B': (q1, q1), 'F': (q1, q1), 'P': (p1, p1)}
+        
+    mat_dim_arr : np.ndarray
+        An array storing the dimensions of each matrix - the first column consists of
+        p1 q1 q1 p1 and the second q1 q1 q1 p1
+        
+    par_ind : np.ndarray
+        An array of size n_par storing the indices of the parameters.  Each integer
+        index specified by {name}_free matrices are in the position corresponding to 
+        the respective location when the matrices are vectorized and stacked
+        
+    par_to_free_ind : np.ndarray
+        An array of size nf1 mapping the parameters to the free parameter.  The
+        indices correspond to the positions in par_ind
+        
+    par_to_theta_ind : np.ndarray
+        An array of size nt1 mapping the parameters to theta.  The
+        indices correspond to the positions in par_ind
+        
+    free_ind : np.ndarray
+        Free indices specified in {name}_free including repetition for equality
+        constraints
+        
+    free_to_mat : np.ndarray
+        An array mapping the free parameters to their corresponding matrices.
+        
+    free_to_theta_ind : np.ndarray
+        An array mapping the free parameters to the theta parameters.
+        
+    nf1 : int
+        The number of free parameters.
+        
+    theta_ind : np.ndarray
+       The theta indices specified in {name}_free
+        
+    theta_to_free_ind : np.ndarray
+        An array mapping the theta parameters to the free parameters. By repeating
+        equal parameters
+        par[self.par_to_free_ind]= theta[self.theta_to_free_ind]
+        
+    theta_to_mat : np.ndarray
+        An array mapping the theta parameters to their corresponding matrices.
+        
+    nt1 : int
+        The number of theta parameters.
+        
+    nf2, nt2 : int
+        The triangular numbers associated with nf1 and nt1.
+        
+    free_hess_inds : np.ndarray
+        The indices of the Hessian of the free parameters.
+        
+    """
     matrix_names = ["L", "B", "F", "P"]
     matrix_order = dict(L=0, B=1, F=2, P=3)
     is_symmetric = dict(L=False, B=False, F=True, P=True)
     def __init__(self, **kwargs):
+        """
+        Initialize the CovarianceStructure instance.
+    
+        Parameters
+        ----------
+        **kwargs : dict
+            Keyword arguments representing the free and fixed matrices for
+            the model.  Each matrix is expected to be provided as a 2D numpy
+            array. The keys should be of the form "{name}_free" and
+            "{name}_fixed", and "{name}_fixed_loc",  where {name} is one of
+            the matrix names
+            ("L", "B", "F", "P").
+        """
+        # Iterate over the matrix names and set the free and fixed matrices
         for name in self.matrix_names:
+            # Set the free matrix
             setattr(self, f"{name}_free", kwargs.get(f"{name}_free"))
+            
+            
+            # Set the fixed matrix, defaulting to a zero matrix of the same shape as the free matrix if not provided
             fixed_matrix = kwargs.get(f"{name}_fixed")
             if fixed_matrix is not None:
                 setattr(self, f"{name}_fixed", fixed_matrix)
             else:
                 free_matrix = getattr(self, f"{name}_free")
                 setattr(self, f"{name}_fixed", np.zeros_like(free_matrix))
+            
+            
+            # Set the fixed location matrix, defaulting to a zero matrix of the same shape as the free matrix if not provided
+            fixed_loc_matrix = kwargs.get(f"{name}_fixed_loc")
+            if fixed_loc_matrix is not None:
+                setattr(self, f"{name}_fixed_loc", fixed_loc_matrix)
+            else:
+                setattr(self, f"{name}_fixed_loc", np.zeros_like(free_matrix, dtype=bool))
+
+                
+
+        # Extract the dimensions of the L matrix
         self.p1, self.q1 = self.L_free.shape
+        
+        
+        # Compute the number of parameters for each matrix
         self.p2 = (self.p1 + 1) * self.p1 // 2
         self.q2 = (self.q1 + 1) * self.q1 // 2
         self.n_par = self.p1 * self.q1 + self.q1 * self.q1 + self.q2 + self.p2
         self.pq = self.p1*self.q1
         self.qq = self.q1 * self.q1
+        
+        # Compute the total number of parameters
         self.n_par = self.pq + self.qq + self.q2 + self.p2
+        
+        
+        # Create an identity matrix of size q1
         self.Iq = np.eye(self.q1)
+        
+        
+        # Compute the indices of the parameters for each matrix
         self.par_inds_by_mat = sizes_to_ind_arrs([self.pq, self.qq, self.q2, self.p2], keys=["L", "B", "F", "P"])
+        
+        # Initialize a matrix to store the parameters and their corresponding matrix indices
+        # The first column is a range from 0 to n_par, representing the parameters
+        # The second column is filled with the indices of the matrices ("L", "B", "F", "P") that each parameter belongs to
+        # This allows us to map from the free parameters and theta to the matrix of the corresponding parameter
         self.par_mats = np.zeros((self.n_par, 2), dtype=int)
         self.par_mats[:, 0] = np.arange(self.n_par)
         for name, idx in self.matrix_order.items():
             self.par_mats[self.par_inds_by_mat[name], 1] = idx
-        self.mat_dims = {name: getattr(self, f"{name}_free").shape
-                         for name in self.matrix_names}
-        self.mat_dim_arr = np.array([list(self.mat_dims[name])
-                                     for name in self.matrix_names], dtype=int)
+            
+            
+        # Store the dimensions of each matrix
+        self.mat_dims = {name: getattr(self, f"{name}_free").shape for name in self.matrix_names}
+        self.mat_dim_arr = np.array([list(self.mat_dims[name]) for name in self.matrix_names], dtype=int)
+        
+        # Initialize the free parameters, parameter template, and derivative matrices
         self.make_free_params()
         self.make_param_template()
         self.get_free_derivative_mats()
 
     def make_free_params(self):
+        """
+        Create the mapping between the parameters, the free parameters, 
+        and the theta parameters.
+        
+        This method populates several instance variables that store these 
+        mappings, as well as the indices of the free parameters and
+        theta parameters.
+        """
+        # Initialize a zero array to store the parameter indices
         par_ind = np.zeros(self.n_par)
+        
+        
+        # Iterate over the matrix names and populate the parameter indices
         for name in self.matrix_names:
             matrix = getattr(self, f"{name}_free")
             if self.is_symmetric[name]:
                 par_ind[self.par_inds_by_mat[name]] = _vech(np.tril(matrix))
             else:
                 par_ind[self.par_inds_by_mat[name]] = _vec(matrix)
+
+        
+        # Compute the indices of the free parameters and the number of free parameters
         par_to_free_ind = nonzero(par_ind >0).squeeze()
         free_ind = par_ind[par_ind > 0]
         nf = len(free_ind)
+        
+        
+        # Compute the matrix indices of the free parameters
         free_to_mat = self.par_mats[par_to_free_ind][:, 1].T
+        
+        
+        
+        # Compute the unique indices of the theta parameters and the mapping between the theta parameters and the free parameters
         theta_ind, theta_to_free_ind, free_to_theta_ind = unique(free_ind)
         nt = len(theta_ind)
         par_to_theta_ind = par_to_free_ind[free_to_theta_ind]
         theta_to_mat = free_to_mat[free_to_theta_ind]
         
+        
+        # Store the computed values as instance variables
+
         self.par_ind = par_ind.astype(int)
         self.par_to_free_ind = par_to_free_ind
         self.par_to_theta_ind = par_to_theta_ind
@@ -109,39 +284,89 @@ class ModelSpec:
         
         self.nf2 = self.nf1 * (self.nf1 + 1) // 2
         self.nt2 = self.nt1 * (self.nt1 + 1) // 2
+        
+        # Compute the indices of the Hessian of the free parameters
         self.free_hess_inds = np.vstack(vech_inds_reverse(np.arange(self.nf2), self.nf1))
     
     
     def make_param_template(self):
+        """
+        Create a template for the parameters of the model.
+    
+        This method populates several instance variables that store the indices of the free and fixed parameters, 
+        as well as the parameter template and the theta parameters.
+        """
+        # Initialize dictionaries to store the indices of the free and fixed parameters for each matrix
         self.mat_inds = {}
         self.mat_fixed_inds = {}
+        
+        
+        # Initialize an array to store the parameter template
         self.p_template = np.zeros(self.n_par)
+        
+        
+        # Initialize a list to store the combined indices of the free parameters for each matrix
         self.mat_inds_comb = []
+        
+        
+        # Iterate over the matrix names and populate the parameter template and indices
         for name in self.matrix_names:
+            # Get the free, fixed, and fixed location matrices for the current matrix
             matrix_free = getattr(self, f"{name}_free")
             matrix_fixed = getattr(self, f"{name}_fixed")
+            matrix_fixed_loc = getattr(self, f"{name}_fixed_loc")
+
+            
+            # Compute the indices of the free and fixed parameters
             if self.is_symmetric[name]:
                 inds = nonzero(np.tril(matrix_free), True)
             else:
                 inds = nonzero(matrix_free, True)
             self.mat_inds[name] = inds
             self.mat_inds_comb.append(nonzero(matrix_free))
-            inds_fixed = nonzero(matrix_fixed, True)
+            inds_fixed = nonzero(matrix_fixed_loc, True) #inds_fixed = nonzero(matrix_fixed, True)
             self.mat_fixed_inds[name] = inds_fixed
+            
+            # Create a template for the current matrix
             mat_template = np.zeros(self.mat_dims[name])
             mat_template[inds_fixed] = matrix_fixed[inds_fixed]
             mat_template[inds] = 0.01
             setattr(self, name, mat_template)
+            
+            # Add the template to the parameter template
             if self.is_symmetric[name]:
                 self.p_template[self.par_inds_by_mat[name]] = _vech(mat_template)
             else:
                 self.p_template[self.par_inds_by_mat[name]] = _vec(mat_template)
+                
+        # Extract theta
         self.theta = self.p_template[self.par_to_theta_ind]
+        
+        
+        # Combine the indices of the free parameters for all matrices
         self.mat_inds_comb = np.concatenate(self.mat_inds_comb, axis=1)
+        
 
     def to_model_mats(self, theta):
+        """
+        Convert the theta parameters to the model matrices.
+    
+        Parameters
+        ----------
+        theta : np.ndarray
+            The theta parameters.
+    
+        Returns
+        -------
+        tuple of np.ndarray
+            The L, B, F, and P matrices.
+        """
+        # Copy the parameter template and replace the free parameters with the theta parameters
         par = self.p_template.copy()
         par[self.par_to_free_ind]= theta[self.theta_to_free_ind]
+        
+        
+        # Convert the parameters to the model matrices
         L = _invec(par[self.par_inds_by_mat["L"]], *self.mat_dims["L"])
         B = _invec(par[self.par_inds_by_mat["B"]], *self.mat_dims["B"])
         F = _invech(par[self.par_inds_by_mat["F"]])
@@ -149,27 +374,49 @@ class ModelSpec:
         return L, B, F, P
 
     def get_free_derivative_mats(self):
+        """
+        Compute the derivative matrices of the free parameters.
+        
+        This method populates several instance variables that store the derivative matrices and related information.
+        """
+        # Extract the number of free parameters and the dimensions of the L matrix
         nf1, p1, q1 = self.nf1, self.p1, self.q1
+        
+        
+        # Initialize an array to store the derivative matrices
         dM_arr = np.zeros((nf1, max(p1, q1), max(p1, q1)))
+        
+        # Compute the derivative matrices
         for i in range(nf1):
             r, c = self.mat_inds_comb.T[i]
             m = self.free_to_mat[i]
             dM_arr[i, r, c] = 1.0
             if m>1:
                 dM_arr[i, c, r] = 1.0
+                
+                
+        # Store the derivative matrices and their dimensions as instance variables
         self.dM_arr = dM_arr
         self.dM_dim = self.mat_dim_arr[self.free_to_mat[np.arange(self.nf1)]]
+        
+        
+        # Compute the matrix types for the Hessian of the free parameters
         pairs = [(0, 0), (1, 0), (2, 0), (1, 1), (2, 1)]
         free_hess_inds = self.free_hess_inds
         hess_to_mat = self.free_to_mat[free_hess_inds]
         hess_mat_type = np.zeros((hess_to_mat.shape[1]), dtype=int)
         for i, (j, k) in enumerate(pairs, 1):
             hess_mat_type[(hess_to_mat[0]==j) & (hess_to_mat[1]==k)] = i
+            
         self.free_to_hess_mat_type = hess_mat_type
+        
+        # Initialize arrays to store the first and second derivatives of the free parameters
         self.D1f = np.zeros((self.p2, self.nf1))
         self.D2f = np.zeros((self.p2, self.nf1, self.nf1))
         self.D1t = np.zeros((self.p2, self.nt1))
         self.D2t = np.zeros((self.p2, self.nt1, self.nt1))
+        
+        # Store a mapping from the free parameters to themselves
         self.free_map = np.arange(self.nf1)
         
         
