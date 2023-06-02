@@ -13,13 +13,6 @@ def _default_sort_key(item):
             numeric_part = 0
         return (alphabetic_part, numeric_part)    
 
-def array_match(x, y):
-    index = np.argsort(x)
-    sorted_x = x[index]
-    sorted_index = np.searchsorted(sorted_x, y)
-    yindex = np.take(index, sorted_index, mode="clip")
-    res = yindex[x[yindex] == y]
-    return res
 
 class ModelSpecification:
     matrix_names = ["L", "B", "F", "P"]
