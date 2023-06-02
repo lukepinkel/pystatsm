@@ -4,10 +4,12 @@ import numba
 import pandas as pd
 import numpy as np
 import scipy as sp #analysis:ignore
-from ..utilities.indexing_utils import ( vec_inds_forwards,  #analysis:ignore
+from ..utilities.indexing_utils import (vec_inds_forwards,  #analysis:ignore
+                                        vec_inds_reverse,
                                         vech_inds_forwards,
                                         vech_inds_reverse,
-                                        tril_indices, unique, nonzero)
+                                        tril_indices, 
+                                        unique, nonzero)
 from ..utilities.linalg_operations import ( _vec, _invec, _vech, _invech) #analysis:ignore
 from ..utilities.special_mats import lmat, nmat, dmat #analysis:ignore
 from ..utilities.func_utils import sizes_to_ind_arrs #analysis:ignore
@@ -313,6 +315,10 @@ class CovarianceStructure:
             mat_template = np.zeros(self.mat_dims[name])
             mat_template[inds_fixed] = matrix_fixed[inds_fixed]
             mat_template[inds] = 0.01
+            if name in ["F", "P"]:
+                diagonal_mask = inds[0]==inds[1]
+                diagonal_inds = inds[0][diagonal_mask], inds[1][diagonal_mask]
+                mat_template[diagonal_inds] = 1.0
             setattr(self, name, mat_template)
             
             # Add the template to the parameter template
@@ -400,8 +406,8 @@ class CovarianceStructure:
         
         # Store a mapping from the free parameters to themselves
         self.free_map = np.arange(self.nf1)
-        
-        
+
+
     def implied_cov(self, theta):
         par = self.p_template.copy()
         par[self.par_to_free_ind]= theta[self.theta_to_free_ind]
