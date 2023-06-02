@@ -450,7 +450,7 @@ class CovarianceStructure:
             D[:, ii] += tmp
         return D
 
-    def dsigma(self, theta, free=True):
+    def dsigma(self, theta, free=False):
         par = self.p_template.copy()
         par[self.par_to_free_ind]= theta[self.theta_to_free_ind]
         L = _invec(par[self.par_inds_by_mat["L"]], *self.mat_dims["L"])
@@ -543,7 +543,7 @@ class CovarianceStructure:
     def _constraint_func(self, theta):
         Sigma = self.implied_cov(theta)
         s, d = np.linalg.slogdet(Sigma)
-        return np.array([s*np.exp(d)])
+        return np.array([s*np.exp(d)/(1+np.exp(d))])
     
     def make_bounds(self):
         lb, ub = np.repeat(None, self.nt1), np.repeat(None, self.nt1)

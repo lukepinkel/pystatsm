@@ -57,13 +57,19 @@ class SEM(CovarianceStructure):
         H = self.fit_function.hessian(Sigma, dSigma, d2Sigma)
         return H
     
-    def fit(self,  minimize_kws=None, minimize_options=None):
+    def fit(self,  minimize_kws=None, minimize_options=None, constrain=False, use_hess=False):
         x = self.theta.copy()
         bounds = self.make_bounds()
-        constraints = self.make_constraints()
+        if constrain:
+            constraints = self.make_constraints()
+        else:
+            constraints = None
         fun = self.func
         jac = self.gradient
-        hess = self.hessian
+        if use_hess:
+            hess = self.hessian
+        else:
+            hess=None
         
         default_minimize_options = dict(initial_tr_radius=1.0, verbose=3)
         minimize_options = handle_default_kws(minimize_options, default_minimize_options)
