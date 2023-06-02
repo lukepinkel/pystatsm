@@ -435,7 +435,7 @@ class CovarianceStructure:
         for i in range(n):
             ii = index[i]
             kind = deriv_type[i]
-            J = dM[i, :dM_shape[i][0], :dM_shape[i][1]]
+            J = np.ascontiguousarray(dM[i, :dM_shape[i][0], :dM_shape[i][1]])
             if kind == 0:
                 J1 = LBFBt.dot(J.T)
                 tmp = _vech_nb((J1 + J1.T))
@@ -479,8 +479,8 @@ class CovarianceStructure:
         for ij in range(n):
             i, j = asc_inds[ij]
             kind = deriv_type[ij]
-            Ji = dM[i, :dM_shape[i][0], :dM_shape[i][1]]
-            Jj = dM[j, :dM_shape[j][0], :dM_shape[j][1]]
+            Ji = np.ascontiguousarray(dM[i, :dM_shape[i][0], :dM_shape[i][1]])
+            Jj = np.ascontiguousarray(dM[j, :dM_shape[j][0], :dM_shape[j][1]])
             i, j = index[i], index[j]
             if kind == 1:
                 tmp = (Ji.dot(BFBt).dot(Jj.T) + Jj.dot(BFBt).dot(Ji.T))
