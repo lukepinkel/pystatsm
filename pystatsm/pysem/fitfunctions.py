@@ -25,11 +25,13 @@ class CovarianceFitFunction(metaclass=ABCMeta):
         The data that the fit function operates on. If None, it should be supplied when calling the function, gradient or hessian methods.
     """
 
-    def __init__(self, data=None):
+    def __init__(self, data=None, level=None, mean=False):
         self.data = data
+        self.level = level
+        self.mean = mean
 
 
-    def function(self, Sigma, data=None):
+    def function(self, Sigma, data=None, level=None, mean=None):
         """
         Calls the specific function implementation, using the stored data if not supplied.
 
@@ -46,9 +48,12 @@ class CovarianceFitFunction(metaclass=ABCMeta):
             The result of the function.
         """
         data = self.data if data is None else data
-        return self._function(Sigma, data)
+        level = self.level if level is None else level
+        mean = self.mean if mean is None else mean
+        f = self._function(Sigma, data, level, mean)
+        return f
     
-    def gradient(self, Sigma, dSigma, data=None):
+    def gradient(self, Sigma, dSigma, data=None, level=None, mean=None):
         """
         Calls the specific gradient implementation, using the stored data if not supplied.
 
@@ -67,10 +72,13 @@ class CovarianceFitFunction(metaclass=ABCMeta):
             The result of the gradient function.
         """
         data = self.data if data is None else data
-        return self._gradient(Sigma, dSigma, data)
+        level = self.level if level is None else level
+        mean = self.mean if mean is None else mean
+        g = self._gradient(Sigma, data, level, mean)
+        return g
 
 
-    def hessian(self, Sigma, dSigma, d2Sigma, data=None):
+    def hessian(self, Sigma, dSigma, d2Sigma, data=None, level=None, mean=None):
         """
         Calls the specific hessian implementation, using the stored data if not supplied.
 
@@ -91,22 +99,25 @@ class CovarianceFitFunction(metaclass=ABCMeta):
             The result of the hessian function.
         """
         data = self.data if data is None else data
-        return self._hessian(Sigma, dSigma, d2Sigma, data)
+        level = self.level if level is None else level
+        mean = self.mean if mean is None else mean
+        H = self._hessian(Sigma, data, level, mean)
+        return H
     
     @staticmethod
     @abstractmethod
-    def _function(self, Sigma, data):
+    def _function(self, Sigma, data, level, mean):
         pass
 
     @staticmethod
     @abstractmethod
-    def _gradient(self, Sigma, dSigma, data):
+    def _gradient(self, Sigma, dSigma, data, level, mean):
         pass
     
         
     @staticmethod
     @abstractmethod
-    def _hessian(self, Sigma, dSigma, d2Sigma, data):
+    def _hessian(self, Sigma, dSigma, d2Sigma, data, level, mean):
         pass
     
     
@@ -119,7 +130,7 @@ class LikelihoodObjective(CovarianceFitFunction):
     """
     
     @staticmethod 
-    def _function(Sigma, data):
+    def _function(Sigma, data, level, mean):
         """
         Function computation for the likelihood objective.
 
@@ -135,7 +146,7 @@ class LikelihoodObjective(CovarianceFitFunction):
         f: float
             The result of the function computation.
         """
-        C = data
+        C = data.sample_cov
         lndS = np.linalg.slogdet(Sigma)[1]
         SinvC = np.linalg.solve(Sigma, C)
         trSinvC = np.trace(SinvC)
@@ -143,7 +154,7 @@ class LikelihoodObjective(CovarianceFitFunction):
         return f
     
     @staticmethod
-    def _gradient(Sigma, dSigma, data):
+    def _gradient(Sigma, dSigma, data, level, mean):
         """
         Gradient computation for the likelihood objective for covariance and
         Sigma of size (p, p) and dSigma of size (p*(p+1)/2, t) where t
@@ -163,7 +174,7 @@ class LikelihoodObjective(CovarianceFitFunction):
         g: (t,) array_like
             The result of the gradient computation of shape (t,).
         """
-        C = data
+        C = data.sample_cov
         R = C - Sigma
         Sinv = np.linalg.inv(Sigma)
         A = Sinv.dot(R).dot(Sinv)
@@ -174,7 +185,7 @@ class LikelihoodObjective(CovarianceFitFunction):
         
      
     @staticmethod
-    def _hessian(Sigma, dSigma, d2Sigma, data):
+    def _hessian(Sigma, dSigma, d2Sigma, data, level, mean):
         """
         Hessian computation for the likelihood objective.
 
@@ -194,7 +205,7 @@ class LikelihoodObjective(CovarianceFitFunction):
         H: (t, t) array_like
             The (t,t) hessian
         """
-        C = data
+        C = data.sample_cov
         R = C - Sigma
         Sinv = np.linalg.inv(Sigma)
         D1 = _invech(dSigma.T).T
