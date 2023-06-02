@@ -296,7 +296,8 @@ class CovarianceStructure:
         if matrix is not None:
             arr, index, columns = self._check_input(f"{name}", matrix)
             setattr(self, f"{name}_{postfix}", arr)
-            self._row_col_names[f"{name}_{postfix}"] = index, columns
+            if name == "free":
+                self._row_col_names[f"{name}"] = index, columns
         else:
             try:
                 base_matrix = getattr(self, f"{name}_free")
@@ -319,7 +320,6 @@ class CovarianceStructure:
         else:
             columns = [f"x{i}" for i in range(1, a.shape[0]+1)]
         return index, columns
-
 
     
     def make_param_template(self):
@@ -406,8 +406,7 @@ class CovarianceStructure:
         # Copy the parameter template and replace the free parameters with the theta parameters
         par = self.p_template.copy()
         par[self.par_to_free_ind]= theta[self.theta_to_free_ind]
-        
-        
+    
         # Convert the parameters to the model matrices
         L = _invec(par[self.par_inds_by_mat["L"]], *self.mat_dims["L"])
         B = _invec(par[self.par_inds_by_mat["B"]], *self.mat_dims["B"])
