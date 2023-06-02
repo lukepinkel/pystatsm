@@ -159,7 +159,7 @@ class ModelSpecification:
                           ov=ov_names, lvov_y=lvov_y_names)
         self.ov_names = dict(ind=ov_ind_names,y=ov_y_names, x=ov_x_names,
                              cov=ov_cov_names, nx=ov_nx_names, y2=ov_y_names2)
-        self.lv_names = dict(x=lv_x_names,y=lv_y_names)
+        self.lv_names = dict(x=lv_x_names,y=lv_y_names, nx=lv_names.difference(lv_x_names))
     
     def add_covs(self, var_names, lhs, rhs, cov=True):
         n = len(var_names)
