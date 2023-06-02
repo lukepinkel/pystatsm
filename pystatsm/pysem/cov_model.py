@@ -31,7 +31,6 @@ def unique(arr):
         inv[inverse==k] = v
     return u, inv, ind
     
-rng = np.random.default_rng(123)
 
 @numba.jit(nopython=True)
 def _vech_nb(x):
