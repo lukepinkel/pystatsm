@@ -767,3 +767,17 @@ def colex_descending_indices_reverse(i, shape):
     p = shape[0]
     return _colex_descending_indices_reverse_nb(m, n, p)
 
+
+
+def array_match(x, y, mask=False):
+    index = np.argsort(x)
+    sorted_x = x[index]
+    sorted_index = np.searchsorted(sorted_x, y)
+    yindex = np.take(index, sorted_index, mode="clip")
+    if mask:
+        mask = x[yindex] != y
+        res = np.ma.array(yindex, mask=mask)
+    else:
+        res = yindex[x[yindex] == y]
+    return res
+
