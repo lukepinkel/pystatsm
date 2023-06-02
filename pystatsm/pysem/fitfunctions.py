@@ -16,23 +16,80 @@ from ..utilities.linalg_operations import ( _vec, _invec, _vech, _invech) #analy
 class CovarianceFitFunction(metaclass=ABCMeta):
     """
     Abstract base class for fit/object functions.
-
+    This class serves as the base class for classes that provide specific implementations of fit/object functions.
     Subclasses must implement the _function, _gradient, and _hessian methods.
+
+    Parameters
+    ----------
+    data : (n, n) array_like, optional
+        The data that the fit function operates on. If None, it should be supplied when calling the function, gradient or hessian methods.
     """
+
     def __init__(self, data=None):
         self.data = data
 
 
     def function(self, Sigma, data=None):
+        """
+        Calls the specific function implementation, using the stored data if not supplied.
+
+        Parameters
+        ----------
+        Sigma : (n, n) array_like
+            The covariance matrix.
+        data : (n, n) array_like, optional
+            The data to apply the function on. If None, the stored data is used.
+
+        Returns
+        -------
+        float
+            The result of the function.
+        """
         data = self.data if data is None else data
         return self._function(Sigma, data)
     
     def gradient(self, Sigma, dSigma, data=None):
+        """
+        Calls the specific gradient implementation, using the stored data if not supplied.
+
+        Parameters
+        ----------
+        Sigma : (n, n) array_like
+            The covariance matrix.
+        dSigma : (n, n) array_like
+            The change in the covariance matrix.
+        data : (n, n) array_like, optional
+            The data to apply the gradient on. If None, the stored data is used.
+
+        Returns
+        -------
+        float
+            The result of the gradient function.
+        """
         data = self.data if data is None else data
         return self._gradient(Sigma, dSigma, data)
 
 
     def hessian(self, Sigma, dSigma, d2Sigma, data=None):
+        """
+        Calls the specific hessian implementation, using the stored data if not supplied.
+
+        Parameters
+        ----------
+        Sigma : (n, n) array_like
+            The covariance matrix.
+        dSigma : (n, n) array_like
+            The change in the covariance matrix.
+        d2Sigma : (n, n) array_like
+            The second order change in the covariance matrix.
+        data : (n, n) array_like, optional
+            The data to apply the hessian on. If None, the stored data is used.
+
+        Returns
+        -------
+        float
+            The result of the hessian function.
+        """
         data = self.data if data is None else data
         return self._hessian(Sigma, dSigma, d2Sigma, data)
     
@@ -54,10 +111,30 @@ class CovarianceFitFunction(metaclass=ABCMeta):
     
     
 class LikelihoodObjective(CovarianceFitFunction):
+    """
+    Implementation of CovarianceFitFunction providing likelihood objective specific function, gradient, and hessian computations.
 
+    This class makes use of the logarithm of the determinant of the covariance matrix, the inverse of the covariance matrix, 
+    and the trace of the product of the inverse covariance matrix and data matrix for its computations.
+    """
     
     @staticmethod 
     def _function(Sigma, data):
+        """
+        Function computation for the likelihood objective.
+
+        Parameters
+        ----------
+        Sigma : (p, p) array_like
+            The covariance matrix.
+        data : (p, p) array_like
+            The data matrix.
+
+        Returns
+        -------
+        f: float
+            The result of the function computation.
+        """
         C = data
         lndS = np.linalg.slogdet(Sigma)[1]
         SinvC = np.linalg.solve(Sigma, C)
@@ -67,6 +144,25 @@ class LikelihoodObjective(CovarianceFitFunction):
     
     @staticmethod
     def _gradient(Sigma, dSigma, data):
+        """
+        Gradient computation for the likelihood objective for covariance and
+        Sigma of size (p, p) and dSigma of size (p*(p+1)/2, t) where t
+        is the number of parameters Sigma is being differentiated wrt
+
+        Parameters
+        ----------
+        Sigma : (p, p) array_like
+            The covariance matrix.
+        dSigma : (p*(p+1)/2, t) array_like
+            d vech(Sigma)
+        data : (p, p) array_like
+            The data matrix.
+
+        Returns
+        -------
+        g: (t,) array_like
+            The result of the gradient computation of shape (t,).
+        """
         C = data
         R = C - Sigma
         Sinv = np.linalg.inv(Sigma)
@@ -79,6 +175,25 @@ class LikelihoodObjective(CovarianceFitFunction):
      
     @staticmethod
     def _hessian(Sigma, dSigma, d2Sigma, data):
+        """
+        Hessian computation for the likelihood objective.
+
+        Parameters
+        ----------
+        Sigma : (p, p) array_like
+            The covariance matrix.
+        dSigma : (p*(p+1)/2, t) array_like
+            d vech(Sigma)
+        d2Sigma : (p*(p+1)/2, t, t) array_like
+            d^2 vech(Sigma)
+        data : (p, p) array_like
+            The data matrix.
+
+        Returns
+        -------
+        H: (t, t) array_like
+            The (t,t) hessian
+        """
         C = data
         R = C - Sigma
         Sinv = np.linalg.inv(Sigma)
