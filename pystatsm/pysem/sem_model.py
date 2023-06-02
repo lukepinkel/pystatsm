@@ -17,10 +17,11 @@ from ..utilities.func_utils import handle_default_kws
 from ..utilities.data_utils import cov
 class SEM(CovarianceStructure):
     
-    def __init__(self, formula, raw_data=None, covariance=None, means=None, 
+    def __init__(self, formula, raw_data=None, covariance=None, means=None, n_obs=None,
                  model_spec_kws=None, fit_function=LikelihoodObjective):
         if covariance is None and raw_data is not None:
-            covariance = cov(raw_data)
+            covariance = raw_data.cov(ddof=0)
+            n_obs = len(raw_data)
             means = np.mean(raw_data, axis=0)
         default_model_spec_kws = dict(extension_kws=dict(fix_lv_var=False))
         model_spec_kws = handle_default_kws(model_spec_kws, default_model_spec_kws)
@@ -41,10 +42,11 @@ class SEM(CovarianceStructure):
             init_kws[f"{name}_fixed_loc"] = model_spec.fixed_mats[i].values!=0
         super().__init__(**init_kws)
         self.model_spec = model_spec
-        self.fit_function = LikelihoodObjective(covariance)
+        self.fit_function = LikelihoodObjective(covariance.values)
         self.covariance = covariance
         self.data = raw_data
         self.means = means
+        self.n_obs = n_obs
     
     def func(self, theta):
         Sigma = self.implied_cov(theta)
@@ -88,7 +90,11 @@ class SEM(CovarianceStructure):
                                    constraints=constraints, **minimize_kws)
         self.opt_res = res
         self.theta = res.x
-        self.L, self.B, self.F, self.B = self.to_model_mats(self.theta)
+        self.n_params = len(res.x)
+        self.theta_hess = self.hessian(self.theta)
+        self.theta_cov = np.linalg.pinv(self.theta_hess*self.n_obs)
+        self.theta_se = np.sqrt(np.diag(self.theta_cov))
+        self.L, self.B, self.F, self.P = self.to_model_mats(self.theta)
         ov_names, lv_names = self._row_col_names["L"]
         self.Ldf = pd.DataFrame(self.L, index=ov_names, columns=lv_names)
         self.Bdf = pd.DataFrame(self.B, index=lv_names, columns=lv_names)
