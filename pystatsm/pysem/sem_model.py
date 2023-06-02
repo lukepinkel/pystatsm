@@ -92,7 +92,7 @@ class SEM(CovarianceStructure):
         self.theta = res.x
         self.n_params = len(res.x)
         self.theta_hess = self.hessian(self.theta)
-        self.theta_cov = np.linalg.pinv(self.theta_hess*self.n_obs)
+        self.theta_cov = np.linalg.pinv(self.theta_hess*self.n_obs / 2)
         self.theta_se = np.sqrt(np.diag(self.theta_cov))
         self.L, self.B, self.F, self.P = self.to_model_mats(self.theta)
         ov_names, lv_names = self._row_col_names["L"]
