@@ -12,25 +12,28 @@ import pandas as pd
 from .cov_model import CovarianceStructure
 from .fitfunctions import LikelihoodObjective
 from .formula import ModelSpecification
+from .model_data import ModelData
 
 from ..utilities.func_utils import handle_default_kws
 from ..utilities.data_utils import cov
+
 class SEM(CovarianceStructure):
     
-    def __init__(self, formula, raw_data=None, covariance=None, means=None, n_obs=None,
+    def __init__(self, formula, data=None, sample_cov=None, sample_mean=None, n_obs=None,
                  model_spec_kws=None, fit_function=LikelihoodObjective):
-        if covariance is None and raw_data is not None:
-            covariance = raw_data.cov(ddof=0)
-            n_obs = len(raw_data)
-            means = np.mean(raw_data, axis=0)
+        data = ModelData(data=data, sample_cov=sample_cov,
+                         sample_mean=sample_mean,  
+                         n_obs=n_obs, ddof=0)
+        
         default_model_spec_kws = dict(extension_kws=dict(fix_lv_var=False))
         model_spec_kws = handle_default_kws(model_spec_kws, default_model_spec_kws)
         
-        var_order = dict(zip(covariance.columns, np.arange(len(covariance.columns))))
+        var_order = dict(zip(data.sample_cov_df.columns,
+                             np.arange(len(data.sample_cov_df.columns))))
         model_spec = ModelSpecification(formula, var_order=var_order, **model_spec_kws)
         lv_ov = set(model_spec.names["lv_extended"]).difference(set(model_spec.names["lv"]).union(model_spec.names["y"]))
         lv_ov = sorted(lv_ov, key=lambda x: model_spec.lv_order[x])
-        C = covariance.loc[lv_ov, lv_ov] #data[lv_ov].cov(ddof=0)
+        C = data.sample_cov_df.loc[lv_ov, lv_ov] #data[lv_ov].cov(ddof=0)
         model_spec.fixed_mats[2].loc[lv_ov, lv_ov] = C
         matrix_names = ["L", "B", "F", "P"]
         matrix_order = dict(L=0, B=1, F=2, P=3)
@@ -42,11 +45,11 @@ class SEM(CovarianceStructure):
             init_kws[f"{name}_fixed_loc"] = model_spec.fixed_mats[i].values!=0
         super().__init__(**init_kws)
         self.model_spec = model_spec
-        self.fit_function = LikelihoodObjective(covariance.values)
-        self.covariance = covariance
-        self.data = raw_data
-        self.means = means
-        self.n_obs = n_obs
+        self.fit_function = LikelihoodObjective(data)
+        self.sample_cov = data.sample_cov
+        self.data = data
+        self.means = data.sample_mean
+        self.n_obs = data.n_obs
     
     def func(self, theta):
         Sigma = self.implied_cov(theta)

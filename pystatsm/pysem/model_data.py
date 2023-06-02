@@ -21,8 +21,9 @@ class ModelData(object):
         if self.data is not None:
             self.data, self.data_df = self._to_dataframe_and_array(self.data)
             self.sample_cov = self.data_df.cov(ddof=self.ddof)
+            self.sample_mean = self.data.mean(axis=0).reshape(1, -1)
+            self.n_obs = self.data_df.shape[0]
             
-        
         if self.sample_cov is not None:
             self.sample_cov, self.sample_cov_df = self._to_dataframe_and_array(self.sample_cov)
         
@@ -30,7 +31,7 @@ class ModelData(object):
             self.sample_mean, self.sample_mean_df = self._to_dataframe_and_array(self.sample_mean)
 
     @staticmethod
-    def _to_dataframe_and_array(self, data):
+    def _to_dataframe_and_array(data):
         if isinstance(data, pd.DataFrame):
             arr, df = data.values, data
         elif isinstance(data, np.ndarray):

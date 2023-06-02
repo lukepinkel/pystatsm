@@ -74,7 +74,7 @@ class CovarianceFitFunction(metaclass=ABCMeta):
         data = self.data if data is None else data
         level = self.level if level is None else level
         mean = self.mean if mean is None else mean
-        g = self._gradient(Sigma, data, level, mean)
+        g = self._gradient(Sigma, dSigma, data, level, mean)
         return g
 
 
@@ -101,7 +101,7 @@ class CovarianceFitFunction(metaclass=ABCMeta):
         data = self.data if data is None else data
         level = self.level if level is None else level
         mean = self.mean if mean is None else mean
-        H = self._hessian(Sigma, data, level, mean)
+        H = self._hessian(Sigma, dSigma, d2Sigma, data, level, mean)
         return H
     
     @staticmethod
