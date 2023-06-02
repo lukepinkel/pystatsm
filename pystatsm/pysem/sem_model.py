@@ -7,7 +7,7 @@ Created on Thu Jun  1 20:06:29 2023
 """
 
 import numpy as np
-
+import scipy as sp
 from .cov_model import CovarianceStructure
 from .fitfunctions import LikelihoodObjective
 from .formula import ModelSpecification
@@ -56,4 +56,28 @@ class SEM(CovarianceStructure):
         d2Sigma = self.d2sigma(theta, free=False)
         H = self.fit_function.hessian(Sigma, dSigma, d2Sigma)
         return H
+    
+    def fit(self,  minimize_kws=None, minimize_options=None):
+        x = self.theta.copy()
+        bounds = self.make_bounds()
+        constraints = self.make_constraints()
+        fun = self.func
+        jac = self.gradient
+        hess = self.hessian
+        
+        default_minimize_options = dict(initial_tr_radius=1.0, verbose=3)
+        minimize_options = handle_default_kws(minimize_options, default_minimize_options)
+        
+        default_minimize_kws = dict(method="trust-constr", options=minimize_options)
+        minimize_kws = handle_default_kws(minimize_kws, default_minimize_kws)
+        
+        res = sp.optimize.minimize(fun,x0=x, jac=jac, hess=hess, bounds=bounds,
+                                   constraints=constraints, **minimize_kws)
+        self.opt_res = res
+        
+            
+            
+    
+    
+    
     

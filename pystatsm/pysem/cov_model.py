@@ -543,7 +543,7 @@ class CovarianceStructure:
     def _constraint_func(self, theta):
         Sigma = self.implied_cov(theta)
         s, d = np.linalg.slogdet(Sigma)
-        return np.array([s*d])
+        return np.array([s*np.exp(d)])
     
     def make_bounds(self):
         lb, ub = np.repeat(None, self.nt1), np.repeat(None, self.nt1)
