@@ -7,30 +7,13 @@ import scipy as sp #analysis:ignore
 from ..utilities.indexing_utils import ( vec_inds_forwards,  #analysis:ignore
                                         vech_inds_forwards,
                                         vech_inds_reverse,
-                                        tril_indices)
+                                        tril_indices, unique, nonzero)
 from ..utilities.linalg_operations import ( _vec, _invec, _vech, _invech) #analysis:ignore
 from ..utilities.special_mats import lmat, nmat, dmat #analysis:ignore
 from ..utilities.func_utils import sizes_to_ind_arrs #analysis:ignore
 from ..utilities.numerical_derivs import jac_approx, hess_approx #analysis:ignore
 
-def nonzero(arr, as_tuple=False):
-    index = np.argwhere(arr)
-    index = index[np.lexsort(index.T, axis=0)].T
-    if as_tuple:
-        index = tuple([index[i] for i in range(index.shape[0])])
-    return index
 
-
-def unique(arr):
-    u, ind, inverse = np.unique(arr, return_index=True, return_inverse=True)
-    ind = np.array(sorted(ind))
-    u = arr[ind]
-    d = dict(zip(np.arange(len(u)), np.argsort(u)))
-    inv = np.copy(inverse)
-    for k, v in d.items():
-        inv[inverse==k] = v
-    return u, inv, ind
-    
 
 @numba.jit(nopython=True)
 def _vech_nb(x):

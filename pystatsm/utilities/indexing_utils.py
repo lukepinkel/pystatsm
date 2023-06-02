@@ -781,3 +781,22 @@ def array_match(x, y, mask=False):
         res = yindex[x[yindex] == y]
     return res
 
+
+def nonzero(arr, as_tuple=False):
+    index = np.argwhere(arr)
+    index = index[np.lexsort(index.T, axis=0)].T
+    if as_tuple:
+        index = tuple([index[i] for i in range(index.shape[0])])
+    return index
+
+
+def unique(arr):
+    u, ind, inverse = np.unique(arr, return_index=True, return_inverse=True)
+    ind = np.array(sorted(ind))
+    u = arr[ind]
+    d = dict(zip(np.arange(len(u)), np.argsort(u)))
+    inv = np.copy(inverse)
+    for k, v in d.items():
+        inv[inverse==k] = v
+    return u, inv, ind
+    
