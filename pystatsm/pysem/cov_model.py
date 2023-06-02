@@ -283,7 +283,7 @@ class CovarianceStructure:
         # Initialize dictionaries to store the indices of the free and fixed parameters for each matrix
         self.mat_inds = {}
         self.mat_fixed_inds = {}
-        
+        self.diag_inds = np.zeros(self.n_par, dtype=bool)
         
         # Initialize an array to store the parameter template
         self.p_template = np.zeros(self.n_par)
@@ -319,6 +319,11 @@ class CovarianceStructure:
                 diagonal_mask = inds[0]==inds[1]
                 diagonal_inds = inds[0][diagonal_mask], inds[1][diagonal_mask]
                 mat_template[diagonal_inds] = 1.0
+                if name == "F":
+                    id_mat = np.eye(self.q1)
+                elif name == "P":
+                    id_mat = np.eye(self.p1)
+                self.diag_inds[self.par_inds_by_mat[name]] = _vech(id_mat)
             setattr(self, name, mat_template)
             
             # Add the template to the parameter template
@@ -534,6 +539,23 @@ class CovarianceStructure:
         D = self._compute_d2sigma(nt, hess_inds, deriv_type, dM_arr,
                                   dM_dim, D, B, L, F, free_map)
         return D
+    
+    def _constraint_func(self, theta):
+        Sigma = self.implied_cov(theta)
+        s, d = np.linalg.slogdet(Sigma)
+        return np.array([s*d])
+    
+    def make_bounds(self):
+        lb, ub = np.repeat(None, self.nt1), np.repeat(None, self.nt1)
+        lb[self.diag_inds[self.par_to_theta_ind]] = 0
+        bounds = [(lb[i], ub[i]) for i in range(len(lb))]
+        return bounds
+    
+    def make_constraints(self):
+        constr = sp.optimize.NonlinearConstraint(self._constraint_func,
+                                                 lb=np.zeros(1), ub=np.array([np.inf]))
+        return constr
+    
         
 
 
