@@ -145,27 +145,32 @@ class CovarianceStructure:
             the matrix names
             ("L", "B", "F", "P").
         """
-        # Iterate over the matrix names and set the free and fixed matrices
+        self._row_col_names = {}
         for name in self.matrix_names:
-            # Set the free matrix
-            setattr(self, f"{name}_free", kwargs.get(f"{name}_free"))
+            self._set_matrix(name, 'free', kwargs)
+            self._set_matrix(name, 'fixed', kwargs)
+            self._set_matrix(name, 'fixed_loc', kwargs, dtype=bool)
+        # Iterate over the matrix names and set the free and fixed matrices
+        # for name in self.matrix_names:
+        #     # Set the free matrix
+        #     setattr(self, f"{name}_free", kwargs.get(f"{name}_free"))
             
             
-            # Set the fixed matrix, defaulting to a zero matrix of the same shape as the free matrix if not provided
-            fixed_matrix = kwargs.get(f"{name}_fixed")
-            if fixed_matrix is not None:
-                setattr(self, f"{name}_fixed", fixed_matrix)
-            else:
-                free_matrix = getattr(self, f"{name}_free")
-                setattr(self, f"{name}_fixed", np.zeros_like(free_matrix))
+        #     # Set the fixed matrix, defaulting to a zero matrix of the same shape as the free matrix if not provided
+        #     fixed_matrix = kwargs.get(f"{name}_fixed")
+        #     if fixed_matrix is not None:
+        #         setattr(self, f"{name}_fixed", fixed_matrix)
+        #     else:
+        #         free_matrix = getattr(self, f"{name}_free")
+        #         setattr(self, f"{name}_fixed", np.zeros_like(free_matrix))
             
             
-            # Set the fixed location matrix, defaulting to a zero matrix of the same shape as the free matrix if not provided
-            fixed_loc_matrix = kwargs.get(f"{name}_fixed_loc")
-            if fixed_loc_matrix is not None:
-                setattr(self, f"{name}_fixed_loc", fixed_loc_matrix)
-            else:
-                setattr(self, f"{name}_fixed_loc", np.zeros_like(free_matrix, dtype=bool))
+        #     # Set the fixed location matrix, defaulting to a zero matrix of the same shape as the free matrix if not provided
+        #     fixed_loc_matrix = kwargs.get(f"{name}_fixed_loc")
+        #     if fixed_loc_matrix is not None:
+        #         setattr(self, f"{name}_fixed_loc", fixed_loc_matrix)
+        #     else:
+        #         setattr(self, f"{name}_fixed_loc", np.zeros_like(free_matrix, dtype=bool))
 
                 
 
@@ -272,6 +277,50 @@ class CovarianceStructure:
         # Compute the indices of the Hessian of the free parameters
         self.free_hess_inds = np.vstack(vech_inds_reverse(np.arange(self.nf2), self.nf1))
     
+    def _check_input(self, name, a):
+        if isinstance(a, pd.DataFrame):
+            arr, index, columns = a.values, a.index, a.columns
+        else:
+            index, columns = self.generate_default_names(name, a)
+            arr = a
+        return arr, index, columns
+    
+    def _set_matrix(self, name, postfix, kwargs, dtype=None):
+        """
+        Helper function to set the free, fixed and fixed_loc matrices.
+        If 'free' matrix is not set before trying to set 'fixed' or 'fixed_loc',
+        this will raise an error.
+        """
+        # Check if the matrix is provided, else set to zero matrix
+        matrix = kwargs.get(f"{name}_{postfix}")
+        if matrix is not None:
+            arr, index, columns = self._check_input(f"{name}", matrix)
+            setattr(self, f"{name}_{postfix}", arr)
+            self._row_col_names[f"{name}_{postfix}"] = index, columns
+        else:
+            try:
+                base_matrix = getattr(self, f"{name}_free")
+                arr = np.zeros_like(base_matrix, dtype=dtype)
+                index, columns = self.generate_default_names(name, arr)
+                setattr(self, f"{name}_{postfix}", arr)
+                self._row_col_names[f"{name}_{postfix}"] = index, columns
+            except AttributeError:
+                raise AttributeError(f"Trying to set '{name}_{postfix}' before '{name}_free' is set. "
+                                     f"Please ensure '{name}_free' is set before  '{name}_{postfix}'")  
+    
+    def generate_default_names(self, name, a):
+        if name in ["L", "P"]:
+            index = [f"x{i}" for i in range(1, a.shape[0]+1)]
+        elif name in ["F", "B"]:
+            index = [f"z{i}" for i in range(1, a.shape[0]+1)]
+            
+        if name in ["L", "B", "F"]:
+            columns = [f"z{i}" for i in range(1, a.shape[1]+1)]
+        else:
+            columns = [f"x{i}" for i in range(1, a.shape[0]+1)]
+        return index, columns
+
+
     
     def make_param_template(self):
         """
