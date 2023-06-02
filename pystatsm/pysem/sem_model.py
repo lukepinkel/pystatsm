@@ -8,6 +8,7 @@ Created on Thu Jun  1 20:06:29 2023
 
 import numpy as np
 import scipy as sp
+import pandas as pd
 from .cov_model import CovarianceStructure
 from .fitfunctions import LikelihoodObjective
 from .formula import ModelSpecification
@@ -16,16 +17,19 @@ from ..utilities.func_utils import handle_default_kws
 from ..utilities.data_utils import cov
 class SEM(CovarianceStructure):
     
-    def __init__(self, formula, data, model_spec_kws=None, 
-                 fit_function=LikelihoodObjective):
+    def __init__(self, formula, raw_data=None, covariance=None, means=None, 
+                 model_spec_kws=None, fit_function=LikelihoodObjective):
+        if covariance is None and raw_data is not None:
+            covariance = cov(raw_data)
+            means = np.mean(raw_data, axis=0)
         default_model_spec_kws = dict(extension_kws=dict(fix_lv_var=False))
         model_spec_kws = handle_default_kws(model_spec_kws, default_model_spec_kws)
         
-        var_order = dict(zip(data.columns, np.arange(len(data.columns))))
+        var_order = dict(zip(covariance.columns, np.arange(len(covariance.columns))))
         model_spec = ModelSpecification(formula, var_order=var_order, **model_spec_kws)
         lv_ov = set(model_spec.names["lv_extended"]).difference(set(model_spec.names["lv"]).union(model_spec.names["y"]))
         lv_ov = sorted(lv_ov, key=lambda x: model_spec.lv_order[x])
-        C = data[lv_ov].cov()
+        C = covariance.loc[lv_ov, lv_ov] #data[lv_ov].cov(ddof=0)
         model_spec.fixed_mats[2].loc[lv_ov, lv_ov] = C
         matrix_names = ["L", "B", "F", "P"]
         matrix_order = dict(L=0, B=1, F=2, P=3)
@@ -37,7 +41,10 @@ class SEM(CovarianceStructure):
             init_kws[f"{name}_fixed_loc"] = model_spec.fixed_mats[i].values!=0
         super().__init__(**init_kws)
         self.model_spec = model_spec
-        self.fit_function = LikelihoodObjective(cov(data))
+        self.fit_function = LikelihoodObjective(covariance)
+        self.covariance = covariance
+        self.data = raw_data
+        self.means = means
     
     def func(self, theta):
         Sigma = self.implied_cov(theta)
@@ -82,8 +89,12 @@ class SEM(CovarianceStructure):
         self.opt_res = res
         self.theta = res.x
         self.L, self.B, self.F, self.B = self.to_model_mats(self.theta)
-        
-        
+        ov_names, lv_names = self._row_col_names["L"]
+        self.Ldf = pd.DataFrame(self.L, index=ov_names, columns=lv_names)
+        self.Bdf = pd.DataFrame(self.B, index=lv_names, columns=lv_names)
+        self.Fdf = pd.DataFrame(self.F, index=lv_names, columns=lv_names)
+        self.Pdf = pd.DataFrame(self.P, index=ov_names, columns=ov_names)
+
         
             
             
