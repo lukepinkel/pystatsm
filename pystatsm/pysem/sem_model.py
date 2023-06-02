@@ -80,6 +80,10 @@ class SEM(CovarianceStructure):
         res = sp.optimize.minimize(fun,x0=x, jac=jac, hess=hess, bounds=bounds,
                                    constraints=constraints, **minimize_kws)
         self.opt_res = res
+        self.theta = res.x
+        self.L, self.B, self.F, self.B = self.to_model_mats(self.theta)
+        
+        
         
             
             

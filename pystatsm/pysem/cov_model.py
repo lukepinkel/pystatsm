@@ -296,7 +296,7 @@ class CovarianceStructure:
         if matrix is not None:
             arr, index, columns = self._check_input(f"{name}", matrix)
             setattr(self, f"{name}_{postfix}", arr)
-            if name == "free":
+            if postfix == "free":
                 self._row_col_names[f"{name}"] = index, columns
         else:
             try:
