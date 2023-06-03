@@ -533,19 +533,13 @@ class CovarianceStructure:
             if kind == 1:
                 tmp = (Ji.dot(BFBt).dot(Jj.T) + Jj.dot(BFBt).dot(Ji.T))
                 tmp = _vech_nb(tmp)
-                H[:, i, j]+= tmp
-                H[:, j, i] = H[:, i, j]
             elif kind == 2:
                 BJj = B.T.dot(Jj.T)
                 C = Ji.dot(BF) + BF.T.dot(Ji.T)
                 tmp = _vech_nb(LB.dot(C).dot(BJj) + BJj.T.dot(C).dot(LB.T))
-                H[:, i, j]+= tmp
-                H[:, j, i] = H[:, i, j]
             elif kind == 3:
                 JjB = Jj.dot(B)
                 tmp = _vech_nb(JjB.dot(Ji).dot(LB.T) + LB.dot(Ji).dot(JjB.T))
-                H[:, i, j] += tmp
-                H[:, j, i]  = H[:, i, j]
             elif kind == 4:
                 C1 = Ji.dot(BF)
                 C1 = C1 + C1.T
@@ -557,13 +551,13 @@ class CovarianceStructure:
                 t4 = BF.T.dot(C3.T).dot(C2.T)
                 tmp = LB.dot(t1+t2 + t3+ t4).dot(LB.T)
                 tmp = _vech_nb(tmp)
-                H[:, i, j]+=tmp
-                H[:, j, i] =H[:, i, j]
             elif kind == 5:
                 C = Jj.dot(B).dot(Ji)
                 tmp  = _vech_nb(LB.dot(C+C.T).dot(LB.T))
-                H[:, i, j]+= tmp
-                H[:, j, i] = H[:, i, j]
+            else:
+                continue
+            H[:, i, j]+= tmp
+            H[:, j, i] = H[:, i, j]
         return H
                   
     def d2sigma(self, theta, free=False):

@@ -56,16 +56,16 @@ class SEM(CovarianceStructure):
         f = self.fit_function.function(Sigma)
         return f
     
-    def gradient(self, theta):
+    def gradient(self, theta, free=False):
         Sigma = self.implied_cov(theta)
-        dSigma = self.dsigma(theta, free=False)
+        dSigma = self.dsigma(theta, free=free)
         g = self.fit_function.gradient(Sigma, dSigma)
         return g
 
-    def hessian(self, theta):
+    def hessian(self, theta, free=False):
         Sigma = self.implied_cov(theta)
-        dSigma = self.dsigma(theta, free=False)
-        d2Sigma = self.d2sigma(theta, free=False)
+        dSigma = self.dsigma(theta, free=free)
+        d2Sigma = self.d2sigma(theta, free=free)
         H = self.fit_function.hessian(Sigma, dSigma, d2Sigma)
         return H
     
