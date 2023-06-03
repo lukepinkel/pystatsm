@@ -17,6 +17,12 @@ from .model_data import ModelData
 from ..utilities.func_utils import handle_default_kws
 from ..utilities.data_utils import cov
 
+def _sparse_post_mult(A, S):
+    prod = S.T.dot(A.T)
+    prod = prod.T
+    return prod
+
+
 class SEM(CovarianceStructure):
     
     def __init__(self, formula, data=None, sample_cov=None, sample_mean=None, n_obs=None,
@@ -64,9 +70,12 @@ class SEM(CovarianceStructure):
 
     def hessian(self, theta, free=False):
         Sigma = self.implied_cov(theta)
-        dSigma = self.dsigma(theta, free=free)
-        d2Sigma = self.d2sigma(theta, free=free)
+        dSigma = self.dsigma(theta, free=True)
+        d2Sigma = self.d2sigma(theta, free=True)
         H = self.fit_function.hessian(Sigma, dSigma, d2Sigma)
+        J = self.J_theta
+        H = J.T.dot(H)
+        H = _sparse_post_mult(H, J)
         return H
     
     def fit(self,  minimize_kws=None, minimize_options=None, constrain=False, use_hess=False):

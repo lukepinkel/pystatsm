@@ -593,6 +593,30 @@ class CovarianceStructure:
             D = np.einsum("ik,hij,jl->hkl", J, D, J, optimize=True) 
         return D
     
+    def d2sigma_alt(self, theta, free=False):
+        par = self.p_template.copy()
+        par[self.par_to_free_ind]= theta[self.theta_to_free_ind]
+        L = _invec(par[self.par_inds_by_mat["L"]], *self.mat_dims["L"])
+        B = _invec(par[self.par_inds_by_mat["B"]], *self.mat_dims["B"])
+        F = _invech(par[self.par_inds_by_mat["F"]])
+        B = np.linalg.inv(self.Iq - B)
+        nt = self.nf2
+        hess_inds = self.free_hess_inds.T
+        deriv_type = self.free_to_hess_mat_type
+        free_map = self.free_map
+        D = self.D2f.copy()
+        if free:
+            free_map = self.free_map
+            D = self.D2f.copy()
+        else:
+            free_map = self.theta_to_free_ind
+            D = self.D2t.copy()
+        dM_arr = self.dM_arr
+        dM_dim = self.dM_dim
+        D = self._compute_d2sigma(nt, hess_inds, deriv_type, dM_arr,
+                                  dM_dim, D, B, L, F, free_map)
+        return D
+    
     def _constraint_func(self, theta):
         Sigma = self.implied_cov(theta)
         s, d = np.linalg.slogdet(Sigma)
