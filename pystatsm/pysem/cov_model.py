@@ -449,6 +449,12 @@ class CovarianceStructure:
         for i, (j, k) in enumerate(pairs, 1):
             hess_mat_type[(hess_to_mat[0]==j) & (hess_to_mat[1]==k)] = i
             
+        row_ind = np.arange(self.nf1)
+        col_ind = self.theta_to_free_ind
+        dta = np.ones(self.nf1)
+        arg1 = (dta, (row_ind, col_ind))
+        self.J_theta = sp.sparse.csc_array(arg1, shape=(self.nf1, self.nt1))
+            
         self.free_to_hess_mat_type = hess_mat_type
         
         # Initialize arrays to store the first and second derivatives of the free parameters
@@ -529,7 +535,6 @@ class CovarianceStructure:
             kind = deriv_type[ij]
             Ji = np.ascontiguousarray(dM[i, :dM_shape[i][0], :dM_shape[i][1]])
             Jj = np.ascontiguousarray(dM[j, :dM_shape[j][0], :dM_shape[j][1]])
-            i, j = index[i], index[j]
             if kind == 1:
                 tmp = (Ji.dot(BFBt).dot(Jj.T) + Jj.dot(BFBt).dot(Ji.T))
                 tmp = _vech_nb(tmp)
@@ -556,8 +561,9 @@ class CovarianceStructure:
                 tmp  = _vech_nb(LB.dot(C+C.T).dot(LB.T))
             else:
                 continue
-            H[:, i, j]+= tmp
-            H[:, j, i] = H[:, i, j]
+            h, k = index[i], index[j]
+            H[:, h, k] += tmp
+            H[:, k, h] = H[:, h, k]
         return H
                   
     def d2sigma(self, theta, free=False):
@@ -570,16 +576,21 @@ class CovarianceStructure:
         nt = self.nf2
         hess_inds = self.free_hess_inds.T
         deriv_type = self.free_to_hess_mat_type
-        if free:
-            free_map = self.free_map
-            D = self.D2f.copy()
-        else:
-            free_map = self.theta_to_free_ind
-            D = self.D2t.copy()
+        free_map = self.free_map
+        D = self.D2f.copy()
+        # if free:
+        #     free_map = self.free_map
+        #     D = self.D2f.copy()
+        # else:
+        #     free_map = self.theta_to_free_ind
+        #     D = self.D2t.copy()
         dM_arr = self.dM_arr
         dM_dim = self.dM_dim
         D = self._compute_d2sigma(nt, hess_inds, deriv_type, dM_arr,
                                   dM_dim, D, B, L, F, free_map)
+        if not free:
+            J = self.J_theta.A
+            D = np.einsum("ik,hij,jl->hkl", J, D, J, optimize=True) 
         return D
     
     def _constraint_func(self, theta):
