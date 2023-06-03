@@ -191,7 +191,7 @@ def grad_approx(f, x, eps=1e-4, tol=None, d=1e-4, nr=6, v=2):
 
 
 
-def jac_approx(F, X, eps=1e-4, tol=None, d=1e-4, args=(), progress_bar=False):
+def jac_approx(F, X, eps=1e-4, tol=None, d=1e-4, args=(), progress_bar=False, mask=None):
     def Func(X, args=()):
         return np.atleast_1d(F(X, *args))
     X = np.asarray(X)
@@ -201,13 +201,20 @@ def jac_approx(F, X, eps=1e-4, tol=None, d=1e-4, args=(), progress_bar=False):
     J = np.zeros(Y.shape+X.shape)
     if progress_bar:
         pbar = tqdm.tqdm(total=np.product(Y.shape)*np.product(X.shape))
+        
+    if mask is None:
+        use_mask = False  # If mask is not passed, don't use it
+    else:
+        use_mask = True  # If mask is passed, use it
+
     for ii in np.ndindex(Y.shape):
         for jj in np.ndindex(X.shape):
-            H[jj] = np.abs(d * X[jj]) + eps * (np.abs(X[jj]) < tol)
-            FpH = Func(X+H, *args)[ii]
-            FmH = Func(X-H, *args)[ii]
-            J[ii+jj] = (FpH - FmH) / (2.0 * H[jj])
-            H[jj] = 0.0
+            if not use_mask or mask[ii]:
+                H[jj] = np.abs(d * X[jj]) + eps * (np.abs(X[jj]) < tol)
+                FpH = Func(X+H, *args)[ii]
+                FmH = Func(X-H, *args)[ii]
+                J[ii+jj] = (FpH - FmH) / (2.0 * H[jj])
+                H[jj] = 0.0
             if progress_bar:
                 pbar.update(1)
     if progress_bar:
