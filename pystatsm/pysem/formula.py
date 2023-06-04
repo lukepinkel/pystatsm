@@ -306,6 +306,8 @@ class ModelSpecification:
                 fixed_mats[0].loc[v, v] = 1.0
         self.free_mats = free_mats
         self.fixed_mats = fixed_mats
+        self.mat_row_names = mat_rows
+        self.mat_col_names=  mat_cols
         
 
     
