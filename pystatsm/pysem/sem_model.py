@@ -37,7 +37,8 @@ class SEM(CovarianceStructure):
         var_order = dict(zip(data.sample_cov_df.columns,
                              np.arange(len(data.sample_cov_df.columns))))
         model_spec = ModelSpecification(formula, var_order=var_order, **model_spec_kws)
-        lv_ov = set(model_spec.names["lv_extended"]).difference(set(model_spec.names["lv"]).union(model_spec.names["y"]))
+        lv_ov = set(model_spec.names["lv_extended"]).difference(
+            set.union(model_spec.names["lv"], model_spec.names["y"], model_spec.names["v"]))
         lv_ov = sorted(lv_ov, key=lambda x: model_spec.lv_order[x])
         C = data.sample_cov_df.loc[lv_ov, lv_ov] #data[lv_ov].cov(ddof=0)
         model_spec.fixed_mats[2].loc[lv_ov, lv_ov] = C
