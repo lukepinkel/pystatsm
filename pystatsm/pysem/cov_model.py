@@ -428,7 +428,6 @@ class CovarianceStructure:
         arg1 = (dta, (row_ind, col_ind))
         self.J_theta = sp.sparse.csc_array(arg1, shape=(self.nf1, self.nt1))
     
-    
     def make_free_deriv_mats(self):
         ptf_ind = self.par_to_free_ind
         nf = len(ptf_ind)
