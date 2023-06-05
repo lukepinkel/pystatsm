@@ -162,6 +162,15 @@ def invech_chol(lvec):
 
 
 
+@numba.jit(nopython=True)
+def _vech_nb(x):
+    m = x.shape[-1]
+    s, r = np.triu_indices(m, k=0)
+    i = r+s*m
+    res = x.T.flatten()[i]
+    return res
+
+
 def vdg(X):
     V = np.diag(vec(X))
     return V
