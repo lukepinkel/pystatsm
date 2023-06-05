@@ -13,9 +13,10 @@ from .cov_model import CovarianceStructure
 from .fitfunctions import LikelihoodObjective
 from .formula import ModelSpecification
 from .model_data import ModelData
-
+from .cov_derivatives import _d2sigma, _dsigma
 from ..utilities.func_utils import handle_default_kws
 from ..utilities.data_utils import cov
+from ..utilities.linalg_operations import _vech, _vec, _invec, _invech
 
 def _sparse_post_mult(A, S):
     prod = S.T.dot(A.T)
@@ -63,20 +64,40 @@ class SEM(CovarianceStructure):
         f = self.fit_function.function(Sigma)
         return f
     
-    def gradient(self, theta, free=False):
+    def gradient(self, theta):
         Sigma = self.implied_cov(theta)
-        dSigma = self.dsigma(theta, free=free)
+        dSigma = self.dsigma(theta)
         g = self.fit_function.gradient(Sigma, dSigma)
+        g = self.J_theta.T.dot(g)
         return g
 
-    def hessian(self, theta, free=False):
+    def hessian(self, theta):
         Sigma = self.implied_cov(theta)
-        dSigma = self.dsigma(theta, free=True)
-        d2Sigma = self.d2sigma(theta, free=True)
+        free = self.theta_to_free(theta)
+        dSigma = self.dsigma_free(free)
+        d2Sigma = self.d2sigma_free(free)
         H = self.fit_function.hessian(Sigma, dSigma, d2Sigma)
         J = self.J_theta
         H = J.T.dot(H)
         H = _sparse_post_mult(H, J)
+        return H
+    
+    def func_free(self, free):
+        Sigma = self.implied_cov_free(free)
+        f = self.fit_function.function(Sigma)
+        return f
+    
+    def gradient_free(self, free):
+        Sigma = self.implied_cov_free(free)
+        dSigma = self.dsigma_free(free)
+        g = self.fit_function.gradient(Sigma, dSigma)
+        return g
+
+    def hessian_free(self, free):
+        Sigma = self.implied_cov_free(free)
+        dSigma = self.dsigma_free(free)
+        d2Sigma = self.d2sigma_free(free)
+        H = self.fit_function.hessian(Sigma, dSigma, d2Sigma)
         return H
     
     def fit(self,  minimize_kws=None, minimize_options=None, constrain=False, use_hess=False):
@@ -113,7 +134,79 @@ class SEM(CovarianceStructure):
         self.Bdf = pd.DataFrame(self.B, index=lv_names, columns=lv_names)
         self.Fdf = pd.DataFrame(self.F, index=lv_names, columns=lv_names)
         self.Pdf = pd.DataFrame(self.P, index=ov_names, columns=ov_names)
+        
+    def free_to_par(self, free):
+        par = self.p_template.copy()
+        par[self.par_to_free_ind] = free
+        return par
+    
+    def theta_to_free(self, theta):
+        free = theta[self.theta_to_free_ind]
+        return free
 
+    def par_to_mat(self, par):
+        minds, mdims = self.minds, self.mdims
+        L, B = _invec(par[minds[0]], *mdims[0]), _invec(par[minds[1]], *mdims[1])
+        F, P = _invech(par[minds[2]]),  _invech(par[minds[3]])
+        return L, B, F, P
+    
+    def to_model_mats(self, theta):
+        par = self.free_to_par(self.theta_to_free(theta))
+        L, B, F, P = self.par_to_mat(par)
+        return L, B, F, P
+    
+    def dsigma(self, theta):
+        par = self.free_to_par(self.theta_to_free(theta))
+        L, B, F, P = self.par_to_mat(par)
+        B = np.linalg.inv(np.eye(B.shape[0]) - B)
+        dS, dA, r, c = self.dSf.copy(), self.dAf, self.rf, self.cf
+        mtype, ns = self.mtypef, self.nf
+        dS = _dsigma(dS, L, B, F, dA, r, c, mtype, ns)
+        return dS
+ 
+    def dsigma_free(self, free):
+        par = self.free_to_par(free)
+        L, B, F, P = self.par_to_mat(par)
+        B = np.linalg.inv(np.eye(B.shape[0]) - B)
+        dS, dA, r, c = self.dSf.copy(), self.dAf, self.rf, self.cf
+        mtype, ns = self.mtypef, self.nf
+        dS = _dsigma(dS, L, B, F, dA, r, c, mtype, ns)
+        return dS
+    
+    def implied_cov(self, theta):
+        par = self.free_to_par(self.theta_to_free(theta))
+        L, B, F, P = self.par_to_mat(par)
+        B = np.linalg.inv(np.eye(B.shape[0]) - B)
+        LB = np.dot(L, B)
+        S = LB.dot(F).dot(LB.T) + P
+        return S
+    
+    def implied_cov_free(self, free):
+        par = self.free_to_par(free)
+        L, B, F, P = self.par_to_mat(par)
+        B = np.linalg.inv(np.eye(B.shape[0]) - B)
+        LB = np.dot(L, B)
+        S = LB.dot(F).dot(LB.T) + P
+        return S
+        
+    def d2sigma(self, theta):
+        par = self.free_to_par(self.theta_to_free(theta))
+        L, B, F, P = self.par_to_mat(par)
+        B = np.linalg.inv(np.eye(B.shape[0]) - B)
+        d2S, dA, r, c = self.d2Sf.copy(), self.dAf, self.rf, self.cf
+        ltr_inds, htype, ns2 = self.d2_indsf, self.d2_kindf, self.nf2
+        d2S = _d2sigma(d2S, L, B, F, dA, r, c, ltr_inds, htype, ns2)
+        return d2S
+    
+    def d2sigma_free(self, free):
+        par = self.free_to_par(free)
+        L, B, F, P = self.par_to_mat(par)
+        B = np.linalg.inv(np.eye(B.shape[0]) - B)
+        d2S, dA, r, c = self.d2Sf.copy(), self.dAf, self.rf, self.cf
+        ltr_inds, htype, ns2 = self.d2_indsf, self.d2_kindf, self.nf2
+        d2S = _d2sigma(d2S, L, B, F, dA, r, c, ltr_inds, htype, ns2)
+        return d2S
+    
         
             
             
