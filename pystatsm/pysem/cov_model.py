@@ -4,26 +4,18 @@ import numba
 import pandas as pd
 import numpy as np
 import scipy as sp #analysis:ignore
+from .cov_derivatives import _d2sigma, _dsigma
 from ..utilities.indexing_utils import (vec_inds_forwards,  #analysis:ignore
                                         vec_inds_reverse,
                                         vech_inds_forwards,
                                         vech_inds_reverse,
                                         tril_indices,
                                         unique, nonzero)
-from ..utilities.linalg_operations import ( _vec, _invec, _vech, _invech) #analysis:ignore
+from ..utilities.linalg_operations import ( _vec, _invec, _vech, _invech, _vech_nb) #analysis:ignore
 from ..utilities.special_mats import lmat, nmat, dmat #analysis:ignore
 from ..utilities.func_utils import sizes_to_ind_arrs #analysis:ignore
 from ..utilities.numerical_derivs import jac_approx, hess_approx #analysis:ignore
 
-
-
-@numba.jit(nopython=True)
-def _vech_nb(x):
-    m = x.shape[-1]
-    s, r = np.triu_indices(m, k=0)
-    i = r+s*m
-    res = x.T.flatten()[i]
-    return res
 
 
 class CovarianceStructure:
@@ -128,9 +120,19 @@ class CovarianceStructure:
         The indices of the Hessian of the free parameters.
 
     """
+    pairs = [(0, 0),  #L L
+             (1, 0),  #B L
+             (2, 0),  #F L
+                      #P L is 0
+             (1, 1),  #B B
+             (2, 1)   #F B
+                      #P B is 0
+                      #F F is 0
+                      #F P is 0
+             ]
     matrix_names = ["L", "B", "F", "P"]
     matrix_order = dict(L=0, B=1, F=2, P=3)
-    is_symmetric = dict(L=False, B=False, F=True, P=True)
+    is_symmetric = {0:False, 1:False, 2:True, 3:True}
     def __init__(self, **kwargs):
         """
         Initialize the CovarianceStructure instance.
@@ -150,29 +152,6 @@ class CovarianceStructure:
             self._set_matrix(name, 'free', kwargs)
             self._set_matrix(name, 'fixed', kwargs)
             self._set_matrix(name, 'fixed_loc', kwargs, dtype=bool)
-        # Iterate over the matrix names and set the free and fixed matrices
-        # for name in self.matrix_names:
-        #     # Set the free matrix
-        #     setattr(self, f"{name}_free", kwargs.get(f"{name}_free"))
-
-
-        #     # Set the fixed matrix, defaulting to a zero matrix of the same shape as the free matrix if not provided
-        #     fixed_matrix = kwargs.get(f"{name}_fixed")
-        #     if fixed_matrix is not None:
-        #         setattr(self, f"{name}_fixed", fixed_matrix)
-        #     else:
-        #         free_matrix = getattr(self, f"{name}_free")
-        #         setattr(self, f"{name}_fixed", np.zeros_like(free_matrix))
-
-
-        #     # Set the fixed location matrix, defaulting to a zero matrix of the same shape as the free matrix if not provided
-        #     fixed_loc_matrix = kwargs.get(f"{name}_fixed_loc")
-        #     if fixed_loc_matrix is not None:
-        #         setattr(self, f"{name}_fixed_loc", fixed_loc_matrix)
-        #     else:
-        #         setattr(self, f"{name}_fixed_loc", np.zeros_like(free_matrix, dtype=bool))
-
-
 
         # Extract the dimensions of the L matrix
         self.p1, self.q1 = self.L_free.shape
@@ -188,13 +167,11 @@ class CovarianceStructure:
         # Compute the total number of parameters
         self.n_par = self.pq + self.qq + self.q2 + self.p2
 
-
         # Create an identity matrix of size q1
         self.Iq = np.eye(self.q1)
 
-
         # Compute the indices of the parameters for each matrix
-        self.par_inds_by_mat = sizes_to_ind_arrs([self.pq, self.qq, self.q2, self.p2], keys=["L", "B", "F", "P"])
+        self.par_inds_by_mat = sizes_to_ind_arrs([self.pq, self.qq, self.q2, self.p2], keys=[0, 1, 2, 3])
 
         # Initialize a matrix to store the parameters and their corresponding matrix indices
         # The first column is a range from 0 to n_par, representing the parameters
@@ -202,24 +179,28 @@ class CovarianceStructure:
         # This allows us to map from the free parameters and theta to the matrix of the corresponding parameter
         self.par_mats = np.zeros((self.n_par, 2), dtype=int)
         self.par_mats[:, 0] = np.arange(self.n_par)
-        for name, idx in self.matrix_order.items():
-            self.par_mats[self.par_inds_by_mat[name], 1] = idx
+        for i, (name, idx) in enumerate(self.matrix_order.items()):
+            self.par_mats[self.par_inds_by_mat[i], 1] = idx
 
 
         # Store the dimensions of each matrix
-        self.mat_dims = {name: getattr(self, f"{name}_free").shape for name in self.matrix_names}
-        self.mat_dim_arr = np.array([list(self.mat_dims[name]) for name in self.matrix_names], dtype=int)
+        self.mat_dims = {}
+        self.mat_dim_arr = np.zeros((4, 2), dtype=int)
+        for i, name in enumerate(self.matrix_names):
+            mat = getattr(self, f"{name}_free")
+            self.mat_dims[i] = mat.shape
+            self.mat_dim_arr[i] = mat.shape
 
         # Initialize the free parameters, parameter template, and derivative matrices
         self.make_free_params()
         self.make_param_template()
-        self.get_free_derivative_mats()
+        self.get_par_derivative_mats()
+        self.make_free_deriv_mats()
 
     def make_free_params(self):
         """
         Create the mapping between the parameters, the free parameters,
         and the theta parameters.
-
         This method populates several instance variables that store these
         mappings, as well as the indices of the free parameters and
         theta parameters.
@@ -227,25 +208,21 @@ class CovarianceStructure:
         # Initialize a zero array to store the parameter indices
         par_ind = np.zeros(self.n_par)
 
-
         # Iterate over the matrix names and populate the parameter indices
-        for name in self.matrix_names:
+        for i, name in enumerate(self.matrix_names):
             matrix = getattr(self, f"{name}_free")
-            if self.is_symmetric[name]:
-                par_ind[self.par_inds_by_mat[name]] = _vech(np.tril(matrix))
+            if self.is_symmetric[i]:
+                par_ind[self.par_inds_by_mat[i]] = _vech(np.tril(matrix))
             else:
-                par_ind[self.par_inds_by_mat[name]] = _vec(matrix)
-
+                par_ind[self.par_inds_by_mat[i]] = _vec(matrix)
 
         # Compute the indices of the free parameters and the number of free parameters
         par_to_free_ind = nonzero(par_ind >0).squeeze()
         free_ind = par_ind[par_ind > 0]
         nf = len(free_ind)
 
-
         # Compute the matrix indices of the free parameters
         free_to_mat = self.par_mats[par_to_free_ind][:, 1].T
-
 
 
         # Compute the unique indices of the theta parameters and the mapping between the theta parameters and the free parameters
@@ -253,7 +230,6 @@ class CovarianceStructure:
         nt = len(theta_ind)
         par_to_theta_ind = par_to_free_ind[free_to_theta_ind]
         theta_to_mat = free_to_mat[free_to_theta_ind]
-
 
         # Store the computed values as instance variables
 
@@ -341,9 +317,8 @@ class CovarianceStructure:
         # Initialize a list to store the combined indices of the free parameters for each matrix
         self.mat_inds_comb = []
 
-
         # Iterate over the matrix names and populate the parameter template and indices
-        for name in self.matrix_names:
+        for i, name in enumerate(self.matrix_names):
             # Get the free, fixed, and fixed location matrices for the current matrix
             matrix_free = getattr(self, f"{name}_free")
             matrix_fixed = getattr(self, f"{name}_fixed")
@@ -351,17 +326,17 @@ class CovarianceStructure:
 
 
             # Compute the indices of the free and fixed parameters
-            if self.is_symmetric[name]:
+            if self.is_symmetric[i]:
                 inds = nonzero(np.tril(matrix_free), True)
             else:
                 inds = nonzero(matrix_free, True)
-            self.mat_inds[name] = inds
+            self.mat_inds[i] = inds
             self.mat_inds_comb.append(nonzero(matrix_free))
             inds_fixed = nonzero(matrix_fixed_loc, True) #inds_fixed = nonzero(matrix_fixed, True)
-            self.mat_fixed_inds[name] = inds_fixed
+            self.mat_fixed_inds[i] = inds_fixed
 
             # Create a template for the current matrix
-            mat_template = np.zeros(self.mat_dims[name])
+            mat_template = np.zeros(self.mat_dims[i])
             mat_template[inds_fixed] = matrix_fixed[inds_fixed]
             mat_template[inds] = 0.01
             if name in ["F", "P"]:
@@ -372,14 +347,14 @@ class CovarianceStructure:
                     id_mat = np.eye(self.q1)
                 elif name == "P":
                     id_mat = np.eye(self.p1)
-                self.diag_inds[self.par_inds_by_mat[name]] = _vech(id_mat)
+                self.diag_inds[self.par_inds_by_mat[i]] = _vech(id_mat)
             setattr(self, name, mat_template)
 
             # Add the template to the parameter template
-            if self.is_symmetric[name]:
-                self.p_template[self.par_inds_by_mat[name]] = _vech(mat_template)
+            if self.is_symmetric[i]:
+                self.p_template[self.par_inds_by_mat[i]] = _vech(mat_template)
             else:
-                self.p_template[self.par_inds_by_mat[name]] = _vec(mat_template)
+                self.p_template[self.par_inds_by_mat[i]] = _vec(mat_template)
 
         # Extract theta
         self.theta = self.p_template[self.par_to_theta_ind]
@@ -389,204 +364,95 @@ class CovarianceStructure:
         self.mat_inds_comb = np.concatenate(self.mat_inds_comb, axis=1)
 
 
-    def to_model_mats(self, theta):
-        """
-        Convert the theta parameters to the model matrices.
-
-        Parameters
-        ----------
-        theta : np.ndarray
-            The theta parameters.
-
-        Returns
-        -------
-        tuple of np.ndarray
-            The L, B, F, and P matrices.
-        """
-        # Copy the parameter template and replace the free parameters with the theta parameters
-        par = self.p_template.copy()
-        par[self.par_to_free_ind]= theta[self.theta_to_free_ind]
-
-        # Convert the parameters to the model matrices
-        L = _invec(par[self.par_inds_by_mat["L"]], *self.mat_dims["L"])
-        B = _invec(par[self.par_inds_by_mat["B"]], *self.mat_dims["B"])
-        F = _invech(par[self.par_inds_by_mat["F"]])
-        P = _invech(par[self.par_inds_by_mat["P"]])
-        return L, B, F, P
-
-    def get_free_derivative_mats(self):
+    def get_par_derivative_mats(self):
         """
         Compute the derivative matrices of the free parameters.
 
         This method populates several instance variables that store the derivative matrices and related information.
         """
         # Extract the number of free parameters and the dimensions of the L matrix
-        nf1, p1, q1 = self.nf1, self.p1, self.q1
-
-
-        # Initialize an array to store the derivative matrices
-        dM_arr = np.zeros((nf1, max(p1, q1), max(p1, q1)))
-
+        p, q = self.p1, self.q1
+        p2 = (p * (p + 1)) // 2
+        q2 = (q * (q + 1)) // 2
+        pq = p * q
+        qq = q * q
+        ns = pq + qq + q2 + p2
+        ns2 = (ns * (ns + 1)) // 2
+        minds = sizes_to_ind_arrs([pq, qq, q2, p2])
+        mtype = np.zeros(ns, dtype=int)
+        mdims = np.array([[p, q], [q, q], [q, q], [p, p]], dtype=int)
+        matix = np.zeros((ns, 2), dtype=int)
+        for i in range(4):
+            mtype[minds[i]] = i
+            if i<2:
+                n_elem = np.prod(mdims[i])
+                r, s = vec_inds_reverse(np.arange(n_elem), mdims[i, 0])        
+            elif i>=2:
+                m = mdims[i, 0]
+                n_elem = m * (m + 1) // 2
+                r, s = vech_inds_reverse(np.arange(n_elem), m)
+            else:
+                continue
+            matix[minds[i], 0], matix[minds[i], 1] = r, s
+        
+        d2_inds = vech_inds_reverse(np.arange(ns2), ns)
+        ltr_inds = vech_inds_reverse(np.arange(ns2), ns)
+        htype = np.zeros(ns2, dtype=int)
+        for i, (j, k) in enumerate(self.pairs, 1):
+            htype[(mtype[ltr_inds[0]]==j) & (mtype[ltr_inds[1]]==k)] = i
+        dA = np.zeros((ns, max(p, q), max(p, q)))
+        row, col = np.zeros((2, ns), dtype=int)
         # Compute the derivative matrices
-        for i in range(nf1):
-            r, c = self.mat_inds_comb.T[i]
-            m = self.free_to_mat[i]
-            dM_arr[i, r, c] = 1.0
+        for i in range(ns):
+            r, s = matix[i]
+            m = mtype[i]
+            row[i], col[i] = mdims[m]
+            dA[i, r, s] = 1.0
             if m>1:
-                dM_arr[i, c, r] = 1.0
-
-
-        # Store the derivative matrices and their dimensions as instance variables
-        self.dM_arr = dM_arr
-        self.dM_dim = self.mat_dim_arr[self.free_to_mat[np.arange(self.nf1)]]
-
-
-        # Compute the matrix types for the Hessian of the free parameters
-        pairs = [(0, 0), (1, 0), (2, 0), (1, 1), (2, 1)]
-        free_hess_inds = self.free_hess_inds
-        hess_to_mat = self.free_to_mat[free_hess_inds]
-        hess_mat_type = np.zeros((hess_to_mat.shape[1]), dtype=int)
-        for i, (j, k) in enumerate(pairs, 1):
-            hess_mat_type[(hess_to_mat[0]==j) & (hess_to_mat[1]==k)] = i
-
+                dA[i, s, r] = 1.0
+        self.dA = dA
+        self.mtype = mtype
+        self.ns = ns
+        self.minds = minds
+        self.matix = matix
+        self.mdims = mdims
+        self.dS = np.zeros((p2, ns))
+        self.d2S = np.zeros((p2, ns, ns))
+        self.d2_inds = np.vstack(d2_inds).T
+        self.d2_kind = htype
+        self.ns2 = ns2
+        self.r, self.c = row, col
         row_ind = np.arange(self.nf1)
         col_ind = self.theta_to_free_ind
         dta = np.ones(self.nf1)
         arg1 = (dta, (row_ind, col_ind))
         self.J_theta = sp.sparse.csc_array(arg1, shape=(self.nf1, self.nt1))
-
-        self.free_to_hess_mat_type = hess_mat_type
-
-        # Initialize arrays to store the first and second derivatives of the free parameters
-        self.D1f = np.zeros((self.p2, self.nf1))
-        self.D2f = np.zeros((self.p2, self.nf1, self.nf1))
-        self.D1t = np.zeros((self.p2, self.nt1))
-        self.D2t = np.zeros((self.p2, self.nt1, self.nt1))
-
-        # Store a mapping from the free parameters to themselves
-        self.free_map = np.arange(self.nf1)
-
-
-    def implied_cov(self, theta):
-        par = self.p_template.copy()
-        par[self.par_to_free_ind]= theta[self.theta_to_free_ind]
-        L = _invec(par[self.par_inds_by_mat["L"]], *self.mat_dims["L"])
-        B = _invec(par[self.par_inds_by_mat["B"]], *self.mat_dims["B"])
-        F = _invech(par[self.par_inds_by_mat["F"]])
-        P = _invech(par[self.par_inds_by_mat["P"]])
-        Iq = self.Iq
-        B = np.linalg.inv(Iq - B)
-        LB = np.dot(L, B)
-        Sigma = LB.dot(F).dot(LB.T) + P
-        return Sigma
-
-    @staticmethod
-    @numba.jit(nopython=True)
-    def _compute_dsigma(n, deriv_type, dM, dM_shape, D, B, L, F, index):
-        LB = L.dot(B)
-        BFBt = B.dot(F).dot(B.T)
-        LBFBt = L.dot(BFBt)
-        for i in range(n):
-            ii = index[i]
-            kind = deriv_type[i]
-            J = np.ascontiguousarray(dM[i, :dM_shape[i][0], :dM_shape[i][1]])
-            if kind == 0:
-                J1 = LBFBt.dot(J.T)
-                tmp = _vech_nb((J1 + J1.T))
-            elif kind == 1:
-                J1 = J.dot(B.dot(F))
-                tmp =_vech_nb(LB.dot(J1+J1.T).dot(LB.T))
-            elif kind==2:
-                J1 = LB.dot(J).dot(LB.T)
-                tmp = _vech_nb(J1)
-            elif kind ==3:
-                tmp = _vech_nb(J)
-            D[:, ii] += tmp
-        return D
-
-    def dsigma(self, theta, free=False):
-        par = self.p_template.copy()
-        par[self.par_to_free_ind]= theta[self.theta_to_free_ind]
-        L = _invec(par[self.par_inds_by_mat["L"]], *self.mat_dims["L"])
-        B = _invec(par[self.par_inds_by_mat["B"]], *self.mat_dims["B"])
-        F = _invech(par[self.par_inds_by_mat["F"]])
-        B = np.linalg.inv(self.Iq - B)
-        nt = self.nf1
-        deriv_type = self.free_to_mat
-        if free:
-            free_map = self.free_map
-            D = self.D1f.copy()
-        else:
-            free_map = self.theta_to_free_ind
-            D = self.D1t.copy()
-        dM_arr = self.dM_arr
-        dM_dim = self.dM_dim
-        D = self._compute_dsigma(nt, deriv_type, dM_arr, dM_dim, D, B, L, F, free_map)
-        return D
-
-    @staticmethod
-    @numba.jit(nopython=True)
-    def _compute_d2sigma(n, asc_inds, deriv_type, dM, dM_shape, H, B, L, F, index):
-        LB = L.dot(B)
-        BF = B.dot(F)
-        BFBt = BF.dot(B.T)
-        for ij in range(n):
-            i, j = asc_inds[ij]
-            kind = deriv_type[ij]
-            Ji = np.ascontiguousarray(dM[i, :dM_shape[i][0], :dM_shape[i][1]])
-            Jj = np.ascontiguousarray(dM[j, :dM_shape[j][0], :dM_shape[j][1]])
-            if kind == 1:
-                tmp = (Ji.dot(BFBt).dot(Jj.T) + Jj.dot(BFBt).dot(Ji.T))
-                tmp = _vech_nb(tmp)
-            elif kind == 2:
-                BJj = B.T.dot(Jj.T)
-                C = Ji.dot(BF) + BF.T.dot(Ji.T)
-                tmp = _vech_nb(LB.dot(C).dot(BJj) + BJj.T.dot(C).dot(LB.T))
-            elif kind == 3:
-                JjB = Jj.dot(B)
-                tmp = _vech_nb(JjB.dot(Ji).dot(LB.T) + LB.dot(Ji).dot(JjB.T))
-            elif kind == 4:
-                C1 = Ji.dot(BF)
-                C1 = C1 + C1.T
-                C2 = Ji.dot(B)
-                C3 = Jj.dot(B)
-                t1 = C3.dot(C1)
-                t2 = C1.dot(C3.T)
-                t3 = C2.dot(C3.dot(F))
-                t4 = BF.T.dot(C3.T).dot(C2.T)
-                tmp = LB.dot(t1+t2 + t3+ t4).dot(LB.T)
-                tmp = _vech_nb(tmp)
-            elif kind == 5:
-                C = Jj.dot(B).dot(Ji)
-                tmp  = _vech_nb(LB.dot(C+C.T).dot(LB.T))
-            else:
-                continue
-            h, k = index[i], index[j]
-            H[:, h, k] += tmp
-            H[:, k, h] = H[:, h, k]
-        return H
-
-    def d2sigma(self, theta, free=False):
-        par = self.p_template.copy()
-        par[self.par_to_free_ind]= theta[self.theta_to_free_ind]
-        L = _invec(par[self.par_inds_by_mat["L"]], *self.mat_dims["L"])
-        B = _invec(par[self.par_inds_by_mat["B"]], *self.mat_dims["B"])
-        F = _invech(par[self.par_inds_by_mat["F"]])
-        B = np.linalg.inv(self.Iq - B)
-        nt = self.nf2
-        hess_inds = self.free_hess_inds.T
-        deriv_type = self.free_to_hess_mat_type
-        if free:
-            free_map = self.free_map
-            D = self.D2f.copy()
-        else:
-            free_map = self.theta_to_free_ind
-            D = self.D2t.copy()
-        dM_arr = self.dM_arr
-        dM_dim = self.dM_dim
-        D = self._compute_d2sigma(nt, hess_inds, deriv_type, dM_arr,
-                                  dM_dim, D, B, L, F, free_map)
-        return D
+    
+    
+    def make_free_deriv_mats(self):
+        ptf_ind = self.par_to_free_ind
+        nf = len(ptf_ind)
+        nf2 = nf * (nf + 1) // 2
+        flat_ind = vech_inds_reverse(np.arange(nf2), nf)
+        new_ind = ptf_ind[flat_ind[0]], ptf_ind[flat_ind[1]]
+        new_flat = vech_inds_forwards(new_ind[0], new_ind[1], self.ns)
+        self.mtypef = self.mtype[ptf_ind]
+        self.mindsf = {}
+        for i in range(4):
+            self.mindsf[i] = np.intersect1d(self.minds[i], ptf_ind)
+        self.matixf = self.matix[ptf_ind]
+        self.d2_kindf = self.d2_kind[new_flat]
+        self.d2_inds = self.d2_inds[new_flat]
+        self.dAf = self.dA[ptf_ind]
+        self.rf, self.cf = self.r[ptf_ind], self.c[ptf_ind]
+        self.dSf = self.dS[:, ptf_ind]
+        self.d2Sf = self.d2S[:, ptf_ind, ptf_ind[:,None]]
+        self.ptf = ptf_ind
+        self.nf = nf
+        self.nf2 = nf2
+        self.d2_indsf = np.vstack(vech_inds_reverse(np.arange(self.nf2), self.nf)).T
+        self.new_ind = new_ind
+        self.new_flat = new_flat
 
     def _constraint_func(self, theta):
         Sigma = self.implied_cov(theta)
