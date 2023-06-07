@@ -452,6 +452,8 @@ class CovarianceStructure:
         self.d2_indsf = np.vstack(vech_inds_reverse(np.arange(self.nf2), self.nf)).T
         self.new_ind = new_ind
         self.new_flat = new_flat
+        s, r = np.triu_indices(self.p1, k=0)
+        self._vh_inds = r+s*self.p1
 
     def _constraint_func(self, theta):
         Sigma = self.implied_cov(theta)
