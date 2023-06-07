@@ -160,19 +160,20 @@ class SEM(CovarianceStructure):
         L, B, F, P = self.par_to_mat(par)
         B = np.linalg.inv(np.eye(B.shape[0]) - B)
         dS, dA, r, c = self.dSf.copy(), self.dAf, self.rf, self.cf
+        vhi = self._vh_inds
         mtype, ns = self.mtypef, self.nf
-        dS = _dsigma(dS, L, B, F, dA, r, c, mtype, ns)
+        dS = _dsigma(dS, L, B, F, dA, r, c, mtype, ns, vhi)
         return dS
  
     def dsigma_free(self, free):
         par = self.free_to_par(free)
         L, B, F, P = self.par_to_mat(par)
         B = np.linalg.inv(np.eye(B.shape[0]) - B)
+        vhi = self._vh_inds
         dS, dA, r, c = self.dSf.copy(), self.dAf, self.rf, self.cf
         mtype, ns = self.mtypef, self.nf
-        dS = _dsigma(dS, L, B, F, dA, r, c, mtype, ns)
+        dS = _dsigma(dS, L, B, F, dA, r, c, mtype, ns, vhi)
         return dS
-    
     def implied_cov(self, theta):
         par = self.free_to_par(self.theta_to_free(theta))
         L, B, F, P = self.par_to_mat(par)
@@ -193,18 +194,20 @@ class SEM(CovarianceStructure):
         par = self.free_to_par(self.theta_to_free(theta))
         L, B, F, P = self.par_to_mat(par)
         B = np.linalg.inv(np.eye(B.shape[0]) - B)
+        vhi = self._vh_inds
         d2S, dA, r, c = self.d2Sf.copy(), self.dAf, self.rf, self.cf
         ltr_inds, htype, ns2 = self.d2_indsf, self.d2_kindf, self.nf2
-        d2S = _d2sigma(d2S, L, B, F, dA, r, c, ltr_inds, htype, ns2)
+        d2S = _d2sigma(d2S, L, B, F, dA, r, c, ltr_inds, htype, ns2, vhi)
         return d2S
     
     def d2sigma_free(self, free):
         par = self.free_to_par(free)
         L, B, F, P = self.par_to_mat(par)
         B = np.linalg.inv(np.eye(B.shape[0]) - B)
+        vhi = self._vh_inds
         d2S, dA, r, c = self.d2Sf.copy(), self.dAf, self.rf, self.cf
         ltr_inds, htype, ns2 = self.d2_indsf, self.d2_kindf, self.nf2
-        d2S = _d2sigma(d2S, L, B, F, dA, r, c, ltr_inds, htype, ns2)
+        d2S = _d2sigma(d2S, L, B, F, dA, r, c, ltr_inds, htype, ns2, vhi)
         return d2S
     
         
