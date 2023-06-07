@@ -1081,6 +1081,13 @@ def d2binorm_cdf_dur(u, v, r):
     return d2Phi_dur
 
 
+def triangular_number(n, offset=1):
+    a = np.asarray(n)
+    a = (a + offset) * a // 2
+    k = a.astype(int)
+    k = k.item() if np.isscalar(n) else k
+    return k
+    
 
 
 
