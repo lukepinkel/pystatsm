@@ -38,5 +38,13 @@ class ModelData(object):
             columns = [f"x{i}" for i in range(1, data.shape[1]+1)]
             arr, df = data, pd.DataFrame(data, columns=columns)
         return arr, df
-        
+    
+    @staticmethod
+    def augmented_covariance(sample_cov, sample_mean):
+        p = sample_cov.shape[0]
+        augmented_cov = np.zeros((p+1, p+1))
+        augmented_cov[:p, :p] = sample_cov + np.outer(sample_mean, sample_mean)
+        augmented_cov[:p, -1] = augmented_cov[-1, :p]   =  sample_mean    
+        augmented_cov[-1, -1] = 1.0
+        return augmented_cov
         
