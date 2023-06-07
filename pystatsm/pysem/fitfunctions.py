@@ -8,7 +8,7 @@ Created on Wed May 31 23:30:43 2023
 
 import numpy as np
 from abc import ABCMeta, abstractmethod
-
+from .cov_derivatives import _dloglike, _d2loglike
 from ..utilities import data_utils
 from ..utilities.linalg_operations import ( _vec, _invec, _vech, _invech) #analysis:ignore
 
@@ -120,6 +120,7 @@ class CovarianceFitFunction(metaclass=ABCMeta):
     def _hessian(self, Sigma, dSigma, d2Sigma, data, level, mean):
         pass
     
+
     
 class LikelihoodObjective(CovarianceFitFunction):
     """
@@ -182,8 +183,18 @@ class LikelihoodObjective(CovarianceFitFunction):
         #Needs to be p(p+1)/2 x t 
         g = -np.einsum("ji,ijk->k", A, D1, optimize=True)
         return g
+    
+    @staticmethod
+    def _gradient_direct(Sigma, data, L, B, F, dA, r, c, mtype, ns):
+        C = data.sample_cov
+        R = C - Sigma
+        Sinv = np.linalg.inv(Sigma)
+        A = Sinv.dot(R).dot(Sinv)
+        vsrs = _vec(A)
+        g = np.zeros(ns)
+        g = _dloglike(g, L, B, F, dA, r, c, mtype, ns, vsrs)
+        return g
         
-     
     @staticmethod
     def _hessian(Sigma, dSigma, d2Sigma, data, level, mean):
         """
@@ -219,11 +230,9 @@ class LikelihoodObjective(CovarianceFitFunction):
         H = 2*H_t2 - H_t1
         return H  
     
-    
+
         
-    
-    
-    
+   
     
     
     
