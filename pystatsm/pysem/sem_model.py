@@ -13,7 +13,7 @@ from .cov_model import CovarianceStructure
 from .fitfunctions import LikelihoodObjective
 from .formula import ModelSpecification
 from .model_data import ModelData
-from .cov_derivatives import _d2sigma, _dsigma
+from .cov_derivatives import _d2sigma, _dsigma, _dloglike, _d2loglike
 from ..utilities.func_utils import handle_default_kws
 from ..utilities.data_utils import cov
 from ..utilities.linalg_operations import _vech, _vec, _invec, _invech
@@ -53,51 +53,105 @@ class SEM(CovarianceStructure):
             init_kws[f"{name}_fixed_loc"] = model_spec.fixed_mats[i].values!=0
         super().__init__(**init_kws)
         self.model_spec = model_spec
-        self.fit_function = LikelihoodObjective(data)
         self.sample_cov = data.sample_cov
         self.data = data
         self.means = data.sample_mean
         self.n_obs = data.n_obs
+        self.lndetS = np.linalg.slogdet(data.sample_cov)[1]
+        
     
     def func(self, theta):
         Sigma = self.implied_cov(theta)
-        f = self.fit_function.function(Sigma)
+        n_obs, C = self.data.n_obs, self.data.sample_cov
+        lndS = np.linalg.slogdet(Sigma)[1]
+        SinvC = np.linalg.solve(Sigma, C)
+        trSinvC = np.trace(SinvC)
+        f = (lndS + trSinvC - self.lndetS - len(C)) * n_obs / 2.0
         return f
     
     def gradient(self, theta):
-        Sigma = self.implied_cov(theta)
-        dSigma = self.dsigma(theta)
-        g = self.fit_function.gradient(Sigma, dSigma)
+        par = self.free_to_par(self.theta_to_free(theta))
+        L, B, F, P = self.par_to_mat(par)
+        B = np.linalg.inv(np.eye(B.shape[0]) - B)
+        LB = np.dot(L, B)
+        Sigma = LB.dot(F).dot(LB.T) + P
+        dA, r, c, deriv_type = self.dA, self.r, self.c, self.matrix_type
+        n_obs, C = self.data.n_obs, self.data.sample_cov
+        R = C - Sigma
+        Sinv = np.linalg.inv(Sigma)
+        VRV = Sinv.dot(R).dot(Sinv)
+        vecVRV = _vec(VRV)
+        g = np.zeros(self.nf)
+        g =_dloglike(g, L, B, F, vecVRV, dA, r, c, deriv_type, self.nf, self._vech_inds)
+        g = n_obs  / 2 * g
         g = self.J_theta.T.dot(g)
         return g
 
     def hessian(self, theta):
-        Sigma = self.implied_cov(theta)
-        free = self.theta_to_free(theta)
-        dSigma = self.dsigma_free(free)
-        d2Sigma = self.d2sigma_free(free)
-        H = self.fit_function.hessian(Sigma, dSigma, d2Sigma)
+        par = self.free_to_par(self.theta_to_free(theta))
+        L, B, F, P = self.par_to_mat(par)
+        B = np.linalg.inv(np.eye(B.shape[0]) - B)
+        LB = np.dot(L, B)
+        Sigma = LB.dot(F).dot(LB.T) + P
+        dA, r, c, deriv_type = self.dA, self.r, self.c, self.matrix_type
+        n_obs, C = self.data.n_obs, self.data.sample_cov
+        R = C - Sigma
+        Sinv = np.linalg.inv(Sigma)
+        VRV = Sinv.dot(R).dot(Sinv)
+        vecVRV = _vec(VRV)
+        vecV = _vec(Sinv)
+        H = np.zeros((self.nf,)*2)
+        H = _d2loglike(H, L, B, F, Sinv, C, vecVRV, vecV, dA, r, c, 
+                       deriv_type, self.d2_kind, self.nf, self._vech_inds)
         J = self.J_theta
         H = J.T.dot(H)
         H = _sparse_post_mult(H, J)
+        H = n_obs / 2 * H
         return H
     
     def func_free(self, free):
         Sigma = self.implied_cov_free(free)
-        f = self.fit_function.function(Sigma)
+        n_obs, C = self.data.n_obs, self.data.sample_cov
+        lndS = np.linalg.slogdet(Sigma)[1]
+        SinvC = np.linalg.solve(Sigma, C)
+        trSinvC = np.trace(SinvC)
+        f = (lndS + trSinvC - self.lndetS - len(C)) * n_obs / 2.0
         return f
     
     def gradient_free(self, free):
-        Sigma = self.implied_cov_free(free)
-        dSigma = self.dsigma_free(free)
-        g = self.fit_function.gradient(Sigma, dSigma)
+        par = self.free_to_par(free)
+        L, B, F, P = self.par_to_mat(par)
+        B = np.linalg.inv(np.eye(B.shape[0]) - B)
+        LB = np.dot(L, B)
+        Sigma = LB.dot(F).dot(LB.T) + P
+        dA, r, c, deriv_type = self.dA, self.r, self.c, self.matrix_type
+        n_obs, C = self.data.n_obs, self.data.sample_cov
+        R = C - Sigma
+        Sinv = np.linalg.inv(Sigma)
+        VRV = Sinv.dot(R).dot(Sinv)
+        vecVRV = _vec(VRV)
+        g = np.zeros(self.nf)
+        g =_dloglike(g, L, B, F, vecVRV, dA, r, c, deriv_type, self.nf, self._vech_inds)
+        g = n_obs  / 2 * g
         return g
 
     def hessian_free(self, free):
-        Sigma = self.implied_cov_free(free)
-        dSigma = self.dsigma_free(free)
-        d2Sigma = self.d2sigma_free(free)
-        H = self.fit_function.hessian(Sigma, dSigma, d2Sigma)
+        par = self.free_to_par(free)
+        L, B, F, P = self.par_to_mat(par)
+        B = np.linalg.inv(np.eye(B.shape[0]) - B)
+        LB = np.dot(L, B)
+        Sigma = LB.dot(F).dot(LB.T) + P
+        dA, r, c, deriv_type = self.dA, self.r, self.c, self.matrix_type
+        n_obs, C = self.data.n_obs, self.data.sample_cov
+        R = C - Sigma
+        Sinv = np.linalg.inv(Sigma)
+        VRV = Sinv.dot(R).dot(Sinv)
+        vecVRV = _vec(VRV)
+        vecV = _vec(Sinv)
+        H = np.zeros((self.nf,)*2)
+        H = _d2loglike(H, L, B, F, Sinv, C, vecVRV, vecV, dA, r, c, 
+                       deriv_type, self.d2_kind, self.nf, self._vech_inds)
+        H = n_obs / 2 * H
         return H
     
     def fit(self,  minimize_kws=None, minimize_options=None, constrain=False, use_hess=False):
@@ -145,7 +199,8 @@ class SEM(CovarianceStructure):
         return free
 
     def par_to_mat(self, par):
-        minds, mdims = self.minds, self.mdims
+        minds = self.parameter_indices
+        mdims = self.matrix_dims
         L, B = _invec(par[minds[0]], *mdims[0]), _invec(par[minds[1]], *mdims[1])
         F, P = _invech(par[minds[2]]),  _invech(par[minds[3]])
         return L, B, F, P
@@ -159,21 +214,20 @@ class SEM(CovarianceStructure):
         par = self.free_to_par(self.theta_to_free(theta))
         L, B, F, P = self.par_to_mat(par)
         B = np.linalg.inv(np.eye(B.shape[0]) - B)
-        dS, dA, r, c = self.dSf.copy(), self.dAf, self.rf, self.cf
-        vhi = self._vh_inds
-        mtype, ns = self.mtypef, self.nf
-        dS = _dsigma(dS, L, B, F, dA, r, c, mtype, ns, vhi)
+        dS = self.dS.copy()
+        kws = self.cov_first_deriv_kws
+        dS = _dsigma(dS, L, B, F, **kws)
         return dS
  
     def dsigma_free(self, free):
         par = self.free_to_par(free)
         L, B, F, P = self.par_to_mat(par)
         B = np.linalg.inv(np.eye(B.shape[0]) - B)
-        vhi = self._vh_inds
-        dS, dA, r, c = self.dSf.copy(), self.dAf, self.rf, self.cf
-        mtype, ns = self.mtypef, self.nf
-        dS = _dsigma(dS, L, B, F, dA, r, c, mtype, ns, vhi)
+        dS = self.dS.copy()
+        kws = self.cov_first_deriv_kws
+        dS = _dsigma(dS, L, B, F, **kws)
         return dS
+    
     def implied_cov(self, theta):
         par = self.free_to_par(self.theta_to_free(theta))
         L, B, F, P = self.par_to_mat(par)
@@ -194,20 +248,18 @@ class SEM(CovarianceStructure):
         par = self.free_to_par(self.theta_to_free(theta))
         L, B, F, P = self.par_to_mat(par)
         B = np.linalg.inv(np.eye(B.shape[0]) - B)
-        vhi = self._vh_inds
-        d2S, dA, r, c = self.d2Sf.copy(), self.dAf, self.rf, self.cf
-        ltr_inds, htype, ns2 = self.d2_indsf, self.d2_kindf, self.nf2
-        d2S = _d2sigma(d2S, L, B, F, dA, r, c, ltr_inds, htype, ns2, vhi)
+        d2S = self.d2S.copy()
+        kws = self.cov_second_deriv_kws
+        d2S = _d2sigma(d2S, L, B, F, **kws)
         return d2S
     
     def d2sigma_free(self, free):
         par = self.free_to_par(free)
         L, B, F, P = self.par_to_mat(par)
         B = np.linalg.inv(np.eye(B.shape[0]) - B)
-        vhi = self._vh_inds
-        d2S, dA, r, c = self.d2Sf.copy(), self.dAf, self.rf, self.cf
-        ltr_inds, htype, ns2 = self.d2_indsf, self.d2_kindf, self.nf2
-        d2S = _d2sigma(d2S, L, B, F, dA, r, c, ltr_inds, htype, ns2, vhi)
+        d2S = self.d2S.copy()
+        kws = self.cov_second_deriv_kws
+        d2S = _d2sigma(d2S, L, B, F, **kws)
         return d2S
     
         
