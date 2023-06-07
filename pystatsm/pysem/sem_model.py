@@ -58,7 +58,16 @@ class SEM(CovarianceStructure):
         self.means = data.sample_mean
         self.n_obs = data.n_obs
         self.lndetS = np.linalg.slogdet(data.sample_cov)[1]
-        
+        self.dA, self.matrix_type = self.cov_der.dA, self.cov_der.matrix_type
+        self.r, self.c = self.cov_der.r, self.cov_der.c
+        self.d2_kind =self.cov_der.d2_kind
+        self.nf=self.nf1
+        self._vech_inds = self.cov_der._vech_inds
+        self.parameter_indices = self.cov_der.parameter_indices
+        self.matrix_dims = self.cov_der.matrix_dims
+
+        self.J_theta = self.cov_der.J_theta
+
     
     def func(self, theta):
         Sigma = self.implied_cov(theta)
