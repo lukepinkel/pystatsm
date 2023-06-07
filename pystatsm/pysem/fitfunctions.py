@@ -180,7 +180,7 @@ class LikelihoodObjective(CovarianceFitFunction):
         A = Sinv.dot(R).dot(Sinv)
         D1 = _invech(dSigma.T).T
         #Needs to be p(p+1)/2 x t 
-        g = -np.einsum("ji,ijk->k", A, D1)
+        g = -np.einsum("ji,ijk->k", A, D1, optimize=True)
         return g
         
      
@@ -212,9 +212,9 @@ class LikelihoodObjective(CovarianceFitFunction):
         D2 = _invech(d2Sigma.T).T
         R = C - Sigma
         A = Sinv.dot(R).dot(Sinv)
-        A1 = np.einsum("hi,ijk->hjk", A + Sinv/2, D1)
-        A2 = np.einsum("hi,ijk->hjk", Sinv, D1)
-        H_t1 = np.einsum("ji,ijkl->kl", A, D2) 
+        A1 = np.einsum("hi,ijk->hjk", A + Sinv/2, D1, optimize=True)
+        A2 = np.einsum("hi,ijk->hjk", Sinv, D1, optimize=True)
+        H_t1 = np.einsum("ji,ijkl->kl", A, D2, optimize=True)
         H_t2 = np.einsum("ijk,jim->km", A1, A2, optimize=True)
         H = 2*H_t2 - H_t1
         return H  
