@@ -4,7 +4,7 @@ import numba
 import pandas as pd
 import numpy as np
 import scipy as sp #analysis:ignore
-from .cov_derivatives import _d2sigma, _dsigma
+from .cov_derivatives import _d2sigma, _dsigma, CovarianceDerivatives
 from ..utilities.indexing_utils import (vec_inds_forwards,  #analysis:ignore
                                         vec_inds_reverse,
                                         vech_inds_forwards,
@@ -18,7 +18,7 @@ from ..utilities.numerical_derivs import jac_approx, hess_approx #analysis:ignor
 
 
 
-class CovarianceStructure:
+class CovarianceStructure(object):
     """
     A class for specifying a structural equation model (SEM) in matrix form.
 
@@ -194,8 +194,9 @@ class CovarianceStructure:
         # Initialize the free parameters, parameter template, and derivative matrices
         self.make_free_params()
         self.make_param_template()
-        self.get_par_derivative_mats()
-        self.make_free_deriv_mats()
+        self.cov_der = CovarianceDerivatives(self.p1, self.q1, self.nf1, 
+                                             self.nt1, self.par_to_free_ind,
+                                             self.theta_to_free_ind, n_matrices=4)
 
     def make_free_params(self):
         """
@@ -251,8 +252,6 @@ class CovarianceStructure:
         self.nt2 = self.nt1 * (self.nt1 + 1) // 2
 
         # Compute the indices of the Hessian of the free parameters
-        self.free_hess_inds = np.vstack(vech_inds_reverse(np.arange(self.nf2), self.nf1))
-
     def _check_input(self, name, a):
         if isinstance(a, pd.DataFrame):
             arr, index, columns = a.values, a.index, a.columns
@@ -362,98 +361,6 @@ class CovarianceStructure:
 
         # Combine the indices of the free parameters for all matrices
         self.mat_inds_comb = np.concatenate(self.mat_inds_comb, axis=1)
-
-
-    def get_par_derivative_mats(self):
-        """
-        Compute the derivative matrices of the free parameters.
-
-        This method populates several instance variables that store the derivative matrices and related information.
-        """
-        # Extract the number of free parameters and the dimensions of the L matrix
-        p, q = self.p1, self.q1
-        p2 = (p * (p + 1)) // 2
-        q2 = (q * (q + 1)) // 2
-        pq = p * q
-        qq = q * q
-        ns = pq + qq + q2 + p2
-        ns2 = (ns * (ns + 1)) // 2
-        minds = sizes_to_ind_arrs([pq, qq, q2, p2])
-        mtype = np.zeros(ns, dtype=int)
-        mdims = np.array([[p, q], [q, q], [q, q], [p, p]], dtype=int)
-        matix = np.zeros((ns, 2), dtype=int)
-        for i in range(4):
-            mtype[minds[i]] = i
-            if i<2:
-                n_elem = np.prod(mdims[i])
-                r, s = vec_inds_reverse(np.arange(n_elem), mdims[i, 0])        
-            elif i>=2:
-                m = mdims[i, 0]
-                n_elem = m * (m + 1) // 2
-                r, s = vech_inds_reverse(np.arange(n_elem), m)
-            else:
-                continue
-            matix[minds[i], 0], matix[minds[i], 1] = r, s
-        
-        d2_inds = vech_inds_reverse(np.arange(ns2), ns)
-        ltr_inds = vech_inds_reverse(np.arange(ns2), ns)
-        htype = np.zeros(ns2, dtype=int)
-        for i, (j, k) in enumerate(self.pairs, 1):
-            htype[(mtype[ltr_inds[0]]==j) & (mtype[ltr_inds[1]]==k)] = i
-        dA = np.zeros((ns, max(p, q), max(p, q)))
-        row, col = np.zeros((2, ns), dtype=int)
-        # Compute the derivative matrices
-        for i in range(ns):
-            r, s = matix[i]
-            m = mtype[i]
-            row[i], col[i] = mdims[m]
-            dA[i, r, s] = 1.0
-            if m>1:
-                dA[i, s, r] = 1.0
-        self.dA = dA
-        self.mtype = mtype
-        self.ns = ns
-        self.minds = minds
-        self.matix = matix
-        self.mdims = mdims
-        self.dS = np.zeros((p2, ns))
-        self.d2S = np.zeros((p2, ns, ns))
-        self.d2_inds = np.vstack(d2_inds).T
-        self.d2_kind = htype
-        self.ns2 = ns2
-        self.r, self.c = row, col
-        row_ind = np.arange(self.nf1)
-        col_ind = self.theta_to_free_ind
-        dta = np.ones(self.nf1)
-        arg1 = (dta, (row_ind, col_ind))
-        self.J_theta = sp.sparse.csc_array(arg1, shape=(self.nf1, self.nt1))
-    
-    def make_free_deriv_mats(self):
-        ptf_ind = self.par_to_free_ind
-        nf = len(ptf_ind)
-        nf2 = nf * (nf + 1) // 2
-        flat_ind = vech_inds_reverse(np.arange(nf2), nf)
-        new_ind = ptf_ind[flat_ind[0]], ptf_ind[flat_ind[1]]
-        new_flat = vech_inds_forwards(new_ind[0], new_ind[1], self.ns)
-        self.mtypef = self.mtype[ptf_ind]
-        self.mindsf = {}
-        for i in range(4):
-            self.mindsf[i] = np.intersect1d(self.minds[i], ptf_ind)
-        self.matixf = self.matix[ptf_ind]
-        self.d2_kindf = self.d2_kind[new_flat]
-        self.d2_inds = self.d2_inds[new_flat]
-        self.dAf = self.dA[ptf_ind]
-        self.rf, self.cf = self.r[ptf_ind], self.c[ptf_ind]
-        self.dSf = self.dS[:, ptf_ind]
-        self.d2Sf = self.d2S[:, ptf_ind, ptf_ind[:,None]]
-        self.ptf = ptf_ind
-        self.nf = nf
-        self.nf2 = nf2
-        self.d2_indsf = np.vstack(vech_inds_reverse(np.arange(self.nf2), self.nf)).T
-        self.new_ind = new_ind
-        self.new_flat = new_flat
-        s, r = np.triu_indices(self.p1, k=0)
-        self._vh_inds = r+s*self.p1
 
     def _constraint_func(self, theta):
         Sigma = self.implied_cov(theta)
