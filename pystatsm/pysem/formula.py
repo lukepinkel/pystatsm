@@ -13,6 +13,435 @@ def _default_sort_key(item):
             numeric_part = 0
         return (alphabetic_part, numeric_part)    
 
+class FormulaParser:
+    matrix_names = ["L", "B", "F", "P", "a", "b"]
+    matrix_order = dict(L=0, B=1, F=2, P=3, a=4, b=5)
+    is_symmetric = dict(L=False, B=False, F=True, P=True, a=False, b=False)
+    def __init__(self, formulas, var_order=None, extension_kws=None):
+        self.var_order = var_order
+        self._formula = formulas
+        self.ptable = self._parse_whole_formula(formulas)
+        self._classify_variables()
+        extension_kws = {} if extension_kws is None else extension_kws
+        self.extend_model(**extension_kws)
+        self.assign_matrices()
+        self.sort_table()
+        self.index_params()
+
+    def _parse_whole_formula(self, formulas):
+        formulas = re.sub(r'\s*#.*', '', formulas)
+        parameters= []
+        equations = formulas.strip().split('\n')
+        for eq in equations:
+            if eq.strip():
+                parameters = self.unpack_equation(eq ,parameters)
+        ptable = pd.DataFrame(parameters)
+        ptable["rel"] = ptable["rel"].astype(str)
+        ptable["lhs"] = ptable["lhs"].astype(str)
+        ptable["rhs"] = ptable["rhs"].astype(str)
+        return ptable
+        
+    @staticmethod  
+    def get_var_pair(ls, rs, rel):
+        comps = rs.strip().split('*')
+        ls = ls.strip()
+        if len(comps) > 1:
+            name = comps[1].strip()
+            mod = comps[0].strip()
+            try:
+                fixedval = float(mod)
+                fixed = True
+                label = None
+            except ValueError:
+                fixedval = None
+                fixed = False
+                label = mod
+        else:
+            mod = None
+            fixed = False
+            name = comps[0].strip()
+            label= None#f"{ls}{rel}{name}"
+            fixedval = None
+        row = {"lhs":ls,"rel":rel ,"rhs":name, "mod":mod,
+               "label":label, "fixedval":fixedval, 
+               "fixed":fixed}
+        return row
+           
+    def unpack_equation(self, eq, parameters):
+        if "=~" in eq:
+            rel = "=~"
+        elif "~~" in eq:
+            rel = "~~"
+        else:
+            rel = "~"
+        lhss, rhss = eq.split(rel)
+        for ls in lhss.split('+'):
+            for rs in rhss.split('+'):
+                row = self.get_var_pair(ls, rs, rel)
+                parameters.append(row)
+        return parameters
+    
+    def _classify_variables(self):
+        """Classify variables based on the extracted parameters."""
+        self._classify_by_relations()
+        self._classify_ov_variables()
+        self._order_ov_variables()
+        self._classify_remaining_variables()
+        self._store_variable_names()
+    
+    def _classify_by_relations(self):
+        self.lv_names = set(self.ptable.loc[self.ptable["rel"]=="=~", "lhs"])
+        self.v_names = set(self.ptable.loc[self.ptable["rel"]=="=~", "rhs"])
+        self.y_names = set(self.ptable.loc[self.ptable["rel"]=="~", "lhs"])
+        self.x_names = set(self.ptable.loc[self.ptable["rel"]=="~", "rhs"])
+    
+    def _classify_ov_variables(self):
+        self.ov_ind_names = self.v_names.difference(self.lv_names)
+        self.ov_y_names = self.y_names.difference(self.lv_names.union(self.v_names))
+        self.ov_x_names = self.x_names.difference(self.lv_names.union(self.v_names).union(self.ov_y_names))
+        self.ov_cov_names = set(self.ptable.loc[(self.ptable["rel"]=="~~") & ~(self.ptable["lhs"].isin(self.lv_names)), "lhs"])
+        self.ov_cov_names = self.ov_cov_names.union(set(self.ptable.loc[(self.ptable["rel"]=="~~") & ~(self.ptable["rhs"].isin(self.lv_names)), "rhs"]))
+        self.ov_names = set.union(self.ov_ind_names, self.ov_y_names, self.ov_x_names, self.ov_cov_names)
+    
+    def _order_ov_variables(self):
+        if self.var_order is None:
+            ov_ordered = sorted(self.ov_names, key=_default_sort_key)
+            self.ov_order = dict(zip(ov_ordered, np.arange(len(self.ov_names))))
+        else:
+            ov_ordered = sorted(self.ov_names, key=lambda x:self.var_order[x])
+            self.ov_order = dict(zip(ov_ordered, np.arange(len(self.ov_names))))
+
+    def _classify_remaining_variables(self):
+        self.ov_y_names2 = self.y_names.difference(set.union(self.v_names, self.x_names, self.lv_names))
+        self.ov_nx_names = self.ov_names.difference(self.ov_x_names)
+        self.lv_x_names = self.lv_names.difference(set.union(self.v_names, self.y_names))
+        self.lv_y_names = set.intersection(self.y_names, self.lv_names).difference(set.union(self.v_names, self.x_names))
+        self.lvov_y_names = set.union(self.lv_y_names, self.ov_y_names2)
+
+    def _store_variable_names(self):
+        self.names = dict(lv=self.lv_names, v=self.v_names, y=self.y_names, x=self.x_names, 
+                          ov=self.ov_names, lvov_y=self.lvov_y_names)
+        self.ov_names = dict(ind=self.ov_ind_names, y=self.ov_y_names, x=self.ov_x_names,
+                             cov=self.ov_cov_names, nx=self.ov_nx_names, y2=self.ov_y_names2)
+        self.lv_names = dict(x=self.lv_x_names, y=self.lv_y_names, nx=self.lv_names.difference(self.lv_x_names))
+
+    
+    def extend_model(self, auto_var=True, auto_lvx_cov=True, auto_y_cov=True,
+                     fix_lv_var=True, fix_first=True, fixed_x=True,
+                     mean_structure=True, ov_mean_fixed=False, 
+                     lv_mean_fixed=True):
+        self.extend_variable_names()
+        
+        lhs, rel, rhs = [], [], []
+        if auto_var:
+            lhs, rel, rhs = self.create_auto_var_covariances(lhs, rel, rhs)
+        if auto_lvx_cov:
+            lhs,rel,  rhs = self.add_covs(self.lv_names["x"], lhs,rel,  rhs)
+        if auto_y_cov:
+            lhs, rel, rhs = self.add_covs(self.names["lvov_y"], lhs, rel, rhs)  
+        if mean_structure:
+            lhs, rel, rhs = self.add_means(lhs, rel, rhs)  
+        self.ptable = self.extend_ptable(lhs, rhs, rel)
+        
+        if fix_lv_var:
+            self.fix_latent_variable_variance()
+        if fix_first:
+            self.fix_first_latent_variable_factor_loading()
+        if fixed_x:
+            self.fix_x_cov()
+        if lv_mean_fixed:
+            self.fix_lv_mean()
+        if ov_mean_fixed:
+            self.fix_ov_mean()
+    
+    def extend_variable_names(self):
+        lv_names = self.names["lv"]
+        lv_names = sorted(self.names["lv"], key=_default_sort_key)
+        ix = (self.ptable["rel"]=="~") &  (self.ptable["rhs"]!="1")
+        reg_names = np.unique(self.ptable.loc[ix, ["lhs", "rhs"]]).tolist()
+        ovr_names = list(set(reg_names).difference(lv_names))
+        ovr_names = sorted(ovr_names, key=lambda x: self.ov_order[x])
+        lv_names_extended = lv_names + ovr_names # analysis:ignore
+        self.names["lv_extended"] = lv_names_extended
+        self.q = len(lv_names_extended)
+        self.p = len(self.names["ov"])
+
+        
+    def create_auto_var_covariances(self, lhs, rel, rhs):
+        n1 = set(np.unique(self.ptable["lhs"]))
+        n2 = set(np.unique(self.ptable["rhs"]))
+        names = (n1.union(n2))#.difference(set.union(lvx_names, lvovy_names))
+        names = list(names)
+        lhs, rel, rhs = self.add_covs(names, lhs, rel, rhs, cov=False)
+        names = list(self.ov_names["x"])
+        lhs, rel, rhs = self.add_covs(names, lhs, rel, rhs, cov=True)
+        return lhs, rel, rhs
+    
+    def add_covs(self, var_names, lhs, rel, rhs, cov=True):
+        n = len(var_names)
+        var_names = list(var_names)
+        if cov:
+            for i, j in list(zip(*tril_indices(n, k=-1))):
+                l, r = var_names[i], var_names[j]
+                lhs.append(l)
+                rel.append("~~")
+                rhs.append(r)
+        else:
+            lhs.extend(var_names)
+            rel.extend(["~~" for i in range(len(var_names))])
+            rhs.extend(var_names)
+        return lhs, rel, rhs
+    
+    def add_means(self, lhs, rel, rhs):
+        names = set(self.names["lv_extended"]).union(self.names["ov"])
+        n = len(names)
+        lhs.extend(list(names))
+        rel.extend(["~" for i in range(n)])
+        rhs.extend(["1" for i in range(n)])
+        return lhs, rel, rhs
+
+    def extend_ptable(self, lhs, rhs, rel):
+        ptable = self.ptable.to_dict(orient="records")
+        for lh, r, rh in list(zip(lhs, rel, rhs)): 
+            row = dict(lhs=lh, rel=r, rhs=rh, mod=None, fixed=False)
+            ptable.append(row)
+        ptable = pd.DataFrame(ptable)
+        return ptable
+    
+    def fix_ov_mean(self):
+        ov = set(self.names["ov"]).difference(set(self.names["lv_extended"]))
+        ix = ((self.ptable["rel"]=="~") &
+              (self.ptable["lhs"].isin(ov)) & 
+              (self.ptable["rhs"]=="1"))
+        self.ptable.loc[ix, "fixed"] = True
+        self.ptable.loc[ix, "fixedval"] = 0.0        
+    
+    def fix_lv_mean(self):
+        lv = set(self.names["lv_extended"]).difference(set(self.names["ov"]))
+        ix = ((self.ptable["rel"]=="~") &
+              (self.ptable["lhs"].isin(lv)) & 
+              (self.ptable["rhs"]=="1"))
+        self.ptable.loc[ix, "fixed"] = True
+        self.ptable.loc[ix, "fixedval"] = 0.0   
+        lvy = set(self.names["lv_extended"]).difference(set(self.names["lv"]).union(self.names["x"]))
+        ix = ((self.ptable["rel"]=="~") &
+              (self.ptable["lhs"].isin(lvy)) & 
+              (self.ptable["rhs"]=="1"))
+        self.ptable.loc[ix, "fixed"] = False
+        lvx = set(self.names["lv_extended"]).intersection(self.names["x"]).intersection(self.names["ov"])
+        ix = ((self.ptable["rel"]=="~") &
+              (self.ptable["lhs"].isin(lvx)) & 
+              (self.ptable["rhs"]=="1"))
+        self.ptable.loc[ix, "fixed"]=True
+    
+
+    def fix_latent_variable_variance(self):
+        ix = ((self.ptable["rel"]=="~~") &
+              (self.ptable["lhs"].isin(self.names["lv"])) & 
+              (self.ptable["lhs"]==self.ptable["rhs"]))
+        self.ptable.loc[ix, "fixed"] = True
+        self.ptable.loc[ix, "fixedval"] = 1.0        
+    
+    def fix_first_latent_variable_factor_loading(self):
+        ind1 = (self.ptable["rel"]=="=~") & (self.ptable["lhs"].isin(self.names["lv"]))
+        ltable = self.ptable[ind1]
+        ltable.groupby("lhs")
+        for v in self.names["lv"]:
+            ix = ltable["lhs"]==v
+            if len(ltable.index[ix])>0:
+                if ~np.any(ltable.loc[ix, "fixed"]):
+                    self.ptable.loc[ltable.index[ix][0], "fixed"] = True
+                    self.ptable.loc[ltable.index[ix][0], "fixedval"] = 1.0
+
+    def fix_x_cov(self):
+        ix = (self.ptable["lhs"].isin(self.ov_names["x"] ) &
+              self.ptable["rhs"].isin(self.ov_names["x"] ) &
+              (self.ptable["rel"]=="~~"))
+        self.ptable.loc[ix, "fixed"] = True
+        self.ptable.loc[ix, "fixedval"] = np.nan
+        self.ptable.loc[ix & (self.ptable["rhs"]==self.ptable["lhs"]), "fixedval"] = np.nan
+    
+    def assign_matrices(self):
+        ptable = self.ptable
+        self.extend_variable_names()
+        ov_names = sorted(self.names["ov"], key=lambda x: self.ov_order[x])
+        lv_names = sorted(self.names["lv_extended"], key=_default_sort_key)
+        self.lv_order = dict(zip(lv_names, np.arange(len(lv_names))))
+        mes = ptable["rel"]== "=~"
+        reg = ptable["rel"]== "~"
+        cov = ptable["rel"]== "~~" 
+        mst = ptable["rhs"]=="1"
+        
+        ix = {}
+        rvl = ptable["rhs"].isin(lv_names)
+        rvo = ptable["rhs"].isin(ov_names)
+        lvl = ptable["lhs"].isin(lv_names)
+        lol = ptable["lhs"].isin(ov_names)
+
+        rvb = rvl & rvo
+        ix[0] = mes & ~rvl
+        ix[1] = (mes & rvb) | (mes & ~rvo) | reg
+        ix[2] = (cov & ~rvl) | (cov & lvl)
+        ix[3] = cov & ~lvl
+        ix[4] = lol & ~lvl & reg  & mst
+        ix[5] = lvl & reg  & mst
+
+        ptable.loc[ix[0], "mat"] = 0
+        ptable.loc[ix[1], "mat"] = 1
+        ptable.loc[ix[2], "mat"] = 2
+        ptable.loc[ix[3], "mat"] = 3
+        ptable.loc[ix[4], "mat"] = 4
+        ptable.loc[ix[5], "mat"] = 5
+        ptable["mat"] = ptable["mat"].astype(int)
+        ptable.loc[ptable["mat"]==0, "r"] =  ptable.loc[ptable["mat"]==0, "rhs"]
+        ptable.loc[ptable["mat"]==0, "c"] =  ptable.loc[ptable["mat"]==0, "lhs"]
+        ptable.loc[ptable["mat"]==1, "r"] =  ptable.loc[ptable["mat"]==1, "lhs"]
+        ptable.loc[ptable["mat"]==1, "c"] =  ptable.loc[ptable["mat"]==1, "rhs"]
+        ix = (ptable["mat"]==1) & (ptable["rel"]=="=~")
+        ptable.loc[ix, "r"], ptable.loc[ix, "c"] = ptable.loc[ix, "c"],  ptable.loc[ix, "r"]
+        ptable.loc[ptable["mat"]==2, "r"] =  ptable.loc[ptable["mat"]==2, "lhs"]
+        ptable.loc[ptable["mat"]==2, "c"] =  ptable.loc[ptable["mat"]==2, "rhs"]
+        ptable.loc[ptable["mat"]==3, "r"] =  ptable.loc[ptable["mat"]==3, "lhs"]
+        ptable.loc[ptable["mat"]==3, "c"] =  ptable.loc[ptable["mat"]==3, "rhs"]
+        
+        ptable.loc[ptable["mat"]==4, "c"] =  ptable.loc[ptable["mat"]==4, "lhs"]
+        ptable.loc[ptable["mat"]==5, "c"] =  ptable.loc[ptable["mat"]==5, "lhs"]
+        ptable.loc[ptable["mat"]==4, "r"] =  0
+        ptable.loc[ptable["mat"]==5, "r"] = 0
+        self.ptable = ptable
+        
+    def map_rc(self, df, rmap, cmap):
+        df["r"] = df["r"].map(rmap)
+        df["c"] = df["c"].map(cmap)
+        return df
+    
+    def sort_symmetric(self, df):
+        df = df.sort_values(["c", "r"])
+        ix = df["r"] < df["c"]
+        df.loc[ix, "r"], df.loc[ix, "c"] = df.loc[ix, "c"], df.loc[ix, "r"]
+        df = df.sort_values(["c", "r"])
+        return df
+    
+    def sort_nonsymmetric(self, df):
+        df = df.sort_values(["c", "r"])
+        return df
+    
+    def sort_row_vector(self, df):
+        df = df.sort_values(["c"])
+        return df
+
+    def sort_table(self):
+        ptable = self.ptable
+        ov_order, lv_order = self.ov_order, self.lv_order
+        L =  ptable.loc[ptable["mat"]==0]
+        B =  ptable.loc[ptable["mat"]==1]
+        F =  ptable.loc[ptable["mat"]==2]
+        P =  ptable.loc[ptable["mat"]==3]
+        a =  ptable.loc[ptable["mat"]==4]
+        b =  ptable.loc[ptable["mat"]==5]
+        v_order = {"0":0, 0:0}
+        with pd.option_context('mode.chained_assignment', None):
+            L = self.map_rc(L, ov_order, lv_order)
+            B = self.map_rc(B, lv_order, lv_order)
+            F = self.map_rc(F, lv_order, lv_order)
+            P = self.map_rc(P, ov_order, ov_order)
+            a = self.map_rc(a, v_order, ov_order)
+            b = self.map_rc(b, v_order, lv_order)
+
+        L = self.sort_nonsymmetric(L)
+        B = self.sort_nonsymmetric(B)
+        F = self.sort_symmetric(F)
+        P = self.sort_symmetric(P)
+        a = self.sort_row_vector(a)
+        b = self.sort_row_vector(b)
+        
+        ptable = pd.concat([L, B, F, P, a, b], axis=0)
+        self.ptable = ptable.reset_index(drop=True)
+    
+    def index_params(self):
+        self.ptable["free"] = 0
+        ix = ~self.ptable["fixed"]
+        ix2 = ~self.ptable["label"].isnull()
+        links = {}
+        eqc = np.unique(self.ptable.loc[ix2, "label"] )
+        for c in eqc:
+            ixc = self.ptable["label"]==c
+            index = self.ptable.loc[ixc, "label"].index.values
+            i = np.min(index)
+            links[c] = i, index
+            ix2[i] = False
+        ix = ix & ~ix2    
+        n = len(self.ptable[ix])
+        self.ptable.loc[ix, "free"] = np.arange(1, 1+n)
+        for c in eqc:
+            i, index = links[c]
+            self.ptable.loc[index, "free"] = self.ptable.loc[i, "free"]
+
+    def update_ptable_with_data(self, sample_cov, sample_mean):
+        s1 = set(self.names["lv_extended"])
+        s2 = set.union(self.names["lv"], self.names["y"], self.names["v"])
+        xv = sorted(s1.difference(s2), key=lambda x: self.lv_order[x])
+        if type(sample_cov) is pd.DataFrame:
+            C = sample_cov.loc[xv, xv]
+        else:
+            ii = np.array([self.ov_order[x] for x in xv])
+            C = sample_cov[ii, ii[:, None]]
+            C = pd.DataFrame(C, index=xv, columns=xv)
+        if type(sample_mean) is pd.DataFrame:
+            m = sample_mean.loc[:, xv]
+        else:
+            ii = np.array([self.ov_order[x] for x in xv])
+            m = sample_mean[:, xv]
+            m = pd.DataFrame(m, index=[0], columns=xv)
+        n = len(xv)
+        cov_ind = self.ptable["rel"]=="~~"
+        for i, j in list(zip(*tril_indices(n, k=-1))):
+            l, r = xv[i], xv[j]
+            ix = (self.ptable["lhs"]==l) & (self.ptable["rhs"]==r) & cov_ind
+            self.ptable.loc[ix, "fixedval"] = C.loc[l, r]
+        ix = (self.ptable["rel"]=="~") & (self.ptable["rhs"]=="1")
+        for i in range(n):
+            l = xv[i]
+            self.ptable.loc[ix & (self.ptable["lhs"]==l), "fixedval"] = m.loc[:, l]
+        
+        
+        
+    def to_model_mats(self):
+        ptable = self.ptable
+        q, p = self.q, self.p
+
+        lv_names = sorted(self.lv_order.keys(), key=lambda x: self.lv_order[x])
+        ov_names = sorted(self.ov_order.keys(), key=lambda x: self.ov_order[x])
+        mat_dims = {0:(p, q), 1:(q, q), 2:(q, q), 3:(p, p), 4:(1, p), 5:(1, q)}
+        mat_rows = {0:ov_names, 1:lv_names, 2:lv_names, 3:ov_names, 4:["0"], 5:["0"]}
+        mat_cols = {0:lv_names, 1:lv_names, 2:lv_names, 3:ov_names, 4:ov_names, 5:lv_names}
+        
+        fixed_mats, free_mats = {}, {}
+        for i in range(6):
+            subtable =  ptable.loc[ptable["mat"]==i]
+            free = subtable.loc[~subtable["fixed"]]
+            free_mat = np.zeros(mat_dims[i])
+            free_mat[(free["r"], free["c"])] = free["free"]
+            
+            free_mats[i] = pd.DataFrame(free_mat, index=mat_rows[i], columns=mat_cols[i])
+            
+            fixed = subtable.loc[subtable["fixed"]]
+            fixed_mat = np.zeros(mat_dims[i])
+            fixed_mat[(fixed["r"], fixed["c"])] = fixed["fixedval"]
+            
+            fixed_mats[i] = pd.DataFrame(fixed_mat, index=mat_rows[i], columns=mat_cols[i])
+        lv_ov = set(self.names["lv_extended"]).difference(set(self.names["lv"]))
+        for v in lv_ov:
+            if (v in fixed_mats[0].index) and  (v in fixed_mats[0].columns):
+                fixed_mats[0].loc[v, v] = 1.0
+        self.free_mats = free_mats
+        self.fixed_mats = fixed_mats
+        self.mat_row_names = mat_rows
+        self.mat_col_names=  mat_cols
+        
+
+
+
 
 class ModelSpecification:
     matrix_names = ["L", "B", "F", "P"]
