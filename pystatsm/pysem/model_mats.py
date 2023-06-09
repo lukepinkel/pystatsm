@@ -8,7 +8,7 @@ Created on Fri Jun  9 01:22:49 2023
 
 
 import numpy as np
-from ..utilities.indexing_utils import nonzero, unique
+from ..utilities.indexing_utils import nonzero, unique, tril_indices
 from ..utilities.linalg_operations import _vec, _vech, _invech, _invec
 from ..utilities.func_utils import triangular_number
 
@@ -136,6 +136,8 @@ class FlattenedIndicatorIndices(object):
     def unique_locs(self):
         return self._unique_locs + self._offset_unique
     
+
+    
     def __str__(self):
         return f"{self.start}:{self.stop} {self.start_nonzero}:{self.stop_nonzero} {self.start_unique}:{self.stop_unique}"
 
@@ -149,6 +151,8 @@ class BlockFlattenedIndicatorIndices(object):
         self._flat_objects = flat_objects
         for i in range(1, self._n_objs):
             self._flat_objects[i].add_offsets(self._flat_objects[i-1])
+            self._flat_objects[i]._block_indices = i+ self._flat_objects[i]._block_indices
+        self._tril_inds = tril_indices(self.n_nonzero)
     
     @property
     def unique_locs(self):
@@ -162,4 +166,12 @@ class BlockFlattenedIndicatorIndices(object):
     def flat_indices(self):
         return np.concatenate([obj.flat_indices for obj in self._flat_objects])
                            
-      
+                           
+    @property
+    def block_indices(self):
+        return np.concatenate([obj._block_indices for obj in self._flat_objects])
+    
+    @property
+    def n_nonzero(self):
+        return sum([obj._n_nnz for obj in self._flat_objects])
+                   
