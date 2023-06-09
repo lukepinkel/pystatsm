@@ -17,7 +17,7 @@ from .cov_derivatives import _d2sigma, _dsigma, _dloglike, _d2loglike
 from ..utilities.func_utils import handle_default_kws
 from ..utilities.data_utils import cov
 from ..utilities.linalg_operations import _vech, _vec, _invec, _invech
-
+from ..utilities.output import get_param_table
 def _sparse_post_mult(A, S):
     prod = S.T.dot(A.T)
     prod = prod.T
@@ -27,7 +27,7 @@ def _sparse_post_mult(A, S):
 class SEM(CovarianceStructure):
     
     def __init__(self, formula, data=None, sample_cov=None, sample_mean=None, n_obs=None,
-                 model_spec_kws=None, fit_function=LikelihoodObjective):
+                 model_spec_kws=None, fit_function=LikelihoodObjective, mean_structure=False):
         data = ModelData(data=data, sample_cov=sample_cov,
                          sample_mean=sample_mean,  
                          n_obs=n_obs, ddof=0)
@@ -187,12 +187,20 @@ class SEM(CovarianceStructure):
                                    constraints=constraints, **minimize_kws)
         self.opt_res = res
         self.theta = res.x
+        self.free = self.theta_to_free(self.theta)
         self.n_params = len(res.x)
         self.theta_hess = self.hessian(self.theta)
-        self.theta_cov = np.linalg.pinv(self.theta_hess*self.n_obs / 2)
+        self.theta_cov = np.linalg.pinv(self.theta_hess)
         self.theta_se = np.sqrt(np.diag(self.theta_cov))
+        self.free_hess = self.hessian_free(self.free)
+        self.free_cov = np.linalg.pinv(self.free_hess)
+        self.free_se = self.theta_to_free(self.theta_se)
         self.L, self.B, self.F, self.P = self.to_model_mats(self.theta)
         ov_names, lv_names = self._row_col_names["L"]
+        self.param_names = (self.model_spec.ptable.loc[self.model_spec.ptable["free"]!=0,
+                                                  ["lhs", "rel","rhs"]].astype(str).agg(' '.join, axis=1))
+        self.res = get_param_table(self.free, self.free_se, self.data.n_obs-self.n_params,
+                                   index=self.param_names)
         self.Ldf = pd.DataFrame(self.L, index=ov_names, columns=lv_names)
         self.Bdf = pd.DataFrame(self.B, index=lv_names, columns=lv_names)
         self.Fdf = pd.DataFrame(self.F, index=lv_names, columns=lv_names)
