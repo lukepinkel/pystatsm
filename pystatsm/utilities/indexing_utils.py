@@ -792,11 +792,11 @@ def nonzero(arr, as_tuple=False):
 
 def unique(arr):
     u, ind, inverse = np.unique(arr, return_index=True, return_inverse=True)
-    ind = np.array(sorted(ind))
-    u = arr[ind]
-    d = dict(zip(np.arange(len(u)), np.argsort(u)))
+    ind = np.array(sorted(ind)) # sort the indices of first occurrence
+    u = arr[ind] # get the unique values in their original order
+    d = dict(zip(np.arange(len(u)), np.argsort(u))) # create a mapping from current order to sorted order
     inv = np.copy(inverse)
     for k, v in d.items():
-        inv[inverse==k] = v
+        inv[inverse==k] = v  # apply the mapping to the inverse array so that this inverse corresponds to the unique values in their original order
     return u, inv, ind
     
