@@ -109,7 +109,7 @@ def _d2sigma_mu(d2Sm, L, B, F, b, a, dA, m_size, m_type, d2_inds, vind, n, p2):
             C2, C3 = Ji.dot(B), Jj.dot(B)
             t1 = C3.dot(C1)
             t3 = C2.dot(C3.dot(F))
-            t4 = BF.T.dot(C3.T).dot(C2.T)
+            t4 = F.T.dot(C3.T).dot(C2.T)
             dSij = LB.dot(t1 + t1.T + t3 + t4).dot(LB.T)
             d2Sm[:p2, i, j] += dSij.T.flatten()[vind]
             d2Sm[:p2, j, i] = d2Sm[:p2, i, j]
@@ -156,7 +156,7 @@ def _d2sigma(d2S, L, B, F, dA, r, c, d2_inds, deriv_type, n, vech_inds):
             C2, C3 = Ji.dot(B), Jj.dot(B)
             t1 = C3.dot(C1)
             t3 = C2.dot(C3.dot(F))
-            t4 = BF.T.dot(C3.T).dot(C2.T)
+            t4 = F.T.dot(C3.T).dot(C2.T)
             tmp = LB.dot(t1 + t1.T + t3 + t4).dot(LB.T)
             tmp = tmp
         elif kind == 5:
