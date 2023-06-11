@@ -2,6 +2,9 @@ import re
 import pandas as pd
 import numpy as np
 from ..utilities.indexing_utils import  tril_indices
+from ..utilities.linalg_operations import  _vech, _vec
+
+from .model_mats import FlattenedIndicatorIndices, BlockFlattenedIndicatorIndices
 
 def _default_sort_key(item):
         match = re.match(r"([a-zA-Z]+)(\d+)", item)
@@ -16,7 +19,7 @@ def _default_sort_key(item):
 class FormulaParser:
     matrix_names = ["L", "B", "F", "P", "a", "b"]
     matrix_order = dict(L=0, B=1, F=2, P=3, a=4, b=5)
-    is_symmetric = dict(L=False, B=False, F=True, P=True, a=False, b=False)
+    is_symmetric = {0:False, 1:False, 2:True, 3:True, 4:False, 5:False}
     def __init__(self, formulas, var_order=None, extension_kws=None):
         self.var_order = var_order
         self._formula = formulas
@@ -395,16 +398,34 @@ class FormulaParser:
             m = pd.DataFrame(m, index=[0], columns=xv)
         n = len(xv)
         cov_ind = self.ptable["rel"]=="~~"
-        for i, j in list(zip(*tril_indices(n, k=-1))):
+        for i, j in list(zip(*tril_indices(n,))):
             l, r = xv[i], xv[j]
-            ix = (self.ptable["lhs"]==l) & (self.ptable["rhs"]==r) & cov_ind
+            ix = ((
+                    ((self.ptable["lhs"]==l) & (self.ptable["rhs"]==r)) | 
+                    ((self.ptable["rhs"]==l) & (self.ptable["lhs"]==r))
+                    ) & cov_ind)
             self.ptable.loc[ix, "fixedval"] = C.loc[l, r]
         ix = (self.ptable["rel"]=="~") & (self.ptable["rhs"]=="1")
         for i in range(n):
             l = xv[i]
-            self.ptable.loc[ix & (self.ptable["lhs"]==l), "fixedval"] = m.loc[:, l]
+            self.ptable.loc[ix & (self.ptable["lhs"]==l), "fixedval"] = m.loc[:, l].values
         
+    def starting_values(self):
+        ix = ~self.ptable["fixed"]
+        self.ptable["start"] = 0.0
+        self.ptable.loc[~ix, "start"] = self.ptable.loc[~ix, "fixedval"]
+        self.ptable.loc[ix & (self.ptable["rel"]=="=~"), "start"] = 0.001
         
+        ix1 = ((self.ptable["lhs"]==self.ptable["rhs"])  & 
+               (self.ptable["rel"]=="~~") &
+               (self.ptable["mat"]==2)
+               )
+        self.ptable.loc[ix1, "start"] = 1.0
+        ix2 = ((self.ptable["lhs"]==self.ptable["rhs"])  & 
+               (self.ptable["rel"]=="~~") &
+               (self.ptable["mat"]==3)
+               )
+        self.ptable.loc[ix2, "start"] = 0.1
         
     def to_model_mats(self):
         ptable = self.ptable
@@ -416,7 +437,7 @@ class FormulaParser:
         mat_rows = {0:ov_names, 1:lv_names, 2:lv_names, 3:ov_names, 4:["0"], 5:["0"]}
         mat_cols = {0:lv_names, 1:lv_names, 2:lv_names, 3:ov_names, 4:ov_names, 5:lv_names}
         
-        fixed_mats, free_mats = {}, {}
+        fixed_mats, free_mats, start_mats = {}, {}, {}
         for i in range(6):
             subtable =  ptable.loc[ptable["mat"]==i]
             free = subtable.loc[~subtable["fixed"]]
@@ -426,10 +447,20 @@ class FormulaParser:
             free_mats[i] = pd.DataFrame(free_mat, index=mat_rows[i], columns=mat_cols[i])
             
             fixed = subtable.loc[subtable["fixed"]]
+
             fixed_mat = np.zeros(mat_dims[i])
             fixed_mat[(fixed["r"], fixed["c"])] = fixed["fixedval"]
-            
             fixed_mats[i] = pd.DataFrame(fixed_mat, index=mat_rows[i], columns=mat_cols[i])
+            
+            if i==2:
+                start_mat = np.eye(mat_dims[i][0])
+            elif i==3:
+                start_mat = np.eye(mat_dims[i][0])*.1
+            else:
+                start_mat = np.zeros(mat_dims[i])
+            start_mat[(fixed["r"], fixed["c"])] = fixed["fixedval"]
+            start_mats[i] = start_mat
+             
         lv_ov = set(self.names["lv_extended"]).difference(set(self.names["lv"]))
         for v in lv_ov:
             if (v in fixed_mats[0].index) and  (v in fixed_mats[0].columns):
@@ -438,7 +469,49 @@ class FormulaParser:
         self.fixed_mats = fixed_mats
         self.mat_row_names = mat_rows
         self.mat_col_names=  mat_cols
+        self.start_mats = start_mats
         
+    def to_free_indexers(self):
+        free_arrs = {}
+        for i in range(6):
+            indobj = FlattenedIndicatorIndices(self.free_mats[i].values, 
+                                               symmetric=self.is_symmetric[i])
+            free_arrs[i] = indobj
+        indexer = BlockFlattenedIndicatorIndices([val for key, val in free_arrs.items()])
+        return indexer
+    
+    def to_param_template(self):
+        p_template = []
+        for i in range(6):
+            mat = self.start_mats[i]
+            if self.is_symmetric[i]:
+                v = _vech(mat)
+            else:
+                v = _vec(mat)
+            p_template.append(v)
+        p_template = np.concatenate(p_template)
+        return p_template
+        
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
