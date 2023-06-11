@@ -177,6 +177,7 @@ def _dsigma(dS, L, B, F, dA, r, c, deriv_type, n, vech_inds):
 def _d2sigma(d2S, L, B, F, dA, r, c, d2_inds, deriv_type, n, vech_inds):
     LB, BF = L.dot(B), B.dot(F)
     BFBt = BF.dot(B.T)
+    Ft = F.T
     for ij in range(n):
         i, j = d2_inds[ij]
         kind = deriv_type[ij]
@@ -200,7 +201,7 @@ def _d2sigma(d2S, L, B, F, dA, r, c, d2_inds, deriv_type, n, vech_inds):
             C2, C3 = Ji.dot(B), Jj.dot(B)
             t1 = C3.dot(C1)
             t3 = C2.dot(C3.dot(F))
-            t4 = BF.T.dot(C3.T).dot(C2.T)
+            t4 = Ft.dot(C3.T).dot(C2.T)
             tmp = LB.dot(t1 + t1.T + t3 + t4).dot(LB.T)
             tmp = tmp
         elif kind == 5:
@@ -242,7 +243,7 @@ def _d2loglike(H, L, B, F, Sinv, S, vecVRV, vecV, dA, r, c, first_deriv_type,
                second_deriv_type, n, vech_inds):
     LB, BF = L.dot(B), B.dot(F)
     LBt = LB.T
-    BFt = BF.T
+    Ft = F.T
     Bt = B.T
     BFBt = BF.dot(Bt)
     LB = L.dot(B)
@@ -305,7 +306,7 @@ def _d2loglike(H, L, B, F, Sinv, S, vecVRV, vecV, dA, r, c, first_deriv_type,
                 C2, C3 = Ji.dot(B), Jj.dot(B)
                 t1 = C3.dot(C1)
                 t3 = C2.dot(C3.dot(F))
-                t4 = BFt.dot(C3.T).dot(C2.T)
+                t4 = Ft.dot(C3.T).dot(C2.T)
                 tmp = LB.dot(t1 + t1.T + t3 + t4).dot(LBt)
                 D2Sij = tmp
             elif kindij == 5:
