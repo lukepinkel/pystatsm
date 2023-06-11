@@ -292,7 +292,7 @@ class BlockFlattenedIndicatorIndices(object):
     @property
     def first_locs(self):
         return np.concatenate([obj.first_locs for obj in self._flat_objects])
-                           
+    
     @property
     def flat_indices(self):
         return np.concatenate([obj.flat_indices for obj in self._flat_objects])
@@ -332,6 +332,10 @@ class BlockFlattenedIndicatorIndices(object):
     @property
     def is_symmetric(self):
         return [obj._symmetric for obj in self._flat_objects]
+    
+    @property
+    def unique_indices(self):
+        return unique(self.unique_locs)[2]
     
     def create_derivative_arrays(self, nonzero_cross_derivs=None):
         if nonzero_cross_derivs is None:
