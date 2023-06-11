@@ -61,6 +61,8 @@ class SEM(CovarianceStructure):
         self.dA, self.matrix_type = self.cov_der.dA, self.cov_der.matrix_type
         self.r, self.c = self.cov_der.r, self.cov_der.c
         self.d2_kind =self.cov_der.d2_kind
+        self.dS = self.cov_der.dS
+        self.d2S = self.cov_der.d2S
         self.nf=self.nf1
         self._vech_inds = self.cov_der._vech_inds
         self.parameter_indices = self.cov_der.parameter_indices
@@ -232,7 +234,7 @@ class SEM(CovarianceStructure):
         L, B, F, P = self.par_to_mat(par)
         B = np.linalg.inv(np.eye(B.shape[0]) - B)
         dS = self.dS.copy()
-        kws = self.cov_first_deriv_kws
+        kws = self.cov_der.cov_first_deriv_kws
         dS = _dsigma(dS, L, B, F, **kws)
         return dS
  
@@ -241,7 +243,7 @@ class SEM(CovarianceStructure):
         L, B, F, P = self.par_to_mat(par)
         B = np.linalg.inv(np.eye(B.shape[0]) - B)
         dS = self.dS.copy()
-        kws = self.cov_first_deriv_kws
+        kws = self.cov_der.cov_first_deriv_kws
         dS = _dsigma(dS, L, B, F, **kws)
         return dS
     
@@ -266,7 +268,7 @@ class SEM(CovarianceStructure):
         L, B, F, P = self.par_to_mat(par)
         B = np.linalg.inv(np.eye(B.shape[0]) - B)
         d2S = self.d2S.copy()
-        kws = self.cov_second_deriv_kws
+        kws = self.cov_der.cov_second_deriv_kws
         d2S = _d2sigma(d2S, L, B, F, **kws)
         return d2S
     
@@ -275,7 +277,7 @@ class SEM(CovarianceStructure):
         L, B, F, P = self.par_to_mat(par)
         B = np.linalg.inv(np.eye(B.shape[0]) - B)
         d2S = self.d2S.copy()
-        kws = self.cov_second_deriv_kws
+        kws = self.cov_der.cov_second_deriv_kws
         d2S = _d2sigma(d2S, L, B, F, **kws)
         return d2S
     
