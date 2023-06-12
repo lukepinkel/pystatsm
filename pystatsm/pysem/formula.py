@@ -440,14 +440,28 @@ class FormulaParser:
         fixed_mats, fixed_locs, free_mats, start_mats = {}, {}, {}, {}
         for i in range(6):
             subtable =  ptable.loc[ptable["mat"]==i]
+            
             free = subtable.loc[~subtable["fixed"]]
             free_mat = np.zeros(mat_dims[i])
+            
             free_mat[(free["r"], free["c"])] = free["free"]
             
             free_mats[i] = pd.DataFrame(free_mat, index=mat_rows[i], columns=mat_cols[i])
-            
+           
             fixed = subtable.loc[subtable["fixed"]]
-
+            if i==2:
+                start_mat = np.eye(mat_dims[i][0])
+            elif i==3:
+                start_mat = np.zeros(mat_dims[i])
+                inx = [self.ov_order[x] for x in self.ov_names["nx"]]
+                start_mat[inx, inx] = 1.0
+            else:
+                start_mat = np.zeros(mat_dims[i])
+            
+            start_mat[(fixed["r"], fixed["c"])] = fixed["fixedval"]
+            
+            start_mats[i] = pd.DataFrame(start_mat, index=mat_rows[i], columns=mat_cols[i])
+            
             fixed_mat = np.zeros(mat_dims[i])
             fixed_loc = np.zeros(mat_dims[i], dtype=bool)
             fixed_mat[(fixed["r"], fixed["c"])] = fixed["fixedval"]
@@ -455,44 +469,31 @@ class FormulaParser:
             fixed_mats[i] = pd.DataFrame(fixed_mat, index=mat_rows[i], columns=mat_cols[i])
             fixed_locs[i] = pd.DataFrame(fixed_loc, index=mat_rows[i], columns=mat_cols[i])
 
-            if i==2:
-                start_mat = np.eye(mat_dims[i][0])
-            elif i==3:
-                start_mat = np.eye(mat_dims[i][0])*.1
-            else:
-                start_mat = np.zeros(mat_dims[i])
-            start_mat[(fixed["r"], fixed["c"])] = fixed["fixedval"]
-            start_mats[i] = pd.DataFrame(start_mat, index=mat_rows[i], columns=mat_cols[i])
              
         lv_ov = set(self.names["lv_extended"]).difference(set(self.names["lv"]))
         for v in lv_ov:
             if (v in fixed_mats[0].index) and  (v in fixed_mats[0].columns):
                 fixed_mats[0].loc[v, v] = 1.0
                 start_mats[0].loc[v, v] = 1.0
+                start_mats[3].loc[v, v] = 0.0
         self.free_mats = free_mats
         self.fixed_mats = fixed_mats
         self.mat_row_names = mat_rows
         self.mat_col_names=  mat_cols
         self.start_mats = start_mats
-        
-    def to_free_indexers(self):
-        free_arrs = {}
-        for i in range(6):
-            indobj = FlattenedIndicatorIndices(self.free_mats[i].values, 
-                                               symmetric=self.is_symmetric[i])
-            free_arrs[i] = indobj
-        indexer = BlockFlattenedIndicatorIndices([val for key, val in free_arrs.items()])
-        return indexer
-
-    def to_fixed_indexers(self):
-        arrs = {}
-        for i in range(6):
-            indobj = FlattenedIndicatorIndices(self.fixed_mats[i].values, 
-                                               symmetric=self.is_symmetric[i])
-            arrs[i] = indobj
-        indexer = BlockFlattenedIndicatorIndices([val for key, val in arrs.items()])
-        return indexer
     
+    
+    def create_indexer(self, mat_dict):
+        indexing_objects = {}
+        for i in range(6):
+            mat = mat_dict[i]
+            if type(mat) is pd.DataFrame:
+                mat = mat.values
+            indobj = FlattenedIndicatorIndices(mat, symmetric=self.is_symmetric[i])
+            indexing_objects[i] = indobj
+        indexer = BlockFlattenedIndicatorIndices([val for key, val in indexing_objects.items()])
+        return indexer
+        
     def to_param_template(self):
         p_template = []
         for i in range(6):
