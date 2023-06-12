@@ -233,107 +233,149 @@ def _dloglike_mu(g, L, B, F, b, a, vecVRV, rtV, dA, m_size, m_type, vind, n, p2)
             g[i] += -2.0 * np.dot(dmi.T, rtV)
     return g      
 
+
 @numba.jit(nopython=True)
-def _d2loglike_mu(H, L, B, F, P, b, a, Sinv, S, d, vecVRV, vecV, dA, m_size, first_deriv_type, 
-               second_deriv_type, n, vech_inds):
+def compute_dsigma_dmu(LB, BF, LBt, LBFBt, Bbt, j, dA, m_type, m_size, sigma_0, mu_0):
+    kind = m_type[j]
+    Jj = dA[j, :m_size[j ,0], :m_size[j, 1]]
+    if kind == 0: # L
+        J1 = LBFBt.dot(Jj.T) 
+        sigma_j = (J1 + J1.T)
+        mu_j = Jj.dot(Bbt) 
+    elif kind == 1: #B
+        J1 = Jj.dot(BF)
+        sigma_j = LB.dot(J1+J1.T).dot(LBt)
+        mu_j = LB.dot(Jj).dot(Bbt)
+    elif kind==2: #F
+        J1 = LB.dot(Jj).dot(LBt)
+        sigma_j = J1
+        mu_j = mu_0
+    elif kind ==3: #P
+        sigma_j = Jj
+        mu_j = mu_0
+    elif kind == 4:
+        sigma_j = sigma_0
+        mu_j = Jj[0]
+    elif kind == 5:
+        sigma_j = sigma_0
+        mu_j = LB.dot(Jj[0].T)
+    return sigma_j, mu_j
+
+
+@numba.jit(nopython=True)
+def compute_d2sigma_mu(L, B, F, LB, LBt, BF, BFBt, Bb, ij, dA, d2_inds, m_type, m_size, mu_0, sigma_0):
+    i, j = d2_inds[ij]
+    kind = m_type[ij]
+    Ji =dA[i, :m_size[i, 0], :m_size[i, 1]]
+    Jj =dA[j, :m_size[j, 0], :m_size[j, 1]]
+    if kind == 1:
+        dSij = (Ji.dot(BFBt).dot(Jj.T) + Jj.dot(BFBt).dot(Ji.T))  #0, 0 L ,L
+        dmij = mu_0
+    elif kind == 2:                         
+        BJj = B.T.dot(Jj.T)                                      #1,0, B, L
+        JiBF = Ji.dot(BF)
+        C = JiBF + JiBF.T
+        D = LB.dot(C).dot(BJj)
+        dSij = D + D.T
+        dmij = Jj.dot(B).dot(Ji).dot(Bb)
+    elif kind == 3:
+        JjB = Jj.dot(B)                                          #2,0, F, L
+        C = JjB.dot(Ji).dot(LBt)
+        dSij = C + C.T
+        dmij = mu_0
+    elif kind == 4:
+        C1 = Ji.dot(BF)                                          #1,1, B, B
+        C1 = C1 + C1.T
+        C2, C3 = Ji.dot(B), Jj.dot(B)
+        t1 = C3.dot(C1)
+        t3 = C2.dot(C3.dot(F))
+        t4 = F.T.dot(C3.T).dot(C2.T)
+        dSij = LB.dot(t1 + t1.T + t3 + t4).dot(LBt)
+        dmij = LB.dot(Ji).dot(B).dot(Jj).dot(Bb)
+    elif kind == 5:
+        C = Jj.dot(B).dot(Ji)                                    #2,1, F, B
+        dSij  = LB.dot(C+C.T).dot(LBt)
+        dmij = mu_0
+    elif kind == 6:
+        dmij = (Ji.dot(B)).dot(Jj.T)[0]                                 #5, 0, b, L
+        dSij = sigma_0
+    elif kind == 7:
+        dmij = LB.dot(Jj).dot(B).dot(Ji.T).flatten()                          #5, 1, b, 
+        dSij = sigma_0
+    else:
+        dSij = sigma_0
+        dmij= mu_0
+    return dSij, dmij
+
+@numba.jit(nopython=True)
+def _d2loglike_mu(H, d1Sm, L, B, F, P, a, b, Sinv, S, d, vecVRV, vecV, dA, m_size,
+                d2_inds,  first_deriv_type, second_deriv_type, n, vech_inds):
     LB, BF = L.dot(B), B.dot(F)
     LBt = LB.T
-    Ft = F.T
     Bt = B.T
     BFBt = BF.dot(Bt)
-    LB = L.dot(B)
-    BF = B.dot(F)
     Bbt = B.dot(b.T)
-    BFBt = BF.dot(B.T)
+    BFBt = BF.dot(Bt)
     LBFBt = L.dot(BFBt)
     vecVRV2 = vecVRV + vecV / 2
+    mu_0 = np.zeros(a.shape)
+    sigma_0 = np.zeros(S.shape)
+    dtV = np.dot(d.T, Sinv)
     ij = 0
     for j in range(n):
-        kindj = first_deriv_type[j]
-        Jj = dA[j, :m_size[j, 0], :m_size[j, 1]]
-        if kindj == 0: # L
-            J1 = LBFBt.dot(Jj.T) 
-            D1Sj = (J1 + J1.T)
-            d1mj = Jj.dot(Bbt) 
-        elif kindj == 1: #B
-            J1 = Jj.dot(BF)
-            D1Sj = LB.dot(J1+J1.T).dot(LBt)
-            d1mj = LB.dot(Jj).dot(Bbt)
-        elif kindj==2: #F
-            J1 = LB.dot(Jj).dot(LBt)
-            D1Sj = J1
-        elif kindj ==3: #P
-            D1Sj = Jj
-        elif kindj == 4:
-            d1mj = Jj[0]
-        elif kindj == 5:
-            d1mj = LB.dot(Jj[0].T)
-        
+        sigma_j, mu_j = compute_dsigma_dmu(LB, BF, LBt, LBFBt, Bbt, j, dA, first_deriv_type, m_size, sigma_0, mu_0)
+        d1Sm[j, :, :-1] = sigma_j
+        d1Sm[j, :, -1] = mu_j
+    for j in range(n):
+        sigma_j, mu_j  = d1Sm[j, :, :-1], d1Sm[j, :, -1]
         for i in range(j, n):
-            kindi = first_deriv_type[i]
+            sigma_i, mu_i  = d1Sm[i, :, :-1], d1Sm[i, :, -1]
+            sigma_ij, mu_ij = compute_d2sigma_mu(L, B, F, LB, LBt, BF, BFBt, Bbt,
+                                                 ij, dA, d2_inds, second_deriv_type, m_size,
+                                                 mu_0, sigma_0)
+            i, j = d2_inds[ij]
             kindij = second_deriv_type[ij]
+            kindi = first_deriv_type[i]
+            kindj = first_deriv_type[j]
+            # #kindi in {2, 3} then mu_i is zero
+            # #kindi in {4, 5} then sigma_i is zero
+            # #kindij in {1, 3, 5,} then mu_ij is zero
+            # #kindij in {6, 7} then sigma_ij is zero
+            # if (kindi != 4 and kindi != 5) and (kindj != 4 and kindj != 5): 
+            #     SiSj = sigma_i.dot(Sinv).dot(sigma_j)
+            #     H[i, j] += 2 * np.dot(vecVRV2, SiSj.flatten()) 
+            #     #t1 = 2 * np.dot(vecVRV2, SiSj.flatten()) 
+            # if kindij != 6 and kindij != 7:
+            #     H[i, j] +=  -np.dot(vecVRV, sigma_ij.flatten())
+            #     #t2 =  -np.dot(vecVRV, sigma_ij.flatten())
+            # if (kindi != 2 and kindi != 3) and (kindj != 2 and kindj != 3): 
+            #     H[i, j] += 2 * np.dot(mu_j, Sinv.dot(mu_i))
+            #     #t3 = 2 * np.dot(mu_j, Sinv.dot(mu_i)) 
+            # if kindij != 1 and kindij != 3 and kindij != 5:
+            #     H[i, j] -= 2 * dtV.dot(mu_ij)
+            #     #t3 -= 2 * dtV.dot(mu_ij)
+
+            # if (kindi != 4 and kindi != 5) and (kindj != 2 and kindj != 3): 
+            #     H[i, j] +=  dtV.dot(sigma_j).dot(Sinv.dot(mu_i))
+            #    # t4 = dtV.dot(sigma_j).dot(Sinv.dot(mu_i))
+            
+            # if (kindi != 2 and kindi != 3) and (kindj != 4 and kindj != 5): 
+            #     H[i, j] += dtV.dot(sigma_i).dot(Sinv.dot(mu_j))
+            #     #t5 = dtV.dot(sigma_i).dot(Sinv.dot(mu_j))
+
+            SiSj = sigma_i.dot(Sinv).dot(sigma_j)
+            t1 = 2 * np.dot(vecVRV2, SiSj.flatten()) 
+            t2 =  -np.dot(vecVRV, sigma_ij.flatten())
+            t3 = 2 * np.dot(mu_j, Sinv.dot(mu_i)) - 2 * dtV.dot(mu_ij)
+            t4 = dtV.dot(sigma_j).dot(Sinv.dot(mu_i))
+            t5 = dtV.dot(sigma_i).dot(Sinv.dot(mu_j))
+            H[i, j] += t1 + t2 + t3 + t4 + t5 
+            H[j, i] =  H[i, j]
             ij += 1
-            Ji = dA[i, :m_size[i ,0], :m_size[i, 1]]
-            
-            if kindi == 0:
-                J1 = LBFBt.dot(Ji.T)
-                D1Si = (J1 + J1.T)
-                d1mi = Ji.dot(Bbt) 
-            elif kindi == 1:
-                J1 = Ji.dot(BF)
-                D1Si = LB.dot(J1+J1.T).dot(LBt)
-                d1mi = LB.dot(Ji).dot(Bbt)
-            elif kindi==2:
-                J1 = LB.dot(Ji).dot(LBt)
-                D1Si = J1
-            elif kindi ==3:
-                D1Si = Ji
-            elif kindi == 4:
-                d1mi = Ji[0]
-            elif kindi == 5:
-                d1mi = LB.dot(Ji[0].T)
-            
-            
-            SiSj = D1Si.dot(Sinv).dot(D1Sj)
-            H[i, j] += 2*np.dot(vecVRV2, SiSj.flatten()) 
-            H[j, i] = H[i, j]
-                    
-            if kindij == 1: #0 0 L,L
-                D2Sij = (Ji.dot(BFBt).dot(Jj.T) + Jj.dot(BFBt).dot(Ji.T))
-            elif kindij == 2: #1 0 B L
-                BJj = Bt.dot(Jj.T)
-                JiBF = Ji.dot(BF)
-                C = JiBF + JiBF.T
-                D = LB.dot(C).dot(BJj)
-                D2Sij = D + D.T
-                d2mij = Jj.dot(B).dot(Ji).dot(Bbt)
-            elif kindij == 3:#2 0 F L
-                JjB = Jj.dot(B)
-                C = JjB.dot(Ji).dot(LBt)
-                D2Sij = C + C.T
-            elif kindij == 4: #1,1, B, B
-                C1 = Ji.dot(BF)
-                C1 = C1 + C1.T
-                C2, C3 = Ji.dot(B), Jj.dot(B)
-                t1 = C3.dot(C1)
-                t3 = C2.dot(C3.dot(F))
-                t4 = Ft.dot(C3.T).dot(C2.T)
-                tmp = LB.dot(t1 + t1.T + t3 + t4).dot(LBt)
-                D2Sij = tmp
-                d2mij = L.dot(Jj).dot(B).dot(Ji).dot(Bbt)
-            elif kindij == 5: #2,1, F, B
-                C = Jj.dot(B).dot(Ji)
-                D2Sij  = LB.dot(C+C.T).dot(LBt)
-            elif kindij == 6: #5, 0, b, L
-                D2miSj = 2 * d.dot(Sinv.dot(D1Sj.dot(Sinv.dot(d1mi))))
-                d2mij = Jj.dot(B).dot(Ji)
-            elif kindij == 7: #5, 1, b, B
-                D2miSj = 2*d.dot(Sinv.dot(D1Sj.dot(Sinv.dot(d1mi))))
-                d2mij = LB.dot(Jj).dot(B).dot(Ji)
-            if kindij>0:
-                H[i, j] +=  -np.dot(vecVRV, D2Sij.flatten())
-                H[j, i] = H[i, j]
     return H
+        
+        
+    
 
 @numba.jit(nopython=True)
 def _d2loglike(H, L, B, F, Sinv, S, vecVRV, vecV, dA, r, c, first_deriv_type, 
