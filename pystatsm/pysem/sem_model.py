@@ -13,7 +13,7 @@ from .cov_model import CovarianceStructure
 from .fitfunctions import LikelihoodObjective
 from .formula import FormulaParser#ModelSpecification
 from .model_data import ModelData
-from .derivatives import _dsigma_mu, _dloglike_mu, _d2sigma_mu #from .cov_derivatives import _d2sigma, _dsigma, _dloglike, _d2loglike
+from .derivatives import _dsigma_mu, _dloglike_mu, _d2sigma_mu, _d2loglike_mu #from .cov_derivatives import _d2sigma, _dsigma, _dloglike, _d2loglike
 from ..utilities.func_utils import handle_default_kws, triangular_number
 from ..utilities.data_utils import cov
 from ..utilities.linalg_operations import _vech, _vec, _invec, _invech
@@ -59,6 +59,7 @@ class SEM:
         self.nt = len(self.model_indexer.first_locs)
         self.make_derivative_matrices()
         self.theta = self.free[self.model_indexer.unique_indices]
+        self.n_par = len(self.p_template)
 
         
 
@@ -99,6 +100,8 @@ class SEM:
 
     def free_to_par(self, free):
         par = self.p_template.copy()
+        if np.any(np.iscomplex(free)):
+            par = par.astype(complex)
         par[self.model_indexer.flat_indices] = free
         return par
     
@@ -150,7 +153,11 @@ class SEM:
         Sinv = np.linalg.inv(Sigma)
         trSV = np.trace(Sinv.dot(self.model_data.sample_cov))
         rVr = np.dot(r.T.dot(Sinv), r) 
-        lndS = np.linalg.slogdet(Sigma)[1]
+        if np.any(np.iscomplex(Sigma)):
+            s, lnd = np.linalg.slogdet(Sigma)
+            lndS = np.log(s)+lnd
+        else:
+            lndS = np.linalg.slogdet(Sigma)[1]
         f = rVr + lndS + trSV
         return f
     
@@ -217,27 +224,61 @@ class SEM:
         g = _dloglike_mu(g, L, B, F, b, a,vecVRV, rtV, **kws)
         g = self.J_theta.T.dot(g)
         return g
+    
+    def hessian(self, free):
+        L, B, F, P, a, b = self.free_to_model_mats(free)
+        B = np.linalg.inv(np.eye(B.shape[0]) - B)
+        LB = np.dot(L, B)
+        mu = (a+LB.dot(b.T).T).reshape(-1)
+        d = (self.model_data.sample_mean.flatten() - mu)
+        a, b = a.flatten(), b.flatten()
+        kws = dict(dA=self.dA, m_size=self.m_size, d2_inds=self.d2_inds, first_deriv_type=self.m_kind, 
+                   second_deriv_type=self.d2_kind,  n=self.nf,  vech_inds=self._vech_inds)
 
-    def _fit(self, theta_init=None, minimize_kws=None, minimize_options=None):
+        Sigma = LB.dot(F).dot(LB.T) + P
+        S = self.model_data.sample_cov
+        R = S - Sigma
+        Sinv = np.linalg.inv(Sigma)
+        VRV = Sinv.dot(R).dot(Sinv)
+        vecVRV = _vec(VRV)
+        vecV = _vec(Sinv)
+        H = np.zeros((self.nf,)*2)
+        d1Sm = np.zeros((self.nf, self.p, self.p+1))
+        H = _d2loglike_mu(H=H, d1Sm=d1Sm, L=L, B=B, F=F, P=P, a=a, b=b, Sinv=Sinv, S=S, d=d, 
+                           vecVRV=vecVRV, vecV=vecV, **kws)
+        return H
+    
+    def hessian_theta(self, theta):
+        free = self.theta_to_free(theta)
+        H = self.hessian(free)
+        H = _sparse_post_mult(self.J_theta.T.dot(H), self.J_theta)
+        return H
+
+    def _fit(self, theta_init=None, minimize_kws=None, minimize_options=None, use_hess=False):
         bounds = self.bounds_theta
         func = self.func_theta
         grad = self.gradient_theta
+        if use_hess:
+            hess = self.hessian_theta
+        else:
+            hess = None
         theta = self.theta if theta_init is None else theta_init
         default_minimize_options = dict(initial_tr_radius=1.0, verbose=3)
         minimize_options = handle_default_kws(minimize_options, default_minimize_options)
                 
         default_minimize_kws = dict(method="trust-constr", options=minimize_options)
         minimize_kws = handle_default_kws(minimize_kws, default_minimize_kws)
-        res = sp.optimize.minimize(func, x0=theta, jac=grad, bounds=bounds,  **minimize_kws)
+        res = sp.optimize.minimize(func, x0=theta, jac=grad, hess=hess,  
+                                   bounds=bounds,  **minimize_kws)
         return res
     
-    def fit(self,  minimize_kws=None, minimize_options=None, use_hess=False):
-        res = self._fit(minimize_kws=minimize_kws, minimize_options=minimize_options)
+    def fit(self,  theta_init=None, minimize_kws=None, minimize_options=None, use_hess=False):
+        res = self._fit(theta_init=theta_init, minimize_kws=minimize_kws, minimize_options=minimize_options, use_hess=use_hess)
         if np.linalg.norm(res.grad)>1e16:
             if minimize_options is None:
                 minimize_options = {}
             minimize_options["initial_tr_radius"]=0.01
-            res = self._fit(minimize_kws=minimize_kws, minimize_options=minimize_options)
+            res = self._fit(minimize_kws=minimize_kws, minimize_options=minimize_options, use_hess=use_hess)
         self.opt_res = res
         self.theta = res.x
         self.free = self.theta_to_free(self.theta)
