@@ -83,7 +83,7 @@ class FlattenedIndicatorIndices(object):
         self._start = 0
         self._stop = self._size
         self._unique_values, self._unique_locs, self._first_locs = self.unique_nonzero(v)
-        self._flat_indices = nonzero(v).squeeze()
+        self._flat_indices = nonzero(v).reshape(-1, order='F')
         self._row_indices, self._col_indices = nonzero(array)
         self._rc_indices = self._row_indices, self._col_indices
         self._n_nnz = len(self._flat_indices)
@@ -360,7 +360,7 @@ class BlockFlattenedIndicatorIndices(object):
         block_j = block_indices[self._tril_inds[1]]
         
         block_pairs = np.vstack([block_i, block_j]).T
-        num_unique_pairs = self.nf2 = triangular_number(self.n_nonzero)
+        self.nf2 = triangular_number(self.n_nonzero)
         block_pair_types = np.zeros(self.nf2, dtype=int)
         
         for ii, (i, j) in enumerate(nonzero_cross_derivs, 1):
