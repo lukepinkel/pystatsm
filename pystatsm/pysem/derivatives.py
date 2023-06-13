@@ -123,7 +123,7 @@ def _d2sigma_mu(d2Sm, L, B, F, b, a, dA, m_size, m_type, d2_inds, vind, n, p2):
             d2Sm[:p2, i, j] += dSij.T.flatten()[vind]
             d2Sm[:p2, j, i] = d2Sm[:p2, i, j]
         elif kind == 6:
-            dmij = (Ji.dot(B)).dot(Jj.T)[0]                                  #5, 0, b, L
+            dmij = Jj.dot(B.dot(Ji[0]))                                  #5, 0, b, L
             d2Sm[p2:, i, j] += dmij.flatten()
             d2Sm[p2:, j, i] = d2Sm[p2:, i, j]
         elif kind == 7:
@@ -299,7 +299,7 @@ def compute_d2sigma_mu(L, B, F, LB, LBt, BF, BFBt, Bb, ij, dA, d2_inds, m_type, 
         dSij  = LB.dot(C+C.T).dot(LBt)
         dmij = mu_0
     elif kind == 6:
-        dmij = (Ji.dot(B)).dot(Jj.T)[0]                                 #5, 0, b, L
+        dmij = Jj.dot(B.dot(Ji[0])).flatten()                            #5, 0, b, L
         dSij = sigma_0
     elif kind == 7:
         dmij = LB.dot(Jj).dot(B).dot(Ji.T).flatten()                          #5, 1, b, 
