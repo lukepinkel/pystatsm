@@ -60,6 +60,7 @@ class SEM:
         self.make_derivative_matrices()
         self.theta = self.free[self.model_indexer.unique_indices]
         self.n_par = len(self.p_template)
+        self.ll_const =  1.8378770664093453 * self.p
 
         
 
@@ -138,11 +139,11 @@ class SEM:
     def loglike(self, free, reduce=True):
         Sigma, mu = self.implied_cov_mean(free)
         L = sp.linalg.cholesky(Sigma) #np.linalg.cholesky(Sigma)
-        X = self.model_data.data - mu
-        Z = sp.linalg.solve_triangular(L, X.T, trans=1).T #np.dot(X, np.linalg.inv(L.T))
-        lndS = 2.0 * np.log(np.diag(L)).sum()
-        ll = lndS+ np.sum(Z**2, axis=1) +  1.8378770664093453*Sigma.shape[1]
-        ll = ll / 2.0
+        Y = self.model_data.data - mu
+        Z = sp.linalg.solve_triangular(L, Y.T, trans=1).T #np.dot(X, np.linalg.inv(L.T))
+        t1 = 2.0 * np.log(np.diag(L)).sum() 
+        t2 = np.sum(Z**2, axis=1)
+        ll = (t1 + t2 + self.ll_const) / 2
         if reduce:
             ll = np.sum(ll)
         return ll
@@ -205,6 +206,24 @@ class SEM:
         g = np.zeros(self.nf)
         g = _dloglike_mu(g, L, B, F, b, a,vecVRV, rtV, **kws)
         return g
+    
+    def gradient_obs(self, free):
+        Sigma, mu = self.implied_cov_mean(free)
+        dmu_dfree = self.dsigma_mu(free)
+        dS = dmu_dfree[:-self.p]
+        dm = dmu_dfree[-self.p:]
+        dS = _invech(dS.T)
+        V = np.linalg.inv(Sigma)
+        DS = dS.reshape(self.nf, -1, order='F')
+        t1 = DS.dot(V.reshape(-1,order='F')).reshape(1, -1)
+        Y = self.model_data.data - mu
+        YV = Y.dot(V)
+        t2 = YV.dot(dm)
+        t3 = np.einsum("ij,hjk,ik->ih", YV, dS, YV, optimize=True)
+        grad_obs = -2 * (-t1 / 2 + t2 + t3 / 2)
+        return grad_obs
+        
+
     
     def gradient_theta(self, theta):
         free = self.theta_to_free(theta)
@@ -293,7 +312,7 @@ class SEM:
         self.free = self.theta_to_free(self.theta)
         self.res = pd.DataFrame(res.x, index=self.theta_names, 
                                 columns=["estimate"])
-        self.res["grad"] = self.gradient_theta(res.x)
+        self.res["se"] = np.sqrt(np.diag(np.linalg.inv(self.hessian_theta(self.theta)*self.model_data.n_obs/2)))
         mlist = list(self.theta_to_model_mats(self.theta))
         mat_names = ["L", "B", "F", "P", "a", "b"]
         for i,  mat in enumerate(mlist):
