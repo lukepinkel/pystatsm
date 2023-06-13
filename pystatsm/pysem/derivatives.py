@@ -211,20 +211,22 @@ def _dloglike_mu(g, L, B, F, b, a, vecVRV, rtV, dA, m_size, m_type, vind, n, p2)
             dSi = (J1 + J1.T)
             dmi = J.dot(Bbt)
             g[i] += -np.dot(vecVRV, dSi.flatten())
-            g[i] += -2.0 * np.dot(dmi.T, rtV)
+            g[i] += -(2.0 * np.dot(dmi.T, rtV) + rtV.dot(dSi.dot(rtV)))
         elif kind == 1:
             J1 = J.dot(BF)
             dSi =LB.dot(J1+J1.T).dot(LBt)
             dmi = LB.dot(J).dot(Bbt)
             g[i] += -np.dot(vecVRV, dSi.flatten())
-            g[i] += -2.0 * np.dot(dmi.T, rtV)
+            g[i] += -(2.0 * np.dot(dmi.T, rtV) + rtV.dot(dSi.dot(rtV)))
         elif kind==2:
             J1 = LB.dot(J).dot(LBt)
             dSi = J1
             g[i] += -np.dot(vecVRV, dSi.flatten())
+            g[i] += -(rtV.dot(dSi.dot(rtV)))
         elif kind ==3:
             dSi = J
             g[i] += -np.dot(vecVRV, dSi.flatten())
+            g[i] += -(rtV.dot(dSi.dot(rtV)))
         elif kind == 4:
             dmi = J[0]
             g[i] += -2.0 * np.dot(dmi.T, rtV)
@@ -367,9 +369,10 @@ def _d2loglike_mu(H, d1Sm, L, B, F, P, a, b, Sinv, S, d, vecVRV, vecV, dA, m_siz
             t1 = 2 * np.dot(vecVRV2, SiSj.flatten()) 
             t2 =  -np.dot(vecVRV, sigma_ij.flatten())
             t3 = 2 * np.dot(mu_j, Sinv.dot(mu_i)) - 2 * dtV.dot(mu_ij)
-            t4 = dtV.dot(sigma_j).dot(Sinv.dot(mu_i))
-            t5 = dtV.dot(sigma_i).dot(Sinv.dot(mu_j))
-            H[i, j] += t1 + t2 + t3 + t4 + t5 
+            t4 = 2*dtV.dot(sigma_j).dot(Sinv.dot(mu_i))
+            t5 = 2*dtV.dot(sigma_i).dot(Sinv.dot(mu_j))
+            t6 = 2 * dtV.dot(sigma_j).dot(Sinv).dot(sigma_i.dot(dtV))- dtV.dot(sigma_ij).dot(dtV)
+            H[i, j] += t1 + t2 + t3 + t4 + t5 + t6
             H[j, i] =  H[i, j]
             ij += 1
     return H
