@@ -13,7 +13,7 @@ from .cov_model import CovarianceStructure
 from .fitfunctions import LikelihoodObjective
 from .formula import FormulaParser#ModelSpecification
 from .model_data import ModelData
-from .derivatives import _dsigma_mu, _dloglike_mu, _d2sigma_mu, _d2loglike_mu #from .cov_derivatives import _d2sigma, _dsigma, _dloglike, _d2loglike
+from .derivatives import _dsigma_mu, _dloglike_mu, _d2sigma_mu, _d2loglike_mu0, _d2loglike_mu1, _d2loglike_mu2 #from .cov_derivatives import _d2sigma, _dsigma, _dloglike, _d2loglike
 from ..utilities.func_utils import handle_default_kws, triangular_number
 from ..utilities.data_utils import cov
 from ..utilities.linalg_operations import _vech, _vec, _invec, _invech
@@ -157,8 +157,10 @@ class SEM:
             s, lnd = np.linalg.slogdet(Sigma)
             lndS = np.log(s)+lnd
         else:
-            lndS = np.linalg.slogdet(Sigma)[1]
+            s, lndS = np.linalg.slogdet(Sigma)
         f = rVr + lndS + trSV
+        if s==-1:
+            f = np.inf
         return f
     
     def func_theta(self, theta):
@@ -225,7 +227,7 @@ class SEM:
         g = self.J_theta.T.dot(g)
         return g
     
-    def hessian(self, free):
+    def hessian(self, free, method=0):
         L, B, F, P, a, b = self.free_to_model_mats(free)
         B = np.linalg.inv(np.eye(B.shape[0]) - B)
         LB = np.dot(L, B)
@@ -244,13 +246,20 @@ class SEM:
         vecV = _vec(Sinv)
         H = np.zeros((self.nf,)*2)
         d1Sm = np.zeros((self.nf, self.p, self.p+1))
-        H = _d2loglike_mu(H=H, d1Sm=d1Sm, L=L, B=B, F=F, P=P, a=a, b=b, Sinv=Sinv, S=S, d=d, 
+        if method == 0:
+            H = _d2loglike_mu0(H=H, d1Sm=d1Sm, L=L, B=B, F=F, P=P, a=a, b=b, Sinv=Sinv, S=S, d=d, 
+                           vecVRV=vecVRV, vecV=vecV, **kws)
+        elif method == 1:
+            H = _d2loglike_mu1(H=H, d1Sm=d1Sm, L=L, B=B, F=F, P=P, a=a, b=b, Sinv=Sinv, S=S, d=d, 
+                           vecVRV=vecVRV, vecV=vecV, **kws)
+        elif method == 2:
+            H = _d2loglike_mu2(H=H, d1Sm=d1Sm, L=L, B=B, F=F, P=P, a=a, b=b, Sinv=Sinv, S=S, d=d, 
                            vecVRV=vecVRV, vecV=vecV, **kws)
         return H
     
-    def hessian_theta(self, theta):
+    def hessian_theta(self, theta, method=0):
         free = self.theta_to_free(theta)
-        H = self.hessian(free)
+        H = self.hessian(free, method=method)
         H = _sparse_post_mult(self.J_theta.T.dot(H), self.J_theta)
         return H
 
