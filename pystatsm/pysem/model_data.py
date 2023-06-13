@@ -23,7 +23,7 @@ class ModelData(object):
             self.sample_cov = self.data_df.cov(ddof=self.ddof)
             self.sample_mean = self.data.mean(axis=0).reshape(1, -1)
             self.n_obs = self.data_df.shape[0]
-            
+            self.data_centered =  self.data - np.mean(self.data, axis=0)
         if self.sample_cov is not None:
             self.sample_cov, self.sample_cov_df = self._to_dataframe_and_array(self.sample_cov)
         
