@@ -519,27 +519,6 @@ class FormulaParser:
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 class ModelSpecification:
     matrix_names = ["L", "B", "F", "P"]
     matrix_order = dict(L=0, B=1, F=2, P=3)
