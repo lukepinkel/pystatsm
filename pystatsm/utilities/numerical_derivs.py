@@ -381,3 +381,50 @@ def fd_derivative(f, x, epsilon=None, order=1, points=None):
     df = df / (epsilon**order)
     return df
    
+
+def fo_fc_cs(f, x, delta=None, args=()):
+    if delta is None:
+        delta = (np.finfo(float).eps)**(1.0/3.0)
+    n = len(np.asarray(x))
+    g, h = np.zeros(n), np.zeros(n)
+    for i in range(n):
+        h[i] = delta
+        g[i] = (f(x+h*1j, *args)).imag / delta
+        h[i] = 0
+    return g
+
+
+def jac_cs(f, x, delta=None, args=()):
+    if delta is None:
+        delta = (np.finfo(float).eps)**(1.0/3.0)
+    n, m = len(np.asarray(x)), len(f(x))
+    J, h =  np.zeros((m, n)), np.zeros(n)
+    for i in range(n):
+        h[i] = delta
+        J[...,i] = (f(x+h*1j, *args)).imag / delta
+        h[i] = 0
+    return J
+
+
+def hess_cs(f, x, delta=None):
+    n = len(x)
+    if delta is None:
+        delta = (np.finfo(float).eps)**(1.0/3.0)
+    delta = delta * np.maximum(np.abs(x), 0.1)
+    y = f(x)
+    if len(np.shape(y))==0:
+        H = np.zeros((n, n))
+    else:
+        m = len(y)
+        H = np.zeros((m,n, n))
+    I = np.eye(n)
+    pbar = tqdm.tqdm(total=(n*(n+1)//2))
+    for j in range(n):
+        for i in range(j, n):
+            yp = f(x + 1j * I[i] * delta[i] + I[j] * delta[j])
+            yn = f(x + 1j * I[i] * delta[i] - I[j] * delta[j])
+            H[...,i, j] = H[...,j, i] = (yp - yn).imag / (2 * delta[i] * delta[j])
+            pbar.update(1)
+    pbar.close()
+    return H
+
