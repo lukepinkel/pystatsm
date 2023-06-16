@@ -163,6 +163,7 @@ class ModelSpecification(object):
         self.theta_to_group_free = theta_to_group_free
         self.ftable = ftable
         self.free = np.zeros(self.n_total_free)
+        self.utable = utable
         indexer = self.indexers[0]
         qp = len(indexer.unique_indices)
         J = sp.sparse.csc_array((np.ones(qp), (np.arange(qp), indexer.unique_indices)),
@@ -227,7 +228,7 @@ class SEM:
         self.ptable = self.mspec.ptables[0]
         self.free_table = self.mspec.ftables[0]
         self.free_names = self.free_table[["lhs", "rel","rhs"]].astype(str).agg(' '.join, axis=1).values
-        self.theta_names = self.free_names[self.indexer.unique_indices]
+        self.theta_names = self.mspec.utable[["lhs", "rel","rhs"]].astype(str).agg(' '.join, axis=1).values
         self._grad_kws = dict(dA=self.dA, m_size=self.m_size, m_type=self.m_kind, 
                               vind=self._vech_inds, n=self.nf, p2=self.p2)
         self._hess_kws = dict(dA=self.dA, m_size=self.m_size, d2_inds=self.d2_inds,
@@ -430,12 +431,17 @@ class SEM:
         self.free = self._theta_to_free(self.theta)
         self.res = pd.DataFrame(res.x, index=self.theta_names, 
                                 columns=["estimate"])
-        self.res["se"] = np.sqrt(np.diag(np.linalg.inv(self.hessian_theta(self.theta)*self.model_data.n_obs/2)))
-        mlist = list(self.theta_to_model_mats(self.theta))
+        self.res["se"] = np.sqrt(np.diag(np.linalg.inv(self.hessian(self.theta)*self.model_data.n_obs/2)))
+        mats = {}
+        free = self._theta_to_free(self.theta)
         mat_names = ["L", "B", "F", "P", "a", "b"]
-        for i,  mat in enumerate(mlist):
-            mat = pd.DataFrame(mat, index=self.model_spec.mat_row_names[i],
-                               columns=self.model_spec.mat_col_names[i])
-            setattr(self, mat_names[i], mat)
-                    
+        for i in range(self.n_groups):
+            group_free = self._free_to_group_free(free, i)
+            par = self._free_to_par(group_free, i)
+            mlist = self._par_to_model_mats(par, i)
+            mats[i] = {}
+            for j,  mat in enumerate(mlist):
+                mats[i][j] = pd.DataFrame(mat, index=self.mspec.mat_rows[i][j],
+                                          columns=self.mspec.mat_cols[i][j])
+        self.mats = mats
         
