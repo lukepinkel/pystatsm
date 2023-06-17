@@ -85,6 +85,7 @@ class ModelSpecification(object):
         self.p_templates, self.indexers = {}, {}
         self.sample_covs = {}
         self.sample_means = {}
+        self.llconst = {}
         self.mat_cols, self.mat_rows, self.mat_dims = {}, {}, {}
         for i in range(self.n_groups):
             dfi = data.loc[data[group_col]==i].iloc[:, :-1]
@@ -104,6 +105,7 @@ class ModelSpecification(object):
             self.ftables[i] = ptable_object.ftable
             self.sample_covs[i] = sample_cov.values
             self.sample_means[i] = sample_mean.values
+            self.llconst[i] = -np.linalg.slogdet(self.sample_covs[i])[1]-self.sample_covs[i].shape[0]
         self.ftable = pd.concat(self.ftables, axis=0).reset_index()
         self.frees = {}
         self.q = len((self.ptable_objects[0]).lav_order)
@@ -249,7 +251,7 @@ class SEM:
                 lndS = np.log(s)+lnd
             else:
                 s, lndS = np.linalg.slogdet(Sigma)
-            fi = (rVr + lndS + trSV) * self.gweights[i]
+            fi = (rVr + lndS + trSV + self.mspec.llconst[i]) * self.gweights[i]
             if (s==-1) or (fi < -1):
                 fi += np.inf
             if per_group:
@@ -368,6 +370,16 @@ class SEM:
         mu = (a+LB.dot(b.T).T).reshape(-1)
         return Sigma, mu
     
+    def implied_cov_mean(self, theta):
+        free = self._theta_to_free(theta)
+        Sigmas = {}
+        mus = {}
+        for i in range(self.n_groups):
+            group_free = self._free_to_group_free(free, i)
+            par = self._free_to_par(group_free, i)
+            mats = self._par_to_model_mats(par, i)
+            Sigmas[i], mus[i] = self._implied_cov_mean(*mats)
+        return Sigmas, mus
     
     def implied_sample_stats(self, free):
         L, B, F, P, a, b = self.free_to_model_mats(free)
@@ -422,6 +434,8 @@ class SEM:
         self.res = pd.DataFrame(res.x, index=self.theta_names, 
                                 columns=["estimate"])
         self.res["se"] = np.sqrt(np.diag(np.linalg.inv(self.hessian(self.theta)*self.model_data.n_obs/2)))
+        self.res_free = pd.DataFrame(self.mspec.theta_to_free.dot(self.res.values), 
+                                     index=self.free_names, columns=self.res.columns)
         mats = {}
         free = self._theta_to_free(self.theta)
         mat_names = ["L", "B", "F", "P", "a", "b"]
