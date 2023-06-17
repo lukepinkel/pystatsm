@@ -15,6 +15,7 @@ from ..utilities.func_utils import handle_default_kws, triangular_number
 from .derivatives import _dloglike_mu, _d2loglike_mu0, _d2loglike_mu1, _d2loglike_mu2 #from .cov_derivatives import _d2sigma, _dsigma, _dloglike, _d2loglike
 from .param_table import ParameterTable
 from .model_data import ModelData
+from ..utilities import indexing_utils
 
 def _sparse_post_mult(A, S):
     prod = S.T.dot(A.T)
@@ -25,6 +26,47 @@ def _sparse_post_mult(A, S):
 
 
 pd.set_option("mode.chained_assignment", None)
+
+
+class SimpleEqualityConstraint:
+    def __init__(self, indicators):
+        indicators = self.check_and_convert(indicators)
+        self.unique_values, self.inverse_mapping, self.indices = indexing_utils.unique(indicators)
+
+    @staticmethod
+    def check_and_convert(indicators):
+        if isinstance(indicators, (pd.DataFrame, pd.Series)):
+            indicators = indicators.values
+        elif isinstance(indicators, list):
+            indicators = np.array(indicators)
+        elif isinstance(indicators, dict):
+            indicators = np.array(list(indicators.values()))
+        if indicators.ndim > 1:
+            indicators = indicators.flatten()
+        return indicators
+    
+    def forward(self, x, check_arr=False):
+        if type(x) is not np.array:
+            x = np.asarray(x)
+        return x.copy().flatten()[self.indices]
+    
+    def inverse(self, y, check_arr=False):
+        if type(y) is not np.array:
+            y= np.asarray(y)
+        return y.copy().flatten()[self.inverse_mapping]
+    
+def equality_constraint_mat(unique_locs):
+    n = unique_locs.max()+1
+    m = len(unique_locs)
+    row = np.arange(m)
+    col = unique_locs
+    data = np.ones(m)
+    arr = sp.sparse.csc_matrix((data, (row, col)), shape=(m, n))
+    return arr
+
+
+
+
 
 
 
@@ -69,127 +111,75 @@ class ModelSpecification(object):
 
         for i in range(self.n_groups):
             self.frees[i] = self.p_templates[i][self.indexers[i].flat_indices]
-
-
-    
-    def harmonize_group_tables(self, equal_loadings=True, equal_regression=True, 
-                               equal_means=False):
-        self.n_free = self.ptable_objects[0].n_free
-        self.shared = np.zeros(len(self.n_free), dtype=bool)
-        self.n_shared = 0
-        if equal_loadings:
-            self.shared[0] = True
-        if equal_regression:
-            self.shared[1] = True
-        if equal_means:
-            self.shared[4] = True
-            self.shared[5] = True
-        self.unshared = ~self.shared
-        self.n_shared =self. n_free[self.shared].sum()
-        self.n_unshared = self.n_free[self.unshared].sum()
-        self.n_total_free = self.n_shared + self.n_unshared*self.n_groups
-        self.n_free = self.n_shared + self.n_unshared
-        
         ftable = pd.concat(self.ftables, axis=0).reset_index()
-        ftable["group_ind"] = 0
-        ftable["group_free"] = 0
-        ftable["duplicate"] = False
-
-        ix0 = ftable["level_0"] == 0
-        offset = 0
-        for i in range(self.n_groups):
-            group_ix = ftable["level_0"] == i
-            ftable.loc[group_ix,  "group_ind"] = 1+np.arange(self.n_free) + offset
-            ftable.loc[group_ix,  "group_free"] = ftable.loc[group_ix,  "free"] + offset
-            if equal_loadings:
-                ix = (ftable["mat"] == 0)
-                ftable.loc[ix&(group_ix), "group_ind"] = ftable.loc[ix0&ix, "group_ind"].values
-                ftable.loc[ix&(group_ix), "group_free"] = ftable.loc[ix0&ix, "group_free"].values
-                if i>0:
-                    ftable.loc[ix & group_ix, "duplicate"] = True
-            if equal_regression:
-                ix = ftable["mat"] == 1
-                ftable.loc[ix & group_ix, "group_ind"] = ftable.loc[ix & ix0, "group_ind"].values
-                ftable.loc[ix & group_ix, "group_free"] = ftable.loc[ix & ix0, "group_free"].values
-                if i>0:
-                    ftable.loc[ix & group_ix, "duplicate"] = True
-            if equal_means:
-                ix = ftable["mat"] == 4
-                ftable.loc[ix & group_ix, "group_ind"] = ftable.loc[ix & ix0, "group_ind"].values
-                ftable.loc[ix & group_ix, "group_free"] = ftable.loc[ix & ix0, "group_ind"].values
-                ix = ftable["mat"] == 5
-                ftable.loc[ix & group_ix, "group_ind"] = ftable.loc[ix & ix0, "group_ind"].values
-                ftable.loc[ix & group_ix, "group_free"] = ftable.loc[ix & ix0, "group_free"].values
-                if i>0:
-                    ftable.loc[ix & group_ix, "duplicate"] = True
-
-            offset += self.n_unshared
+        label = ftable[["level_0", "lhs", "rel","rhs"]].astype(str).agg(' '.join, axis=1)
+        ftable.loc[:, "label"] = ftable.loc[:, "label"].fillna(label)
         
-        utables = {}
-        for i in range(self.n_groups):
-            group_ix = ftable["level_0"] == i
-            utable = ftable.loc[group_ix]
-            utable = utable.iloc[self.indexers[i].unique_indices]
-            utables[i] = utable
-        utable = pd.concat(utables, axis=0).drop(["level_0", "level_1"], axis=1).reset_index()
-        utable = utable[~utable["group_free"].duplicated()]
-        free_to_group_free = {}
-        nrows = self.n_free
-        ncols = self.n_total_free
-        d = np.ones(self.n_free)
-        for i in range(self.n_groups):
-            row = ftable.loc[ftable["level_0"]==i, "ind"].values
-            col = (ftable.loc[ftable["level_0"]==i, "group_ind"]-1).values
-            free_to_group_free[i] = sp.sparse.csc_array((d, (row, col)), shape=(nrows, ncols))
-            
-        rows = utable["group_free"].values-1
-        cols = utable["group_ind"].values-1
-        nrows = rows.max()+1
-        ncols = cols.max()+1
-        d = np.ones(len(rows))
-        group_free_totheta = sp.sparse.csc_array((d, (rows, cols)), shape=(nrows, ncols))
-        
-        rows = ftable["group_free"].values-1
-        cols = ftable["group_ind"].values-1
-        ix = np.sort(np.unique(np.vstack([rows, cols]).T,axis=0, return_index=True)[1])
-        rows, cols = rows[ix], cols[ix]
-        nrows = rows.max()+1
-        ncols = cols.max()+1
-        d = np.ones(len(rows))
-        theta_to_group_free = sp.sparse.csc_array((d, (rows, cols)), shape=(nrows, ncols))
-        #theta_to_group_free = group_free_totheta.T
-        self.group_free_totheta = group_free_totheta
-        self.free_to_group_free = free_to_group_free
-        self.theta_to_group_free = theta_to_group_free
         self.ftable = ftable
-        self.free = np.zeros(self.n_total_free)
-        self.utable = utable
-        indexer = self.indexers[0]
-        qp = len(indexer.unique_indices)
-        J = sp.sparse.csc_array((np.ones(qp), (np.arange(qp), indexer.unique_indices)),
-                                shape=(qp, indexer.unique_indices.max()+1))
-        self.free_to_theta = J
+        
+    def add_matrix_equalities(self, shared):
+        self.shared = shared
+        ftable = self.ftable
+        ix = ftable["mod"].isnull()
+        ftable["label"]= ftable["mod"].copy()
+        ftable["duplicate"] = False
+        for i in range(6):
+            ix = ftable["mat"]==i
+            not_null = ~ftable.loc[ix, "label"].isnull()
+            ix1 = ix & not_null
+            if self.shared[i]:
+                label = ftable[["lhs", "rel","rhs"]].astype(str).agg(' '.join, axis=1)
+            else:
+                label = ftable[["level_0", "lhs", "rel","rhs"]].astype(str).agg(' '.join, axis=1)
+                ftable.loc[ix1, "label"] = ftable.loc[ix1, ["level_0", "label"]].astype(str).agg(' '.join, axis=1)
+            ftable.loc[ix, "label"] = ftable.loc[ix, "label"].fillna(label)
+        for i in np.unique(ftable["level_0"]):
+            group_ix = ftable["level_0"] == i
+            for j in range(6):
+                mat_ix = ftable["mat"]==j
+                if self.shared[j]:
+                    ftable.loc[mat_ix & group_ix, "duplicate"] = i>0
+            
+        unique_values, inverse_mapping, indices = indexing_utils.unique(ftable["label"])
+        unique_labels = pd.Series(unique_values)
+        label_to_ind = pd.Series(unique_labels.index, index=unique_labels.values)
+        
+        self._unique_locs, self._first_locs = inverse_mapping, indices
+        self.ftable = ftable
+        self.ftable["theta_index"] = ftable["label"].map(label_to_ind)
+        self.theta_to_free = equality_constraint_mat(self._unique_locs)
+        self.free_to_theta = equality_constraint_mat(self._first_locs)
+        self.free = self.ftable["start"].fillna(0)
+        self.free_to_group_free = {}
         for i in range(self.n_groups):
-            self.free = self.free + self.free_to_group_free[i].T.dot(self.frees[i])
+            ix = self.ftable.loc[self.ftable["level_0"]==i, "theta_index"]
+            cols = ix
+            nrows = len(ix)
+            ncols = self.ftable.shape[0]
+            rows = np.arange(nrows)
+            d = np.ones(nrows)
+            self.free_to_group_free[i] = sp.sparse.csc_array((d, (rows, cols)), shape=(nrows, ncols))
+        self.n_total_free = len(self.ftable)
 
-
+        
 class SEM:
     
-    def __init__(self, formula, data, group_col=None, model_spec_kws=None):
+    def __init__(self, formula, data, group_col=None, model_spec_kws=None, group_kws=None):
         default_model_spec_kws = dict(extension_kws=dict(fix_lv_var=False))
         model_spec_kws = handle_default_kws(model_spec_kws, default_model_spec_kws)
+        group_kws = [False]*5 if group_kws is None else group_kws
         if group_col is None:
             group_col = "groups"
             data["groups"] = 0
         self.mspec = ModelSpecification(formula, data, group_col=group_col)
-        self.mspec.harmonize_group_tables()
+        self.mspec.add_matrix_equalities(**group_kws)
         self.indexer = self.mspec.indexers[0]
 
         self.model_data = ModelData(data=data)
-        bounds = self.mspec.ftable[~self.mspec.ftable["group_ind"].duplicated()][["lb", "ub"]]
+        bounds = self.mspec.ftable[["lb", "ub"]]
         bounds = bounds.values
         self.bounds = [tuple(x) for x in bounds.tolist()]
-        self.bounds_theta = [tuple(x) for x in bounds[self.mspec.group_free_totheta.tocoo().col.astype(int)]]
+        self.bounds_theta = [tuple(x) for x in bounds[self.mspec._first_locs]]
         self.p_templates = self.mspec.p_templates
 
     
@@ -200,7 +190,7 @@ class SEM:
         self.nf2 = triangular_number(self.nf)
         self.nt = len(self.indexer.first_locs)
         self.make_derivative_matrices()
-        self.theta = self.mspec.group_free_totheta.dot(self.free)
+        self.theta = self.mspec.free_to_theta.dot(self.free)
         self.n_par = len(self.p_templates[0])
         self.ll_const =  1.8378770664093453 * self.p
         self.n_groups =self. mspec.n_groups
@@ -227,8 +217,8 @@ class SEM:
         self.unique_locs = self.indexer.unique_locs
         self.ptable = self.mspec.ptables[0]
         self.free_table = self.mspec.ftables[0]
-        self.free_names = self.free_table[["lhs", "rel","rhs"]].astype(str).agg(' '.join, axis=1).values
-        self.theta_names = self.mspec.utable[["lhs", "rel","rhs"]].astype(str).agg(' '.join, axis=1).values
+        self.free_names = self.mspec.ftable["label"]
+        self.theta_names = self.mspec.ftable.iloc[self.mspec._first_locs]["label"]
         self._grad_kws = dict(dA=self.dA, m_size=self.m_size, m_type=self.m_kind, 
                               vind=self._vech_inds, n=self.nf, p2=self.p2)
         self._hess_kws = dict(dA=self.dA, m_size=self.m_size, d2_inds=self.d2_inds,
@@ -295,7 +285,7 @@ class SEM:
                 g[i] = self.mspec.free_to_group_free[i].T.dot(gi)
             else:
                 g = g + self.mspec.free_to_group_free[i].T.dot(gi)
-        g = (self.mspec.theta_to_group_free.dot(g.T)).T
+        g = (self.mspec.free_to_theta.dot(g.T)).T
         return g
             
 
@@ -339,7 +329,7 @@ class SEM:
                 H[i] = Hi
             else:
                 H = H + Hi
-        J = self.mspec.theta_to_group_free
+        J = self.mspec.free_to_theta
         H = _sparse_post_mult(J.dot(H), J.T)
         return H
     
@@ -368,7 +358,7 @@ class SEM:
 
         
     def _theta_to_free(self, theta):
-        free = self.mspec.theta_to_group_free.T.dot(theta)
+        free = self.mspec.theta_to_free.dot(theta)
         return free
 
     def _implied_cov_mean(self, L, B, F, P, a, b):
