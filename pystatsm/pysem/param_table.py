@@ -401,5 +401,5 @@ class ParameterTable(object):
             indexing_objects[i] = indobj
         p_template = np.concatenate(p_template)
         indexer = BlockFlattenedIndicatorIndices([val for key, val in indexing_objects.items()])
-        return p_template, indexer, mat_rows, mat_cols, mat_dims
+        return p_template, indexer, mat_rows, mat_cols, mat_dims, free_mats
 
