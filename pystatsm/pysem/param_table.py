@@ -44,7 +44,7 @@ class ParameterTable(object):
         lav_order =lv_order = dict(zip(lv_order, np.arange(len(lv_order))))
         obs_order = ov_order = dict(zip(ov_order, np.arange(len(ov_order))))
         
-        ptable = ParameterTable.assign_matrices(ptable, var_names, ov_order, lv_order)
+        ptable = ParameterTable.assign_matrices(ptable, var_names)
         ptable = ParameterTable.sort_table(ptable, ov_order, lv_order)
         ptable = ParameterTable.index_params(ptable)
         ptable = ParameterTable.add_bounds(ptable)
@@ -62,7 +62,9 @@ class ParameterTable(object):
     def check_missing_variances(param_df, vars_to_check):
         if type(vars_to_check) is not set:
             vars_to_check = set(vars_to_check)
-        existing_vars = param_df.loc[param_df["rel"] == "~~", ["lhs", "rhs"]]
+        cov_ix = (param_df["rel"] == "~~")
+        sym_ix = (param_df["lhs"] == param_df["rhs"])
+        existing_vars = param_df.loc[cov_ix & sym_ix, ["lhs", "rhs"]]
         existing_var_set = set(existing_vars.values.flatten().tolist())
         vars_to_add = vars_to_check - existing_var_set
         return vars_to_add
@@ -99,6 +101,7 @@ class ParameterTable(object):
             row = {**dict(mode=None, fixed=False, fixed_val=np.nan), **row}
             list_of_param_dicts.append(row)
         params_df = pd.DataFrame(list_of_param_dicts)
+        return params_df
         
     @staticmethod
     def add_variances(param_df, var_names, sample_cov=None, fix_lv_cov=False):
@@ -190,7 +193,27 @@ class ParameterTable(object):
         return param_df
     
     @staticmethod
-    def assign_matrices(param_df, var_names, ov_order, lv_order):
+    def assign_matrices(param_df, var_names):
+        """
+        Assign the parameters to the corresponding matrices based on the relation and 
+        types of variables involved.
+    
+        Parameters
+        ----------
+        param_df : pandas.DataFrame
+            The dataframe containing parameters and their details such as 'lhs', 'rhs', 'rel', 
+            'mod', 'label', 'fixedval', and 'fixed'.
+        var_names : dict
+            A dictionary containing the observed variable names under 'obs' key and 
+            latent variable names under 'lav' key.
+        Returns
+        -------
+        param_df : pandas.DataFrame
+            The updated dataframe where each parameter is assigned to a matrix represented by an 
+            integer (0-5) in the 'mat' column. The 'r' and 'c' columns represent the row and 
+            column placement of the parameter in its corresponding matrix.
+        
+        """
         obs_names = sorted(var_names["obs"], key=_default_sort_key)
         lav_names = sorted(var_names["lav"], key=_default_sort_key)
         
@@ -280,6 +303,28 @@ class ParameterTable(object):
     
     @staticmethod
     def index_params(param_df):
+        """
+        Assign indices to the parameters in a SEM model.
+    
+        Parameters
+        ----------
+        param_df : pd.DataFrame
+            The parameter DataFrame containing the 'lhs', 'rhs', 'rel', 'mod', 'label', 'fixedval', 'fixed' columns.
+    
+        Returns
+        -------
+        pd.DataFrame
+            The updated DataFrame with new 'free' and 'ind' columns representing the indices of free parameters.
+    
+        Notes
+        -----
+        The function creates two new columns 'free' and 'ind' in the DataFrame.
+        'free' assigns indices to free parameters. If a parameter has a label,
+        it shares the same 'free' index with the first parameter that has the same label. 
+        'ind' is another index for free parameters, starting from 0, running 
+        through indices of free parameters without  accounting for the equality
+        constrained ones with duplicate labels.
+        """
         param_df["free"] = 0
         ix = ~param_df["fixed"]
         ix2 = ~param_df["label"].isnull()
