@@ -29,6 +29,8 @@ class ModelData(object):
         
         if self.sample_mean is not None:
             self.sample_mean, self.sample_mean_df = self._to_dataframe_and_array(self.sample_mean)
+        self.lndS = np.linalg.slogdet(self.sample_cov)[1]
+        self.const = -self.lndS - self.sample_cov.shape[0]
 
     @staticmethod
     def _to_dataframe_and_array(data):
