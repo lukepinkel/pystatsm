@@ -117,18 +117,20 @@ class ModelSpecification(object):
         self.sample_means = {}
         self.llconst = {}
         self.mat_cols, self.mat_rows, self.mat_dims = {}, {}, {}
+        self.free_mats = {}
         for i in range(self.n_groups):
             dfi = data.loc[data[group_col]==i].iloc[:, :-1]
             sample_cov = dfi.cov(ddof=0)
             sample_mean = pd.DataFrame(dfi.mean()).T
             ptable_object = ParameterTable(formula, sample_cov, sample_mean)
-            pt, ix, mr, mc, md = ptable_object.construct_model_mats(ptable_object.ptable,
+            pt, ix, mr, mc, md, fm = ptable_object.construct_model_mats(ptable_object.ptable,
                                                         ptable_object.var_names, 
                                                         ptable_object.lav_order, 
                                                         ptable_object.obs_order)
             self.mat_rows[i] = mr
             self.mat_cols[i] = mc
             self.mat_dims[i] = md
+            self.free_mats[i] = fm
             self.p_templates[i], self.indexers[i] = pt, ix
             self. ptable_objects[i] = ptable_object
             self.ptables[i] = ptable_object.ptable
