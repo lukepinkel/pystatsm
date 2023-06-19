@@ -36,6 +36,7 @@ class ParameterTable(object):
         self.var_names = var_names
         self.all_var_names = self.var_names["all"]
         ptable = ParameterTable.add_variances(self.param_df, self.var_names, sample_cov=sample_cov)
+        ptable = ParameterTable.fix_first(ptable, var_names)
         ptable =  ParameterTable.add_covariances(ptable, var_names, sample_cov=sample_cov)
         ptable =  ParameterTable.add_means(ptable, var_names, sample_mean=sample_mean)
         lv_order= ParameterTable.default_sort(var_names["lav"], var_names)
@@ -186,7 +187,7 @@ class ParameterTable(object):
     @staticmethod
     def fix_first(param_df, var_names):
         ind1 = (param_df["rel"]=="=~") & (param_df["lhs"].isin(var_names["nob"]))
-        ltable = param_df.ptable[ind1]
+        ltable = param_df.loc[ind1]
         ltable.groupby("lhs")
         for v in var_names["nob"]:
             ix = ltable["lhs"]==v
