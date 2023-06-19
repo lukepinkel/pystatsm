@@ -118,15 +118,21 @@ class ModelSpecification(object):
         self.llconst = {}
         self.mat_cols, self.mat_rows, self.mat_dims = {}, {}, {}
         self.free_mats = {}
+        self.start_mats = {}
         for i in range(self.n_groups):
             dfi = data.loc[data[group_col]==i].iloc[:, :-1]
             sample_cov = dfi.cov(ddof=0)
+            ov_names = sample_cov.columns
+            nov = len(ov_names)
+            var_order = dict(zip(ov_names, np.arange(nov)))
+            
             sample_mean = pd.DataFrame(dfi.mean()).T
-            ptable_object = ParameterTable(formula, sample_cov, sample_mean)
-            pt, ix, mr, mc, md, fm = ptable_object.construct_model_mats(ptable_object.ptable,
+            ptable_object = ParameterTable(formula, sample_cov, sample_mean, var_order=var_order)
+            pt, ix, mr, mc, md, fm, st = ptable_object.construct_model_mats(ptable_object.ptable,
                                                         ptable_object.var_names, 
                                                         ptable_object.lav_order, 
                                                         ptable_object.obs_order)
+            self.start_mats[i] = st
             self.mat_rows[i] = mr
             self.mat_cols[i] = mc
             self.mat_dims[i] = md
@@ -240,10 +246,10 @@ class SEM:
     def __init__(self, formula, data, group_col=None, model_spec_kws=None, group_kws=None):
         default_model_spec_kws = dict(extension_kws=dict(fix_lv_var=False))
         model_spec_kws = handle_default_kws(model_spec_kws, default_model_spec_kws)
-        group_kws = [False]*5 if group_kws is None else group_kws
+        group_kws = dict(shared=[True]*6) if group_kws is None else group_kws
         if group_col is None:
-            group_col = "groups"
-            data["groups"] = 0
+            group_col = "group"
+            data["group"] = 0
         self.mspec = ModelSpecification(formula, data, group_col=group_col)
         self.mspec.add_matrix_equalities(**group_kws)
         self.indexer = self.mspec.indexers[0]
@@ -405,7 +411,75 @@ class SEM:
         J = self.mspec.free_to_theta
         H = _sparse_post_mult(J.dot(H), J.T)
         return H
+    def hessian_free(self, free, per_group=False, method=0):
+        if per_group:
+            H = np.zeros((self.n_groups, self.mspec.n_total_free, self.mspec.n_total_free))
+        else:
+            H = np.zeros((self.mspec.n_total_free, self.mspec.n_total_free))
+        for i in range(self.n_groups):
+            group_free = self._free_to_group_free(free, i)
+            par = self._free_to_par(group_free, i)
+            L, B, F, P, a, b = self._par_to_model_mats(par, i)
+            B = np.linalg.inv(np.eye(B.shape[0]) - B)   
+            LB = np.dot(L, B)
+            mu = (a+LB.dot(b.T).T).reshape(-1)
+            d = (self.mspec.sample_means[i].flatten() - mu)
+            a, b = a.flatten(), b.flatten()
+            kws = self._hess_kws
+            Sigma = LB.dot(F).dot(LB.T) + P
+            S = self.mspec.sample_covs[i]
+            R = S - Sigma
+            Sinv = np.linalg.inv(Sigma)
+            VRV = Sinv.dot(R).dot(Sinv)
+            vecVRV = _vec(VRV)
+            vecV = _vec(Sinv)
+            Hi = np.zeros((self.nf,)*2)
+            d1Sm = np.zeros((self.nf, self.p, self.p+1))
+            if method == 0:
+                Hi = _d2loglike_mu0(H=Hi, d1Sm=d1Sm, L=L, B=B, F=F, P=P, a=a, b=b, Sinv=Sinv, S=S, d=d, 
+                               vecVRV=vecVRV, vecV=vecV, **kws)
+            elif method == 1:
+                Hi = _d2loglike_mu1(H=Hi, d1Sm=d1Sm, L=L, B=B, F=F, P=P, a=a, b=b, Sinv=Sinv, S=S, d=d, 
+                               vecVRV=vecVRV, vecV=vecV, **kws)
+            elif method == 2:
+                Hi = _d2loglike_mu2(H=Hi, d1Sm=d1Sm, L=L, B=B, F=F, P=P, a=a, b=b, Sinv=Sinv, S=S, d=d, 
+                               vecVRV=vecVRV, vecV=vecV, **kws)
+            Hi = _sparse_post_mult(self.mspec.free_to_group_free[i].T.dot(Hi),
+                                     self.mspec.free_to_group_free[i]) * self.gweights[i]
+            if per_group:
+                H[i] = Hi
+            else:
+                H = H + Hi
+        return H
     
+    def gradient_free(self, free, per_group=False):
+        if per_group:
+            g = np.zeros((self.n_groups, self.mspec.n_total_free))
+        else:
+            g = np.zeros(self.mspec.n_total_free)
+        for i in range(self.n_groups):
+            group_free = self._free_to_group_free(free, i)
+            par = self._free_to_par(group_free, i)
+            L, B, F, P, a, b = self._par_to_model_mats(par, i)
+            B = np.linalg.inv(np.eye(B.shape[0]) - B)
+            LB = np.dot(L, B)
+            mu = (a+LB.dot(b.T).T).reshape(-1)
+            a, b = a.flatten(), b.flatten()
+            Sigma = LB.dot(F).dot(LB.T) + P
+            R = self.mspec.sample_covs[i] - Sigma
+            Sinv = np.linalg.inv(Sigma)
+            VRV = Sinv.dot(R).dot(Sinv)
+            vecVRV = _vec(VRV)
+            rtV = (self.mspec.sample_means[i].flatten() - mu).dot(Sinv)
+            gi = np.zeros(self.nf)
+            kws = self._grad_kws
+            gi = _dloglike_mu(gi, L, B, F, b, a,vecVRV, rtV, **kws) * self.gweights[i]
+            if per_group:
+                g[i] = self.mspec.free_to_group_free[i].T.dot(gi)
+            else:
+                g = g + self.mspec.free_to_group_free[i].T.dot(gi)
+        return g
+            
     def _par_to_model_mats(self, par, i):
         slices = self.indexers[i].slices
         shapes = self.indexers[i].shapes
