@@ -142,7 +142,7 @@ class ParameterTable(object):
     @staticmethod
     def add_covariances(param_df, var_names, sample_cov=None, lvx_cov=True, y_cov=True):
         list_of_param_dicts = param_df.to_dict(orient="records")
-        lvx_names= var_names["exo"] & var_names["nob"]
+        lvx_names= var_names["nob"].difference(set.union(var_names["ind"], var_names["end"]))
         end_vars = ParameterTable.check_missing_covs(param_df, var_names["end"]-var_names["exo"])
         lox_vars = ParameterTable.check_missing_covs(param_df, var_names["lox"])
         lvx_vars = ParameterTable.check_missing_covs(param_df, lvx_names)
