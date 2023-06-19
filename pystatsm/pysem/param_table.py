@@ -29,7 +29,7 @@ class ParameterTable(object):
     matrix_order = dict(L=0, B=1, F=2, P=3, a=4, b=5)
     is_symmetric = {0:False, 1:False, 2:True, 3:True, 4:False, 5:False}
     is_vector = {0:False, 1:False, 2:False, 3:False, 4:True, 5:True}
-    def __init__(self, formulas, sample_cov=None, sample_mean=None):
+    def __init__(self, formulas, sample_cov=None, sample_mean=None, var_order=None):
         param_df =  pd.DataFrame(FormulaParser.parse_formula(formulas))
         var_names =  FormulaParser.classify_variables(param_df)
         self.param_df = param_df
@@ -39,8 +39,12 @@ class ParameterTable(object):
         ptable =  ParameterTable.add_covariances(ptable, var_names, sample_cov=sample_cov)
         ptable =  ParameterTable.add_means(ptable, var_names, sample_mean=sample_mean)
         lv_order= ParameterTable.default_sort(var_names["lav"], var_names)
-        ov_order= ParameterTable.default_sort(var_names["obs"], var_names)
-
+        if var_order is None:
+            ov_order = sorted(var_names["obs"], key=_default_sort_key)
+            #ov_order= ParameterTable.default_sort(var_names["obs"], var_names)
+        else:
+            ov_order = sorted(var_names["obs"], key=lambda x:var_order[x])
+        
         lav_order =lv_order = dict(zip(lv_order, np.arange(len(lv_order))))
         obs_order = ov_order = dict(zip(ov_order, np.arange(len(ov_order))))
         
@@ -135,7 +139,7 @@ class ParameterTable(object):
         return g
     
     @staticmethod
-    def add_covariances(param_df, var_names, sample_cov=None, lvx_cov=False, y_cov=True):
+    def add_covariances(param_df, var_names, sample_cov=None, lvx_cov=True, y_cov=True):
         list_of_param_dicts = param_df.to_dict(orient="records")
         lvx_names= var_names["exo"] & var_names["nob"]
         end_vars = ParameterTable.check_missing_covs(param_df, var_names["end"]-var_names["exo"])
@@ -357,7 +361,7 @@ class ParameterTable(object):
         mat_rows = {0:ov_names, 1:lv_names, 2:lv_names, 3:ov_names, 4:["0"], 5:["0"]}
         mat_cols = {0:lv_names, 1:lv_names, 2:lv_names, 3:ov_names, 4:ov_names, 5:lv_names}
         free_mats, start_mats = {}, {}
-        for i in np.unique(param_df["mat"]):
+        for i in range(6):
             subtable =  param_df.loc[param_df["mat"]==i]
             free_mat = np.zeros(mat_dims[i])
             start_mat = np.zeros(mat_dims[i])      
@@ -401,5 +405,5 @@ class ParameterTable(object):
             indexing_objects[i] = indobj
         p_template = np.concatenate(p_template)
         indexer = BlockFlattenedIndicatorIndices([val for key, val in indexing_objects.items()])
-        return p_template, indexer, mat_rows, mat_cols, mat_dims, free_mats
+        return p_template, indexer, mat_rows, mat_cols, mat_dims, free_mats, start_mats
 
