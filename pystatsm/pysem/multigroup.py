@@ -261,7 +261,7 @@ class SEM:
         self.bounds_theta = [tuple(x) for x in bounds[self.mspec._first_locs]]
         self.p_templates = self.mspec.p_templates
 
-    
+        self.group_col = group_col
         self.free = self.mspec.free
         self.p, self.q = self.mspec.p, self.mspec.q
         self.p2, self.q2 = triangular_number(self.p), triangular_number(self.q)
@@ -536,17 +536,46 @@ class SEM:
         sm = np.concatenate([s, mu])
         return sm
     
-    def loglike(self, free, reduce=True):
-        Sigma, mu = self.implied_cov_mean(free)
-        L = sp.linalg.cholesky(Sigma) #np.linalg.cholesky(Sigma)
-        Y = self.model_data.data - mu
-        Z = sp.linalg.solve_triangular(L, Y.T, trans=1).T #np.dot(X, np.linalg.inv(L.T))
-        t1 = 2.0 * np.log(np.diag(L)).sum() 
-        t2 = np.sum(Z**2, axis=1)
-        ll = (t1 + t2 + self.ll_const) / 2
-        if reduce:
-            ll = np.sum(ll)
-        return ll
+    # def loglike(self, free, reduce=True):
+    #     Sigma, mu = self.implied_cov_mean(free)
+    #     L = sp.linalg.cholesky(Sigma) #np.linalg.cholesky(Sigma)
+    #     Y = self.model_data.data - mu
+    #     Z = sp.linalg.solve_triangular(L, Y.T, trans=1).T #np.dot(X, np.linalg.inv(L.T))
+    #     t1 = 2.0 * np.log(np.diag(L)).sum() 
+    #     t2 = np.sum(Z**2, axis=1)
+    #     ll = (t1 + t2 + self.ll_const) / 2
+    #     if reduce:
+    #         ll = np.sum(ll)
+    #     return ll
+    
+    def loglike(self, theta, level="sample"):
+        free = self._theta_to_free(theta)
+        if level == "group":
+            f = np.zeros(self.n_groups)
+        elif level == "observation" or level == "sample":
+            f = np.zeros(self.model_data.n_obs)
+        if np.iscomplexobj(theta):
+            f = f.astype(complex)
+        for i in range(self.n_groups):
+            ix = self.model_data.data_df[self.group_col]==i
+            group_free = self._free_to_group_free(free, i)
+            par = self._free_to_par(group_free, i)
+            mats = self._par_to_model_mats(par, i)
+            Sigma, mu = self._implied_cov_mean(*mats)
+            L = sp.linalg.cholesky(Sigma)
+            Y = self.model_data.data[ix][:, :-1] - mu
+            Z = sp.linalg.solve_triangular(L, Y.T, trans=1).T #np.dot(X, np.linalg.inv(L.T))
+            t1 = 2.0 * np.log(np.diag(L)).sum() 
+            t2 = np.sum(Z**2, axis=1)
+            ll = (t1 + t2 + self.ll_const) / 2
+            if level == "group":
+                f[i] = np.sum(ll)
+            else:
+                f[ix] = ll
+        if level == "sample":
+            f = np.sum(f)
+        return f
+    
     
     def _fit(self, theta_init=None, minimize_kws=None, minimize_options=None, use_hess=False):
         bounds = self.bounds_theta
