@@ -61,7 +61,7 @@ class SEM:
         self.theta = self.free[self.model_indexer.unique_indices]
         self.n_par = len(self.p_template)
         self.ll_const =  1.8378770664093453 * self.p
-
+        self._ll_const2 = -np.linalg.slogdet(self.model_data.sample_cov)[1] - self.model_data.sample_cov.shape[0]
         
 
     def make_derivative_matrices(self):
@@ -159,7 +159,7 @@ class SEM:
             lndS = np.log(s)+lnd
         else:
             s, lndS = np.linalg.slogdet(Sigma)
-        f = rVr + lndS + trSV
+        f = rVr + lndS + trSV + self._ll_const2 
         if s==-1:
             f = np.inf
         return f
