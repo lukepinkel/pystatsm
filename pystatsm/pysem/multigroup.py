@@ -230,6 +230,7 @@ class ModelSpecification(object):
         self.free_to_theta = equality_constraint_mat(self._first_locs)
         self.free = self.ftable["start"].fillna(0)
         self.free_to_group_free = {}
+        self.free_to_group_freet = {}
         for i in range(self.n_groups):
             ix = self.ftable.loc[self.ftable["level_0"]==i, "theta_index"]
             cols = ix
@@ -238,6 +239,7 @@ class ModelSpecification(object):
             rows = np.arange(nrows)
             d = np.ones(nrows)
             self.free_to_group_free[i] = sp.sparse.csc_array((d, (rows, cols)), shape=(nrows, ncols))
+            self.free_to_group_freet[i] = self.free_to_group_free[i].T                
         self.n_total_free = len(self.ftable)
 
         
@@ -303,6 +305,7 @@ class SEM:
         self._hess_kws = dict(dA=self.dA, m_size=self.m_size, d2_inds=self.d2_inds,
                               first_deriv_type=self.m_kind,  second_deriv_type=self.d2_kind,
                               n=self.nf,  vech_inds=self._vech_inds)
+            
 
      
     
@@ -359,14 +362,64 @@ class SEM:
             rtV = (self.mspec.sample_means[i].flatten() - mu).dot(Sinv)
             gi = np.zeros(self.nf)
             kws = self._grad_kws
-            gi = _dloglike_mu(gi, L, B, F, b, a,vecVRV, rtV, **kws) * self.gweights[i]
+            gi = _dloglike_mu(gi, L, B, F, b, a,VRV, rtV, **kws) * self.gweights[i]
             if per_group:
-                g[i] = self.mspec.free_to_group_free[i].T.dot(gi)
+                g[i] = self.mspec.free_to_group_freet[i].dot(gi)
             else:
-                g = g + self.mspec.free_to_group_free[i].T.dot(gi)
+                g = g + self.mspec.free_to_group_freet[i].dot(gi)
         g = (self.mspec.free_to_theta.dot(g.T)).T
         return g
-            
+    
+    def gradient2(self, theta, per_group=False):
+        free = self._theta_to_free(theta)
+        if per_group:
+            g = np.zeros((self.n_groups, self.mspec.n_total_free))
+        else:
+            g = np.zeros(self.mspec.n_total_free)
+        for i in range(self.n_groups):
+            group_free = self._free_to_group_free(free, i)
+            par = self._free_to_par(group_free, i)
+            L, B, F, P, a, b = self._par_to_model_mats(par, i)
+            B = np.linalg.inv(np.eye(B.shape[0]) - B)
+            LB = np.dot(L, B)
+        
+            mu = (a+LB.dot(b.T).T).reshape(-1)
+            a, b = a.flatten(), b.flatten()
+            Bb = B.dot(b)
+            S =  self.mspec.sample_covs[i]
+            Sigma = LB.dot(F).dot(LB.T) + P
+            r = (self.mspec.sample_means[i]-mu).flatten()
+            V = np.linalg.inv(Sigma)
+            VRV = V.dot(S+np.outer(r, r) - Sigma).dot(V)
+            Vr = np.dot(V, r)
+    
+            VrbtBt = np.outer(Vr, Bb)
+            T1 = LB.dot(F.dot(B.T))
+            dL = -2.0 * (VRV.dot(T1) + VrbtBt)
+            dB = -2.0 * (LB.T.dot(VRV).dot(T1) + LB.T.dot(VrbtBt))
+            dF = -LB.T.dot(VRV).dot(LB)
+            dP = -VRV
+            da = -2 * Vr
+            db = -2 * np.dot(LB.T, Vr)
+            ind = self.indexers[i]
+            gi = np.zeros(self.nf)
+            rows, cols = ind.row_indices,  ind.col_indices
+            sl = ind.slices_nonzero
+            gi[sl[0]] = dL[rows[sl[0]], cols[sl[0]]]
+            gi[sl[1]] = dB[rows[sl[1]], cols[sl[1]]]
+            gi[sl[2]] = dF[rows[sl[2]], cols[sl[2]]]
+            gi[sl[2]] = gi[sl[2]] * (1+1*(rows[sl[2]]!=cols[sl[2]]))
+            gi[sl[3]] = dP[rows[sl[3]], cols[sl[3]]]
+            gi[sl[3]] = gi[sl[3]] * (1+1*(rows[sl[3]]!=cols[sl[3]]))
+            gi[sl[4]] = da[cols[sl[4]]]
+            gi[sl[5]] = db[cols[sl[5]]]
+            gi = gi * self.gweights[i]
+            if per_group:
+                g[i] = self.mspec.free_to_group_freet[i].dot(gi)
+            else:
+                g = g + self.mspec.free_to_group_freet[i].dot(gi)
+        g = (self.mspec.free_to_theta.dot(g.T)).T
+        return g
 
     def hessian(self, theta, per_group=False, method=0):
         free = self._theta_to_free(theta)
@@ -402,7 +455,7 @@ class SEM:
             elif method == 2:
                 Hi = _d2loglike_mu2(H=Hi, d1Sm=d1Sm, L=L, B=B, F=F, P=P, a=a, b=b, Sinv=Sinv, S=S, d=d, 
                                vecVRV=vecVRV, vecV=vecV, **kws)
-            Hi = _sparse_post_mult(self.mspec.free_to_group_free[i].T.dot(Hi),
+            Hi = _sparse_post_mult(self.mspec.free_to_group_freet[i].dot(Hi),
                                      self.mspec.free_to_group_free[i]) * self.gweights[i]
             if per_group:
                 H[i] = Hi
@@ -444,7 +497,7 @@ class SEM:
             elif method == 2:
                 Hi = _d2loglike_mu2(H=Hi, d1Sm=d1Sm, L=L, B=B, F=F, P=P, a=a, b=b, Sinv=Sinv, S=S, d=d, 
                                vecVRV=vecVRV, vecV=vecV, **kws)
-            Hi = _sparse_post_mult(self.mspec.free_to_group_free[i].T.dot(Hi),
+            Hi = _sparse_post_mult(self.mspec.free_to_group_freet[i].dot(Hi),
                                      self.mspec.free_to_group_free[i]) * self.gweights[i]
             if per_group:
                 H[i] = Hi
@@ -473,11 +526,11 @@ class SEM:
             rtV = (self.mspec.sample_means[i].flatten() - mu).dot(Sinv)
             gi = np.zeros(self.nf)
             kws = self._grad_kws
-            gi = _dloglike_mu(gi, L, B, F, b, a,vecVRV, rtV, **kws) * self.gweights[i]
+            gi = _dloglike_mu(gi, L, B, F, b, a,VRV, rtV, **kws) * self.gweights[i]
             if per_group:
-                g[i] = self.mspec.free_to_group_free[i].T.dot(gi)
+                g[i] = self.mspec.free_to_group_freet[i].dot(gi)
             else:
-                g = g + self.mspec.free_to_group_free[i].T.dot(gi)
+                g = g + self.mspec.free_to_group_freet[i].dot(gi)
         return g
             
     def _par_to_model_mats(self, par, i):
