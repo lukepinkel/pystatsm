@@ -204,7 +204,7 @@ class SEM:
         vecVRV = _vec(VRV)
         rtV = (self.model_data.sample_mean.flatten() - mu).dot(Sinv)
         g = np.zeros(self.nf)
-        g = _dloglike_mu(g, L, B, F, b, a,vecVRV, rtV, **kws)
+        g = _dloglike_mu(g, L, B, F, b, a,VRV, rtV, **kws)
         return g
     
     def gradient_obs(self, free):
@@ -242,7 +242,7 @@ class SEM:
         vecVRV = _vec(VRV)
         rtV = (self.model_data.sample_mean.flatten() - mu).dot(Sinv)
         g = np.zeros(self.nf)
-        g = _dloglike_mu(g, L, B, F, b, a,vecVRV, rtV, **kws)
+        g = _dloglike_mu(g, L, B, F, b, a,VRV, rtV, **kws)
         g = self.J_theta.T.dot(g)
         return g
     
