@@ -295,17 +295,17 @@ class SEM(ModelSpecification):
         if level == "group":
             f = np.zeros(self.n_groups)
         elif level == "observation" or level == "sample":
-            f = np.zeros(self.model_data.n_obs)
+            f = np.zeros(self.n_obs)
         if np.iscomplexobj(theta):
             f = f.astype(complex)
         for i in range(self.n_groups):
-            ix = self.model_data.data_df[self.group_col]==i
+            ix =  self.model_data.group_indices[i]
             group_free = self.transform_free_to_group_free(free, i)
             par = self.free_to_par(group_free, i)
             mats = self.par_to_model_mats(par, i)
             Sigma, mu = self._implied_cov_mean(*mats)
             L = sp.linalg.cholesky(Sigma)
-            Y = self.model_data.data[ix][:, :-1] - mu
+            Y = self.model_data.data[ix] - mu
             Z = sp.linalg.solve_triangular(L, Y.T, trans=1).T #np.dot(X, np.linalg.inv(L.T))
             t1 = 2.0 * np.log(np.diag(L)).sum() 
             t2 = np.sum(Z**2, axis=1)
