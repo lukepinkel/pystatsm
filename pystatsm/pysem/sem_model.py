@@ -201,7 +201,6 @@ class SEM:
         R = self.model_data.sample_cov - Sigma
         Sinv = np.linalg.inv(Sigma)
         VRV = Sinv.dot(R).dot(Sinv)
-        vecVRV = _vec(VRV)
         rtV = (self.model_data.sample_mean.flatten() - mu).dot(Sinv)
         g = np.zeros(self.nf)
         g = _dloglike_mu(g, L, B, F, b, a,VRV, rtV, **kws)
