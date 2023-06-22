@@ -149,11 +149,11 @@ class FormulaParser:
         nob_var_names = set(param_df.loc[measurement_mask, "lhs"]) #unobserved variables i.e. lv
         obs_var_names = all_var_names - nob_var_names              #observed variables i.e. ov
         ind_var_names = set(param_df.loc[measurement_mask, "rhs"]) #indicator variables observed or unobserved v_inds
-        end_var_names = set(param_df.loc[regressions_mask, "lhs"]) #
-        exo_var_names = set(param_df.loc[regressions_mask, "rhs"]) - one_set
-        reg_var_names = set.union(end_var_names, exo_var_names)
-        lvo_var_names = reg_var_names - nob_var_names
-        lav_var_names = lvo_var_names | nob_var_names
+        end_var_names = set(param_df.loc[regressions_mask, "lhs"]) #endog variables
+        exo_var_names = set(param_df.loc[regressions_mask, "rhs"]) - one_set # exog variables
+        reg_var_names = set.union(end_var_names, exo_var_names) # any variables involved in regression
+        lvo_var_names = reg_var_names - nob_var_names #regression variables that are observed i.e. observed vars to add to structural model
+        lav_var_names = lvo_var_names | nob_var_names # all effectively latent variables i.e. treated as part of structural model
         lox_var_names = lav_var_names - (nob_var_names | end_var_names | ind_var_names) #observed exog variables in structural part of model i.e.latent observed
         loy_var_names = lav_var_names - (nob_var_names | exo_var_names | ind_var_names) #observed exog variables in structural part of model i.e.latent observed
         
