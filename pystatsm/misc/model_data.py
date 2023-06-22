@@ -15,6 +15,9 @@ class ModelData(object):
         self.sample_mean = sample_mean
         self.n_obs = n_obs
         self.ddof = ddof
+        self.group_indices = group_indices
+        if data is not None:
+            self.data, self.data_df = self._to_dataframe_and_array(self.data)
         if sample_cov is None and group_vec is not None:
             self.n_groups = len(np.unique(group_vec))
         elif sample_cov is not None:
