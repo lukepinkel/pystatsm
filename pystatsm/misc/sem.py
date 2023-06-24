@@ -70,8 +70,6 @@ class SEM(ModelSpecification):
         self._hess_kws = dict(dA=self.dA, m_size=self.m_size, d2_inds=self.d2_inds,
                               first_deriv_type=self.m_kind,  second_deriv_type=self.d2_kind,
                               n=self.nf,  vech_inds=self._vech_inds)
-            
-
     
     def func(self, theta, per_group=False):
         free = self.transform_theta_to_free(theta)
@@ -83,7 +81,7 @@ class SEM(ModelSpecification):
             f = 0.0
         for i in range(self.n_groups):
             group_free = self.transform_free_to_group_free(free, i)
-            par = self.free_to_par(group_free, i)
+            par = self.group_free_to_par(group_free, i)
             mats = self.par_to_model_mats(par, i)
             Sigma, mu = self._implied_cov_mean(*mats)
             r = (self.model_data.sample_mean[i]-mu).flatten()
@@ -107,12 +105,12 @@ class SEM(ModelSpecification):
     def gradient(self, theta, per_group=False):
         free = self.transform_theta_to_free(theta)
         if per_group:
-            g = np.zeros((self.n_groups, self.n_total_free))
+            g = np.zeros((self.n_groups, self.n_group_theta))
         else:
-            g = np.zeros(self.n_total_free)
+            g = np.zeros(self.n_group_theta)
         for i in range(self.n_groups):
             group_free = self.transform_free_to_group_free(free, i)
-            par = self.free_to_par(group_free, i)
+            par = self.group_free_to_par(group_free, i)
             L, B, F, P, a, b = self.par_to_model_mats(par, i)
             B = np.linalg.inv(np.eye(B.shape[0]) - B)
             LB = np.dot(L, B)
@@ -120,81 +118,28 @@ class SEM(ModelSpecification):
             a, b = a.flatten(), b.flatten()
             Sigma = LB.dot(F).dot(LB.T) + P
             R = self.model_data.sample_cov[i] - Sigma
-            Sinv = np.linalg.inv(Sigma)
-            VRV = Sinv.dot(R).dot(Sinv)
-            rtV = (self.model_data.sample_mean[i].flatten() - mu).dot(Sinv)
+            V = np.linalg.inv(Sigma)
+            VRV = V.dot(R).dot(V)
+            rtV = (self.model_data.sample_mean[i].flatten() - mu).dot(V)
             gi = np.zeros(self.nf)
             kws = self._grad_kws
             gi = _dloglike_mu(gi, L, B, F, b, a,VRV, rtV, **kws) * self.gweights[i]
-            gi = self.jac_group_free_to_free(gi, i)
+            gi = self.jac_group_free_to_theta(self.jac_group_free_to_free(gi, i))
             if per_group:
                 g[i] = gi
             else:
                 g = g + gi
-        g = self.transform_free_to_theta(g)
         return g
     
-    def gradient2(self, theta, per_group=False):
-        free = self.transform_theta_to_free(theta)
-        if per_group:
-            g = np.zeros((self.n_groups, self.n_total_free))
-        else:
-            g = np.zeros(self.n_total_free)
-        for i in range(self.n_groups):
-            group_free = self.transform_free_to_group_free(free, i)
-            par = self.free_to_par(group_free, i)
-            L, B, F, P, a, b = self.par_to_model_mats(par, i)
-            B = np.linalg.inv(np.eye(B.shape[0]) - B)
-            LB = np.dot(L, B)
-        
-            mu = (a+LB.dot(b.T).T).reshape(-1)
-            a, b = a.flatten(), b.flatten()
-            Bb = B.dot(b)
-            S =  self.model_data.sample_cov[i]
-            Sigma = LB.dot(F).dot(LB.T) + P
-            r = (self.model_data.sample_mean[i]-mu).flatten()
-            V = np.linalg.inv(Sigma)
-            VRV = V.dot(S+np.outer(r, r) - Sigma).dot(V)
-            Vr = np.dot(V, r)
-    
-            VrbtBt = np.outer(Vr, Bb)
-            T1 = LB.dot(F.dot(B.T))
-            dL = -2.0 * (VRV.dot(T1) + VrbtBt)
-            dB = -2.0 * (LB.T.dot(VRV).dot(T1) + LB.T.dot(VrbtBt))
-            dF = -LB.T.dot(VRV).dot(LB)
-            dP = -VRV
-            da = -2 * Vr
-            db = -2 * np.dot(LB.T, Vr)
-            ind = self.indexers[i]
-            gi = np.zeros(self.nf)
-            rows, cols = ind.row_indices,  ind.col_indices
-            sl = ind.slices_nonzero
-            gi[sl[0]] = dL[rows[sl[0]], cols[sl[0]]]
-            gi[sl[1]] = dB[rows[sl[1]], cols[sl[1]]]
-            gi[sl[2]] = dF[rows[sl[2]], cols[sl[2]]]
-            gi[sl[2]] = gi[sl[2]] * (1+1*(rows[sl[2]]!=cols[sl[2]]))
-            gi[sl[3]] = dP[rows[sl[3]], cols[sl[3]]]
-            gi[sl[3]] = gi[sl[3]] * (1+1*(rows[sl[3]]!=cols[sl[3]]))
-            gi[sl[4]] = da[cols[sl[4]]]
-            gi[sl[5]] = db[cols[sl[5]]]
-            gi = gi * self.gweights[i]
-            gi = self.jac_group_free_to_free(gi, i)
-            if per_group:
-                g[i] = gi
-            else:
-                g = g + gi
-        g = self.transform_free_to_theta.dot(g)
-        return g
-
     def hessian(self, theta, per_group=False, method=0):
         free = self.transform_theta_to_free(theta)
         if per_group:
-            H = np.zeros((self.n_groups, self.n_total_free, self.n_total_free))
+            H = np.zeros((self.n_groups, self.n_group_theta, self.n_group_theta))
         else:
-            H = np.zeros((self.n_total_free, self.n_total_free))
+            H = np.zeros((self.n_group_theta, self.n_group_theta))
         for i in range(self.n_groups):
             group_free = self.transform_free_to_group_free(free, i)
-            par = self.free_to_par(group_free, i)
+            par = self.group_free_to_par(group_free, i)
             L, B, F, P, a, b = self.par_to_model_mats(par, i)
             B = np.linalg.inv(np.eye(B.shape[0]) - B)   
             LB = np.dot(L, B)
@@ -204,8 +149,6 @@ class SEM(ModelSpecification):
             Sigma = LB.dot(F).dot(LB.T) + P
             S = self.model_data.sample_cov[i]
             R = S - Sigma
-            Sinv = np.linalg.inv(Sigma)
-            VRV = Sinv.dot(R).dot(Sinv)
             V = np.linalg.inv(Sigma)
             VRV = V.dot(R).dot(V)
             rtV = (self.model_data.sample_mean[i].flatten() - mu).dot(V)
@@ -215,11 +158,11 @@ class SEM(ModelSpecification):
                                V=V,  **kws) 
             Hi = Hi * self.gweights[i]
             Hi = self.jac_group_free_to_free(Hi, i, axes=(0, 1))
+            Hi = self.jac_group_free_to_theta(Hi, axes=(0, 1))
             if per_group:
                 H[i] = Hi
             else:
                 H = H + Hi
-        H = self.jac_group_free_to_theta(H, axes=(0, 1))
         return H
 
     def dsigma_mu(self, theta):
@@ -227,7 +170,7 @@ class SEM(ModelSpecification):
         dSm = self.dSm.copy()
         for i in range(self.n_groups):
             group_free = self.transform_free_to_group_free(free, i)
-            par = self.free_to_par(group_free, i)
+            par = self.group_free_to_par(group_free, i)
             L, B, F, P, a, b = self.par_to_model_mats(par, i)
             B = np.linalg.inv(np.eye(B.shape[0])-B)
             kws =  dict(dA=self.dA, m_size=self.m_size, m_type=self.m_kind,
@@ -241,7 +184,7 @@ class SEM(ModelSpecification):
         d2Sm = self.d2Sm.copy()
         for i in range(self.n_groups):
             group_free = self.transform_free_to_group_free(free, i)
-            par = self.free_to_par(group_free, i)
+            par = self.group_free_to_par(group_free, i)
             L, B, F, P, a, b = self.par_to_model_mats(par, i)
             B = np.linalg.inv(np.eye(B.shape[0])-B)
             a, b = a.flatten(), b.flatten()
@@ -250,9 +193,6 @@ class SEM(ModelSpecification):
                         p2=self.p2)
             d2Sm[i] = _d2sigma_mu(d2Sm[i], L, B, F, b, a,**kws)
         return d2Sm
-            
-
-
 
     def _implied_cov_mean(self, L, B, F, P, a, b):
         B = np.linalg.inv(np.eye(B.shape[0])-B)
@@ -262,24 +202,24 @@ class SEM(ModelSpecification):
         return Sigma, mu
     
     def implied_cov_mean(self, theta):
-        free = self.transform_theta_to_free(theta)
+        free = self.transform_theta_to_free(theta.copy())
         Sigma = np.zeros((self.n_groups, self.p, self.p))
         mu = np.zeros((self.n_groups, self.p))
         for i in range(self.n_groups):
             group_free = self.transform_free_to_group_free(free, i)
-            par = self.free_to_par(group_free, i)
+            par = self.group_free_to_par(group_free, i)
             mats = self.par_to_model_mats(par, i)
             Sigma[i], mu[i] = self._implied_cov_mean(*mats)
         return Sigma, mu
     
     def implied_sample_stats(self, theta):
-        free = self.transform_theta_to_free(theta)
+        free = self.transform_theta_to_free(theta.copy())
         Sigmamu = np.zeros((self.n_groups, self.p2+self.p))
         if np.iscomplexobj(theta):
             Sigmamu = Sigmamu.astype(complex)
         for i in range(self.n_groups):
             group_free = self.transform_free_to_group_free(free, i)
-            par = self.free_to_par(group_free, i)
+            par = self.group_free_to_par(group_free, i)
             L, B, F, P, a, b = self.par_to_model_mats(par, i)
             B = np.linalg.inv(np.eye(B.shape[0])-B)
             LB = np.dot(L, B)
@@ -289,6 +229,28 @@ class SEM(ModelSpecification):
             Sigmamu[i, :self.p2] = s
             Sigmamu[i, self.p2:] = mu
         return Sigmamu
+    
+    def gradient_obs(self, theta):
+        g = np.zeros((self.n_obs, self.n_total_free))
+        Sigmas, mus = self.implied_cov_mean(theta)
+        dSms = self.dsigma_mu(theta)
+        for i in range(self.n_groups):
+            Sigma, mu = Sigmas[i], mus[i]
+            dSm = dSms[i]
+            dS = dSm[:-self.p]
+            dm = dSm[-self.p:]
+            dS = _invech(dS.T)
+            V = np.linalg.inv(Sigma)
+            DS = dS.reshape(self.nf, -1, order='F')
+            t1 = DS.dot(V.reshape(-1,order='F')).reshape(1, -1)
+            Y = self.model_data.data[self.model_data.group_indices[i]] - mu
+            YV = Y.dot(V)
+            t2 = YV.dot(dm)
+            t3 = np.einsum("ij,hjk,ik->ih", YV, dS, YV, optimize=True)
+            gi =  -2 * (-t1 / 2 + t2 + t3 / 2)
+            gi = self.jac_group_free_to_free(gi.T, i).T
+            g[self.model_data.group_indices[i]] = gi
+        return g
     
     def loglike(self, theta, level="sample"):
         free = self.transform_theta_to_free(theta)
@@ -301,7 +263,7 @@ class SEM(ModelSpecification):
         for i in range(self.n_groups):
             ix =  self.model_data.group_indices[i]
             group_free = self.transform_free_to_group_free(free, i)
-            par = self.free_to_par(group_free, i)
+            par = self.group_free_to_par(group_free, i)
             mats = self.par_to_model_mats(par, i)
             Sigma, mu = self._implied_cov_mean(*mats)
             L = sp.linalg.cholesky(Sigma)
@@ -356,7 +318,7 @@ class SEM(ModelSpecification):
         free = self.transform_theta_to_free(self.theta)
         for i in range(self.n_groups):
             group_free = self.transform_free_to_group_free(free, i)
-            par = self.free_to_par(group_free, i)
+            par = self.group_free_to_par(group_free, i)
             mlist = self.par_to_model_mats(par, i)
             mats[i] = {}
             for j,  mat in enumerate(mlist):
