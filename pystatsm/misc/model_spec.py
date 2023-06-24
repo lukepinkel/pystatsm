@@ -65,7 +65,7 @@ class ModelSpecification(BaseModel):
             arr_free = _sparse_post_mult(arr_free, self.dfree_dtheta.T)
         return arr_free
     
-    def free_to_par(self, free, i):
+    def group_free_to_par(self, free, i):
         par = self.p_templates[i].copy()
         if np.iscomplexobj(free):
             par = par.astype(complex)
@@ -82,7 +82,14 @@ class ModelSpecification(BaseModel):
         a = _invec(par[slices[4]], *shapes[4])
         b = _invec(par[slices[5]], *shapes[5])
         return L, B, F, P, a, b
-
+    
+    def group_free_to_model_mats(self, free, i):
+        par = self.group_free_to_par(free, i)
+        mats = self.par_to_model_mats(par, i)
+        return mats
+    
+    
+    
     
     
 
