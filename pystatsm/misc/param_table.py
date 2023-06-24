@@ -94,14 +94,10 @@ class BaseModel(object):
         self.free_df.reset_index(inplace=True)
         label = self.free_df[["group", "lhs", "rel","rhs"]].astype(str).agg(' '.join, axis=1)
         self.free_df.loc[:, "label"] = self.free_df.loc[:, "label"].fillna(label)
-        
-    
     @property
     def n_free(self):
         return self.free_df.groupby("mat")["ind"].agg("size").values.flatten()
-    
-    
-    
+
     @staticmethod
     def map_rc(df, rmap, cmap):
         df["r"] = df["r"].map(rmap)
@@ -334,7 +330,7 @@ class BaseModel(object):
     def fix_sample_stats(self, sample_stats):
         param_df = self.param_df
         fixed_df = param_df.loc[param_df["fixed"] & ~param_df["fixedval"].isnull()]
-        end_vars = self.check_missing_covs(self.var_names["enx"],fixed_df )
+#        end_vars = self.check_missing_covs(self.var_names["enx"],fixed_df )
         lox_vars = self.check_missing_covs(self.var_names["lox"], fixed_df)
         lvx_vars = self.check_missing_covs(self.var_names["lvx"], fixed_df)
         is_cov = param_df["rel"] == "~~"
@@ -368,10 +364,10 @@ class BaseModel(object):
             for x1, x2 in lvx_vars:
                 ix_var = ((param_df["lhs"] == x1) & (param_df["rhs"] == x2)  |
                          (param_df["rhs"] == x1) & (param_df["lhs"] == x2)) 
-                ix = is_cov & ix_var & ix_group
-                if np.any(ix):
-                    param_df.loc[ix, "fixedval"] = covi.loc[x1, x2]
-                    param_df.loc[ix, "fixed"] = True        
+                # ix = is_cov & ix_var & ix_group
+                # if np.any(ix):
+                #     param_df.loc[ix, "fixedval"] = covi.loc[x1, x2]
+                #     param_df.loc[ix, "fixed"] = True        
         self.param_df = param_df
         self.free_ix  = self.param_df["free"] != 0
         self.free_df  = self.param_df.loc[self.free_ix]
