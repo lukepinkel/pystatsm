@@ -418,7 +418,7 @@ def hess_cs(f, x, delta=None):
         m = len(y)
         H = np.zeros((m,n, n))
     I = np.eye(n)
-    pbar = tqdm.tqdm(total=(n*(n+1)//2))
+    pbar = tqdm.tqdm(total=(n*(n+1)//2), smoothing=1e-6)
     for j in range(n):
         for i in range(j, n):
             yp = f(x + 1j * I[i] * delta[i] + I[j] * delta[j])
