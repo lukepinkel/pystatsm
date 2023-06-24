@@ -223,12 +223,12 @@ def _d2loglike_mu(H, d1Sm, L, B, F, P, a, b, VRV, rtV, V, dA, m_size,
             elif kindij == 4:
                 C1 = Ji.dot(BF)                                          #1,1, B, B
                 C1 = C1 + C1.T
-                C2, C3 = Ji.dot(B), Jj.dot(B)
-                t1 = C3.dot(C1)
-                t3 = C2.dot(C3.dot(F))
-                t4 = F.T.dot(C3.T).dot(C2.T)
+                JiB, JjB = Ji.dot(B), Jj.dot(B)
+                t1 = JjB.dot(C1)
+                t3 = JiB.dot(JjB.dot(F))
+                t4 = F.T.dot(JjB.T).dot(JiB.T)
                 sigma_ij = LB.dot(t1 + t1.T + t3 + t4).dot(LBt)
-                mu_ij = LB.dot(Ji).dot(B).dot(Jj).dot(Bbt)
+                mu_ij = (LB.dot(JjB.dot(Ji) + JiB.dot(Jj)).dot(Bbt)).flatten() #LB.dot(Ji).dot(B).dot(Jj).dot(Bbt)
             elif kindij == 5:
                 C = Jj.dot(B).dot(Ji)                                    #2,1, F, B
                 sigma_ij  = LB.dot(C+C.T).dot(LBt)
