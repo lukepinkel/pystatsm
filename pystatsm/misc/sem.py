@@ -12,6 +12,7 @@ import pandas as pd
 
 from ..utilities.linalg_operations import  _vech, _vec, _invec, _invech
 from ..utilities.func_utils import handle_default_kws, triangular_number
+from ..utilities.output import get_param_table
 from .derivatives import _dloglike_mu, _d2loglike_mu, _dsigma_mu, _d2sigma_mu #from .cov_derivatives import _d2sigma, _dsigma, _dloglike, _d2loglike
 from .model_spec import ModelSpecification
 
@@ -66,7 +67,7 @@ class SEM(ModelSpecification):
         self.free_names = self.free_df["label"]
         self.theta_names = self.free_df.iloc[self._first_locs]["label"]
         self._grad_kws = dict(dA=self.dA, m_size=self.m_size, m_type=self.m_kind, 
-                              vind=self._vech_inds, n=self.nf, p2=self.p2)
+                              n=self.nf, p2=self.p2)
         self._hess_kws = dict(dA=self.dA, m_size=self.m_size, d2_inds=self.d2_inds,
                               first_deriv_type=self.m_kind,  second_deriv_type=self.d2_kind,
                               n=self.nf,  vech_inds=self._vech_inds)
@@ -100,6 +101,7 @@ class SEM(ModelSpecification):
                 f[i] = fi
             else:
                 f += fi
+        f = self.n_obs/2 * f
         return f
     
     def gradient(self, theta, per_group=False):
@@ -124,11 +126,12 @@ class SEM(ModelSpecification):
             gi = np.zeros(self.nf)
             kws = self._grad_kws
             gi = _dloglike_mu(gi, L, B, F, b, a,VRV, rtV, **kws) * self.gweights[i]
-            gi = self.jac_group_free_to_theta(self.jac_group_free_to_free(gi, i))
+            gi = self.jac_free_to_theta(self.jac_group_free_to_free(gi, i))
             if per_group:
                 g[i] = gi
             else:
                 g = g + gi
+        g = self.n_obs/2 * g
         return g
     
     def hessian(self, theta, per_group=False, method=0):
@@ -158,11 +161,12 @@ class SEM(ModelSpecification):
                                V=V,  **kws) 
             Hi = Hi * self.gweights[i]
             Hi = self.jac_group_free_to_free(Hi, i, axes=(0, 1))
-            Hi = self.jac_group_free_to_theta(Hi, axes=(0, 1))
+            Hi = self.jac_free_to_theta(Hi, axes=(0, 1))
             if per_group:
                 H[i] = Hi
             else:
                 H = H + Hi
+        H = self.n_obs/2 * H
         return H
 
     def dsigma_mu(self, theta):
@@ -250,6 +254,7 @@ class SEM(ModelSpecification):
             gi =  -2 * (-t1 / 2 + t2 + t3 / 2)
             gi = self.jac_group_free_to_free(gi.T, i).T
             g[self.model_data.group_indices[i]] = gi
+        g = self.jac_free_to_theta(g, axes=(1,))
         return g
     
     def loglike(self, theta, level="sample"):
@@ -309,9 +314,10 @@ class SEM(ModelSpecification):
         self.opt_res = res
         self.theta = res.x
         self.free = self.transform_theta_to_free(self.theta)
-        self.res = pd.DataFrame(res.x, index=self.theta_names, 
-                                columns=["estimate"])
-        self.res["se"] = np.sqrt(np.diag(np.linalg.inv(self.hessian(self.theta)*self.n_obs/2)))
+        params = res.x
+        se_params = np.sqrt(np.diag(np.linalg.inv(self.hessian(self.theta))))
+        self.res = get_param_table(params, se_params, degfree=self.n_obs-2, 
+                                   index=self.theta_names)
         self.res_free = pd.DataFrame(self.transform_theta_to_free(self.res.values), 
                                      index=self.free_names, columns=self.res.columns)
         mats = {}
