@@ -108,7 +108,7 @@ def _d2sigma_mu(d2Sm, L, B, F, b, a, dA, m_size, m_type, d2_inds, vind, n, p2):
 
 
 @numba.jit(nopython=True)   
-def _dloglike_mu(g, L, B, F, b, a, VRV, rtV, dA, m_size, m_type, vind, n, p2):
+def _dloglike_mu(g, L, B, F, b, a, VRV, rtV, dA, m_size, m_type, n, p2):
     LB, BF = L.dot(B), B.dot(F)
     Bbt = B.dot(b.T)
     LBt, BFBt = LB.T, BF.dot(B.T)
