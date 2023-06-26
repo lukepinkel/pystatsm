@@ -10,7 +10,7 @@ import numba
 import numpy as np
 
 @numba.jit(nopython=True)
-def _dsigma_mu(dSm, L, B, F, b, a, dA, m_size, m_type, vind, n, p2):
+def _dsigma_mu(dSm, L, B, F, b, dA, m_size, m_type, vind, n, p2):
     LB, BF = L.dot(B), B.dot(F)
     Bbt = B.dot(b.T)
     LBt, BFBt = LB.T, BF.dot(B.T)
@@ -46,7 +46,7 @@ def _dsigma_mu(dSm, L, B, F, b, a, dA, m_size, m_type, vind, n, p2):
     return dSm
 
 @numba.jit(nopython=True)
-def _d2sigma_mu(d2Sm, L, B, F, b, a, dA, m_size, m_type, d2_inds, vind, n, p2):
+def _d2sigma_mu(d2Sm, L, B, F, b, dA, m_size, m_type, d2_inds, vind, n, p2):
     LB, BF = L.dot(B), B.dot(F)
     BFBt = BF.dot(B.T)
     Bb = B.dot(b)
@@ -105,7 +105,7 @@ def _d2sigma_mu(d2Sm, L, B, F, b, a, dA, m_size, m_type, d2_inds, vind, n, p2):
     return d2Sm
 
 @numba.jit(nopython=True)
-def _dloglike_mu(g, L, B, F, b, a, VRV, rtV, dA, m_size, m_type, n, p2):
+def _dloglike_mu(g, L, B, F, b, VRV, rtV, dA, m_size, m_type, n):
     LB, BF = L.dot(B), B.dot(F)
     Bbt = B.dot(b.T)
     LBt, BFBt = LB.T, BF.dot(B.T)
@@ -147,8 +147,8 @@ def _dloglike_mu(g, L, B, F, b, a, VRV, rtV, dA, m_size, m_type, n, p2):
     return g
 
 @numba.jit(nopython=True)
-def _d2loglike_mu(H, d1Sm, L, B, F, P, a, b, VRV, rtV, V, dA, m_size,
-                   d2_inds,  first_deriv_type, second_deriv_type, n, vech_inds):
+def _d2loglike_mu(H, d1Sm, L, B, F, a, b, VRV, rtV, V, dA, m_size,
+                   d2_inds, first_deriv_type, second_deriv_type, n):
     LB, BF = L.dot(B), B.dot(F)
     LBt = LB.T
     Bt = B.T
