@@ -9,8 +9,7 @@ Created on Fri Jun  9 01:53:02 2023
 import numba
 import numpy as np
 
-
-@numba.jit(nopython=True)   
+@numba.jit(nopython=True)
 def _dsigma_mu(dSm, L, B, F, b, a, dA, m_size, m_type, vind, n, p2):
     LB, BF = L.dot(B), B.dot(F)
     Bbt = B.dot(b.T)
@@ -44,8 +43,7 @@ def _dsigma_mu(dSm, L, B, F, b, a, dA, m_size, m_type, vind, n, p2):
         elif kind == 5:
             dmi = LB.dot(J[0].T)
             dSm[p2:,i] += dmi
-    return dSm      
-
+    return dSm
 
 @numba.jit(nopython=True)
 def _d2sigma_mu(d2Sm, L, B, F, b, a, dA, m_size, m_type, d2_inds, vind, n, p2):
@@ -61,7 +59,7 @@ def _d2sigma_mu(d2Sm, L, B, F, b, a, dA, m_size, m_type, d2_inds, vind, n, p2):
             dSij = (Ji.dot(BFBt).dot(Jj.T) + Jj.dot(BFBt).dot(Ji.T))  #0, 0 L ,L
             d2Sm[:p2, i, j] += dSij.T.flatten()[vind]
             d2Sm[:p2, j, i] = d2Sm[:p2, i, j]
-        elif kind == 2:                         
+        elif kind == 2:
             BJj = B.T.dot(Jj.T)                                      #1,0, B, L
             JiBF = Ji.dot(BF)
             C = JiBF + JiBF.T
@@ -106,8 +104,7 @@ def _d2sigma_mu(d2Sm, L, B, F, b, a, dA, m_size, m_type, d2_inds, vind, n, p2):
             d2Sm[p2:, j, i] = d2Sm[p2:, i, j]
     return d2Sm
 
-
-@numba.jit(nopython=True)   
+@numba.jit(nopython=True)
 def _dloglike_mu(g, L, B, F, b, a, VRV, rtV, dA, m_size, m_type, n, p2):
     LB, BF = L.dot(B), B.dot(F)
     Bbt = B.dot(b.T)
@@ -137,7 +134,7 @@ def _dloglike_mu(g, L, B, F, b, a, VRV, rtV, dA, m_size, m_type, n, p2):
             dSi = J1
             g[i] += -np.dot(vecVRV, dSi.flatten())
             g[i] += -(rtV.dot(dSi.dot(rtV)))
-        elif kind ==3:
+        elif kind == 3:
             dSi = J
             g[i] += -np.dot(vecVRV, dSi.flatten())
             g[i] += -(rtV.dot(dSi.dot(rtV)))
@@ -147,10 +144,7 @@ def _dloglike_mu(g, L, B, F, b, a, VRV, rtV, dA, m_size, m_type, n, p2):
         elif kind == 5:
             dmi = LB.dot(J[0].T)
             g[i] += -2.0 * np.dot(dmi.T, rtV)
-    return g      
-
-
-
+    return g
 
 @numba.jit(nopython=True)
 def _d2loglike_mu(H, d1Sm, L, B, F, P, a, b, VRV, rtV, V, dA, m_size,
@@ -171,9 +165,9 @@ def _d2loglike_mu(H, d1Sm, L, B, F, P, a, b, VRV, rtV, V, dA, m_size,
         kind = first_deriv_type[j]
         Jj = dA[j, :m_size[j ,0], :m_size[j, 1]]
         if kind == 0: # L
-            J1 = LBFBt.dot(Jj.T) 
+            J1 = LBFBt.dot(Jj.T)
             sigma_j = (J1 + J1.T)
-            mu_j = Jj.dot(Bbt) 
+            mu_j = Jj.dot(Bbt)
         elif kind == 1: #B
             J1 = Jj.dot(BF)
             sigma_j = LB.dot(J1+J1.T).dot(LBt)
@@ -193,7 +187,7 @@ def _d2loglike_mu(H, d1Sm, L, B, F, P, a, b, VRV, rtV, V, dA, m_size,
             mu_j = LB.dot(Jj[0].T)
         d1Sm[j, :, :-1] = sigma_j
         d1Sm[j, :, -1] = mu_j
-        
+
     for j in range(n):
         sigma_j, mu_j  = d1Sm[j, :, :-1], d1Sm[j, :, -1]
         for i in range(j, n):
@@ -208,7 +202,7 @@ def _d2loglike_mu(H, d1Sm, L, B, F, P, a, b, VRV, rtV, V, dA, m_size,
                 JiBFBtJjt = Ji.dot(BFBt).dot(Jj.T)
                 sigma_ij = (JiBFBtJjt + JiBFBtJjt.T)  #0, 0 L ,L
                 mu_ij = mu_0
-            elif kindij == 2:                         
+            elif kindij == 2:
                 BJj = B.T.dot(Jj.T)                                      #1,0, B, L
                 JiBF = Ji.dot(BF)
                 C = JiBF + JiBF.T
@@ -237,7 +231,7 @@ def _d2loglike_mu(H, d1Sm, L, B, F, P, a, b, VRV, rtV, V, dA, m_size,
                 mu_ij = Jj.dot(B.dot(Ji[0])).flatten()                            #5, 0, b, L
                 sigma_ij = sigma_0
             elif kindij == 7:
-                mu_ij = LB.dot(Jj).dot(B).dot(Ji.T).flatten()                          #5, 1, b, 
+                mu_ij = LB.dot(Jj).dot(B).dot(Ji.T).flatten()                          #5, 1, b,
                 sigma_ij = sigma_0
             else:
                 sigma_ij = sigma_0
@@ -250,7 +244,7 @@ def _d2loglike_mu(H, d1Sm, L, B, F, P, a, b, VRV, rtV, V, dA, m_size,
                     t6 = 0.0
                 if (kindj != 4) and (kindj !=5 ):
                     SiSj = sigma_i.dot(V).dot(sigma_j)
-                    t1 =  2 * np.dot(vecVRV2, SiSj.flatten()) 
+                    t1 =  2 * np.dot(vecVRV2, SiSj.flatten())
                 else:
                     t1 = 0.0
             else:
@@ -259,7 +253,7 @@ def _d2loglike_mu(H, d1Sm, L, B, F, P, a, b, VRV, rtV, V, dA, m_size,
                 t2 = -np.dot(vecVRV, sigma_ij.flatten())
             else:
                 t2 = 0.0
-            if (kindi != 2) and (kindi != 3): 
+            if (kindi != 2) and (kindi != 3):
                 t3 = 2 * np.dot(mu_j, V.dot(mu_i))
             else:
                 t3 = 0.0
@@ -286,4 +280,3 @@ def _d2loglike_mu(H, d1Sm, L, B, F, P, a, b, VRV, rtV, V, dA, m_size,
             H[j, i] =  H[i, j]
             ij += 1
     return H
-        
