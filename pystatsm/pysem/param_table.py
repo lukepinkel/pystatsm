@@ -38,9 +38,9 @@ def equality_constraint_mat(unique_locs):
     return arr
 
 
-class BaseModel(object):
+class BaseModel:
     matrix_names = ["L", "B", "F", "P", "a", "b"]
-    matrix_order = dict(L=0, B=1, F=2, P=3, a=4, b=5)
+    matrix_order = {"L": 0, "B": 1, "F": 2, "P": 3, "a": 4, "b": 5}
     is_symmetric = {0: False, 1: False, 2: True, 3: True, 4: False, 5: False}
     is_vector = {0: False, 1: False, 2: False, 3: False, 4: True, 5: True}
 
@@ -129,13 +129,17 @@ class BaseModel(object):
     def default_sort(subset, var_names):
         g = []
         g.extend(
-            sorted(subset & var_names["obs"] & var_names["ind"], key=_default_sort_key))
+            sorted(subset & var_names["obs"] & var_names["ind"],
+                   key=_default_sort_key))
         g.extend(
-            sorted(subset & var_names["nob"] & var_names["ind"], key=_default_sort_key))
+            sorted(subset & var_names["nob"] & var_names["ind"],
+                   key=_default_sort_key))
         g.extend(
-            sorted(subset & var_names["obs"] & var_names["end"], key=_default_sort_key))
+            sorted(subset & var_names["obs"] & var_names["end"],
+                   key=_default_sort_key))
         g.extend(sorted(
-            subset & var_names["nob"] - (var_names["nob"] & var_names["ind"]), key=_default_sort_key))
+            subset & var_names["nob"] - (var_names["nob"] & var_names["ind"]),
+            key=_default_sort_key))
         u = set(g)
         g.extend(sorted(subset - u, key=_default_sort_key))
         return g
@@ -322,8 +326,8 @@ class BaseModel(object):
 
             if i == 1:
                 j = (param_df["mat"] == 1) & (param_df["rel"] == "=~")
-                param_df.loc[j, "r"], param_df.loc[j,
-                                                   "c"] = param_df.loc[j, "c"],  param_df.loc[j, "r"]
+                param_df.loc[j, "r"], param_df.loc[j, "c"] \
+                    = param_df.loc[j, "c"],  param_df.loc[j, "r"]
         self.param_df = param_df
 
     def sort_table(self):
@@ -337,8 +341,8 @@ class BaseModel(object):
         for i in sorted(mats):
             mat = param_df.loc[param_df["mat"] == i]
             mat = BaseModel.map_rc(mat, *mat_rc[i])
-            kws = dict(symmetric=BaseModel.is_symmetric[i],
-                       vector=BaseModel.is_vector[i])
+            kws = {"symmetric": BaseModel.is_symmetric[i],
+                   "vector": BaseModel.is_vector[i]}
             mat = BaseModel.sort_flat_representation(mat, **kws)
             mat_dict[i] = mat
 
@@ -483,11 +487,13 @@ class BaseModel(object):
         ftable["label"] = ftable["mod"].copy()
         # ftable["duplicate"] = False
         for i in range(6):
-            # Identify parameters (in matrix i) without labels already specified particular in the formula
+            # Identify parameters (in matrix i) without labels already
+            # specified particular in the formula
             ix = ftable["mat"] == i
             not_null = ~ftable.loc[ix, "label"].isnull()
             ix1 = ix & not_null
-            # Either add a label that will be unique across groups by adding group id or shared across groups
+            # Either add a label that will be unique across groups by
+            # adding group id or shared across groups
             if self.shared[i]:
                 label = ftable[["lhs", "rel", "rhs"]].astype(
                     str).agg(' '.join, axis=1)
