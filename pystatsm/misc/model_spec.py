@@ -37,6 +37,7 @@ class ModelSpecification(BaseModel):
         self.model_data = model_data
         self.p = len(self.var_names["obs"])
         self.q = len(self.var_names["lav"])
+        self._check_complex = False
             
     def transform_free_to_theta(self, free):
         theta = free[self._first_locs]
@@ -58,7 +59,7 @@ class ModelSpecification(BaseModel):
             arr_free = _sparse_post_mult(arr_free, self.dfree_dgroup[i].T)
         return arr_free
     
-    def jac_group_free_to_theta(self, arr_free, axes=(0,)):
+    def jac_free_to_theta(self, arr_free, axes=(0,)):
         if 0 in axes:
             arr_free = self.dfree_dtheta.dot(arr_free)
         if 1 in axes:
@@ -67,8 +68,9 @@ class ModelSpecification(BaseModel):
     
     def group_free_to_par(self, free, i):
         par = self.p_templates[i].copy()
-        if np.iscomplexobj(free):
-            par = par.astype(complex)
+        if self._check_complex:
+            if np.iscomplexobj(free):
+                par = par.astype(complex)
         par[self.indexers[i].flat_indices] = free
         return par
     
