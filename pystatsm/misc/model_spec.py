@@ -1,17 +1,16 @@
 import numpy as np
 import scipy as sp
 import pandas as pd
-from ..utilities.linalg_operations import  _vech, _vec, _invec, _invech
-from ..utilities.func_utils import handle_default_kws, triangular_number
-from .derivatives import _dloglike_mu, _d2loglike_mu, _dsigma_mu, _d2sigma_mu #from .cov_derivatives import _d2sigma, _dsigma, _dloglike, _d2loglike
+from ..utilities.linalg_operations import _invec, _invech
 from .param_table import BaseModel
 from .model_data import ModelData
-from ..utilities import indexing_utils
+
 
 def _sparse_post_mult(A, S):
     prod = S.T.dot(A.T)
     prod = prod.T
     return prod
+
 
 pd.set_option("mode.chained_assignment", None)
 
@@ -27,7 +26,6 @@ def equality_constraint_mat(unique_locs):
 
 
 class ModelSpecification(BaseModel):
-
 
     def __init__(self, formula, data, group_col, shared):
         model_data = ModelData.from_dataframe(data, group_col)
@@ -47,7 +45,6 @@ class ModelSpecification(BaseModel):
     def transform_free_to_group_free(self, free, i):
         group_free = free[self.free_to_group_free[i]]
         return group_free
-
 
     def transform_theta_to_free(self, theta):
         free = theta[self._unique_locs]
@@ -90,9 +87,3 @@ class ModelSpecification(BaseModel):
         par = self.group_free_to_par(free, i)
         mats = self.par_to_model_mats(par, i)
         return mats
-
-
-
-
-
-
