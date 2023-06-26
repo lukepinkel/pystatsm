@@ -28,8 +28,8 @@ class FormulaParser:
         """
         self._formulas = formulas
         self.parse_formula(formulas)
-        self._param_df = pd.DataFrame(self._param_list)
-        self._var_names = self.classify_variables(self._param_df)
+        self.param_df = pd.DataFrame(self._param_list)
+        self.var_names = self.classify_variables(self.param_df)
 
     def parse_formula(self, formulas):
         """

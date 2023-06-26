@@ -45,19 +45,24 @@ class BaseModel:
     is_vector = {0: False, 1: False, 2: False, 3: False, 4: True, 5: True}
 
     def __init__(self, formulas, sample_stats=None, var_order=None,
-                 n_groups=1):
+                 n_groups=1, process_steps=4, **kwargs):
+        self.kwargs = kwargs
         self.n_groups = n_groups
-        self.init_formula_parser(formulas)
-        self.init_parameter_table(var_order)
-        self.extend_param_df()
-        if sample_stats is not None:
+        self.process_steps = process_steps
+        if self.process_steps >= 1:
+            self.init_formula_parser(formulas)
+        if self.process_steps >= 2:
+            self.init_parameter_table(var_order)
+        if self.process_steps >= 3:
+            self.extend_param_df()
+        if sample_stats is not None and self.process_steps >= 4:
             self.fix_sample_stats(sample_stats)
 
     def init_formula_parser(self, formulas):
         self.formula_parser = FormulaParser(formulas)
-        self.var_names = self.formula_parser._var_names
+        self.var_names = self.formula_parser.var_names
         self.all_var_names = self.var_names["all"]
-        self.param_df = self.formula_parser._param_df
+        self.param_df = self.formula_parser.param_df
 
     def init_parameter_table(self, var_order):
         self.process_parameter_table()
@@ -65,10 +70,17 @@ class BaseModel:
         self.sort_and_index_parameters()
 
     def process_parameter_table(self):
-        self.add_variances(self.var_names)
+        fix_lv_cov = self.kwargs.get('fix_lv_cov', False)
+        self.add_variances(self.var_names, fix_lv_cov=fix_lv_cov)
+        
         self.fix_first(self.var_names)
-        self.add_covariances(self.var_names)
-        self.add_means(self.var_names)
+        
+        lvx_cov = self.kwargs.get('fix_lv_cov', True)
+        y_cov = self.kwargs.get('y_cov', True)
+        self.add_covariances(self.var_names, lvx_cov=lvx_cov, y_cov=y_cov)
+        
+        fix_lv_mean = self.kwargs.get('fix_lv_mean', True)
+        self.add_means(self.var_names, fix_lv_mean=fix_lv_mean)
 
     def set_ordering(self, var_order):
         lav_order = self.default_sort(self.var_names["lav"], self.var_names)
@@ -286,32 +298,40 @@ class BaseModel:
                     param_df.loc[ltable.index[ix][0], "fixed"] = True
                     param_df.loc[ltable.index[ix][0], "fixedval"] = 1.0
         self.param_df = param_df
-
-    def assign_matrices(self):
+    @property
+    def masks(self):
         param_df, var_names = self.param_df, self.var_names
         obs_names = sorted(var_names["obs"], key=_default_sort_key)
         lav_names = sorted(var_names["lav"], key=_default_sort_key)
-
-        mes = param_df["rel"] == "=~"
-        reg = param_df["rel"] == "~"
-        cov = param_df["rel"] == "~~"
-        mst = param_df["rhs"] == "1"
-
+    
+        masks = {}
+        masks['mes'] = param_df["rel"] == "=~"
+        masks['reg'] = param_df["rel"] == "~"
+        masks['cov'] = param_df["rel"] == "~~"
+        masks['mst'] = param_df["rhs"] == "1"
+        masks['rvl'] = param_df["rhs"].isin(lav_names)
+        masks['rvo'] = param_df["rhs"].isin(obs_names)
+        masks['lvl'] = param_df["lhs"].isin(lav_names)
+        masks['lol'] = param_df["lhs"].isin(obs_names)
+        masks['rvb'] = masks['rvl'] & masks['rvo']
+    
+        return masks
+    
+    def assign_matrices(self):
+        param_df = self.param_df
+        masks = self.masks
+    
         ix = {}
-        rvl = param_df["rhs"].isin(lav_names)
-        rvo = param_df["rhs"].isin(obs_names)
-        lvl = param_df["lhs"].isin(lav_names)
-        lol = param_df["lhs"].isin(obs_names)
-
-        rvb = rvl & rvo
-        ix[0] = mes & ~rvl
-        ix[1] = (mes & rvb) | (mes & ~rvo) | reg
-        ix[2] = (cov & ~rvl) | (cov & lvl)
-        ix[3] = cov & ~lvl
-        ix[4] = lol & ~lvl & reg & mst
-        ix[5] = lvl & reg & mst
+        ix[0] = masks['mes'] & ~masks['rvl']
+        ix[1] = (masks['mes'] & masks['rvb']) | (masks['mes'] & ~masks['rvo']) | masks['reg']
+        ix[2] = (masks['cov'] & ~masks['rvl']) | (masks['cov'] & masks['lvl'])
+        ix[3] = masks['cov'] & ~masks['lvl']
+        ix[4] = masks['lol'] & ~masks['lvl'] & masks['reg'] & masks['mst']
+        ix[5] = masks['lvl'] & masks['reg'] & masks['mst']
+        
         param_df["mat"] = 0
         param_df["mat"] = param_df["mat"].astype(int)
+    
         for i in range(6):
             param_df.loc[ix[i], "mat"] = i
             if i == 0:
@@ -323,12 +343,54 @@ class BaseModel:
             else:
                 param_df.loc[ix[i], "c"] = param_df.loc[ix[i], "lhs"]
                 param_df.loc[ix[i], "r"] = 0
-
+    
             if i == 1:
                 j = (param_df["mat"] == 1) & (param_df["rel"] == "=~")
                 param_df.loc[j, "r"], param_df.loc[j, "c"] \
                     = param_df.loc[j, "c"],  param_df.loc[j, "r"]
         self.param_df = param_df
+    # def assign_matrices(self):
+    #     param_df, var_names = self.param_df, self.var_names
+    #     obs_names = sorted(var_names["obs"], key=_default_sort_key)
+    #     lav_names = sorted(var_names["lav"], key=_default_sort_key)
+
+    #     mes = param_df["rel"] == "=~" # is measurement (conceptually)
+    #     reg = param_df["rel"] == "~"  # is regression
+    #     cov = param_df["rel"] == "~~" # is covariance
+    #     mst = param_df["rhs"] == "1"  # is mean
+
+    #     ix = {}
+    #     rvl = param_df["rhs"].isin(lav_names) #rhs is in structural model
+    #     rvo = param_df["rhs"].isin(obs_names) #rhs is observed
+    #     lvl = param_df["lhs"].isin(lav_names) #lhs is in structural model
+    #     lol = param_df["lhs"].isin(obs_names) #lhs is observed
+
+    #     rvb = rvl & rvo # rhs is both structural and observed
+    #     ix[0] = mes & ~rvl #rhs is not in structural model and measurement
+    #     ix[1] = (mes & rvb) | (mes & ~rvo) | reg #regression or higher order
+    #     ix[2] = (cov & ~rvl) | (cov & lvl) #any structural covariance
+    #     ix[3] = cov & ~lvl #residual covariance
+    #     ix[4] = lol & ~lvl & reg & mst #observed means
+    #     ix[5] = lvl & reg & mst # latent means
+    #     param_df["mat"] = 0
+    #     param_df["mat"] = param_df["mat"].astype(int)
+    #     for i in range(6):
+    #         param_df.loc[ix[i], "mat"] = i
+    #         if i == 0:
+    #             param_df.loc[ix[i], "r"] = param_df.loc[ix[i], "rhs"]
+    #             param_df.loc[ix[i], "c"] = param_df.loc[ix[i], "lhs"]
+    #         elif i < 4:
+    #             param_df.loc[ix[i], "r"] = param_df.loc[ix[i], "lhs"]
+    #             param_df.loc[ix[i], "c"] = param_df.loc[ix[i], "rhs"]
+    #         else:
+    #             param_df.loc[ix[i], "c"] = param_df.loc[ix[i], "lhs"]
+    #             param_df.loc[ix[i], "r"] = 0
+
+    #         if i == 1:
+    #             j = (param_df["mat"] == 1) & (param_df["rel"] == "=~")
+    #             param_df.loc[j, "r"], param_df.loc[j, "c"] \
+    #                 = param_df.loc[j, "c"],  param_df.loc[j, "r"]
+    #     self.param_df = param_df
 
     def sort_table(self):
         param_df = self.param_df
