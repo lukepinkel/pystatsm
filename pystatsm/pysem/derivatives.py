@@ -109,13 +109,13 @@ def _dloglike_mu(g, L, B, F, b, VRV, rtV, dA, m_size, m_type, n):
     LB, BF = L.dot(B), B.dot(F)
     Bbt = B.dot(b.T)
     LBt, BFBt = LB.T, BF.dot(B.T)
-    LB, BF = L.dot(B), B.dot(F)
-    Bbt = B.dot(b.T)
-    LBt, BFBt = LB.T, BF.dot(B.T)
     vecBFBt = BFBt.flatten()
     vecVRV = VRV.flatten()
     VRVL = VRV.dot(L)
     rtVL = rtV.dot(L)
+    BtLtVRV = np.dot(LBt, VRVL.dot(B)).flatten()                                          
+    rtVL = rtV.dot(L)                                                                       
+    rtVLB = rtVL.dot(B)   
     for i in range(n):
         kind = m_type[i]
         J = dA[i, :m_size[i, 0], :m_size[i, 1]]
@@ -124,11 +124,10 @@ def _dloglike_mu(g, L, B, F, b, VRV, rtV, dA, m_size, m_type, n):
             g[i] += -2*np.dot((J.T.dot(VRVL)).flatten(), vecBFBt)
             g[i] += -(2.0 * np.dot(dmi.T, rtV) + 2*np.dot(rtVL, BFBt.dot(rtV.dot(J))))
         elif kind == 1:
-            J1 = J.dot(BF)
-            dSi =LB.dot(J1+J1.T).dot(LBt)
-            dmi = LB.dot(J).dot(Bbt)
-            g[i] += -np.dot(vecVRV, dSi.flatten())
-            g[i] += -(2.0 * np.dot(dmi.T, rtV) + rtV.dot(dSi.dot(rtV)))
+            J1 = J.dot(BF)                                                                  
+            JJ = J1 + J1.T                                                                 
+            g[i] += -np.dot(BtLtVRV, JJ.flatten())                                          
+            g[i] += -(2.0 * rtVLB.dot(J.dot(Bbt)) + np.dot(rtVLB, JJ).dot(rtVLB))           
         elif kind==2:
             J1 = LB.dot(J).dot(LBt)
             dSi = J1
