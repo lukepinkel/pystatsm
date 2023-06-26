@@ -71,16 +71,13 @@ class BaseModel:
 
     def process_parameter_table(self):
         fix_lv_cov = self.kwargs.get('fix_lv_cov', False)
-        self.add_variances(self.var_names, fix_lv_cov=fix_lv_cov)
-        
-        self.fix_first(self.var_names)
-        
+        self.add_variances(fix_lv_cov=fix_lv_cov)
+        self.fix_first()
         lvx_cov = self.kwargs.get('fix_lv_cov', True)
         y_cov = self.kwargs.get('y_cov', True)
-        self.add_covariances(self.var_names, lvx_cov=lvx_cov, y_cov=y_cov)
-        
+        self.add_covariances(lvx_cov=lvx_cov, y_cov=y_cov)
         fix_lv_mean = self.kwargs.get('fix_lv_mean', True)
-        self.add_means(self.var_names, fix_lv_mean=fix_lv_mean)
+        self.add_means(fix_lv_mean=fix_lv_mean)
 
     def set_ordering(self, var_order):
         lav_order = self.default_sort(self.var_names["lav"], self.var_names)
@@ -228,8 +225,8 @@ class BaseModel:
         vars_to_add = vars_to_check - existing_var_set
         return vars_to_add
 
-    def add_variances(self, var_names, fix_lv_cov=False):
-        param_df = self.param_df
+    def add_variances(self, fix_lv_cov=False):
+        var_names, param_df = self.var_names, self.param_df
         all_var_names = var_names["all"]
         vars_to_add = self.check_missing_variances(all_var_names)
         list_of_param_dicts = param_df.to_dict(orient="records")
@@ -244,8 +241,8 @@ class BaseModel:
             list_of_param_dicts.append(row)
         self.param_df = pd.DataFrame(list_of_param_dicts)
 
-    def add_covariances(self, var_names, lvx_cov=True, y_cov=True):
-        param_df = self.param_df
+    def add_covariances(self, lvx_cov=True, y_cov=True):
+        var_names, param_df = self.var_names, self.param_df
         list_of_param_dicts = param_df.to_dict(orient="records")
         lvx_names = var_names["nob"].difference(
             set.union(var_names["ind"], var_names["end"]))
@@ -269,8 +266,8 @@ class BaseModel:
                 list_of_param_dicts.append(row)
         self.param_df = pd.DataFrame(list_of_param_dicts)
 
-    def add_means(self, var_names, fix_lv_mean=True):
-        param_df = self.param_df
+    def add_means(self, fix_lv_mean=True):
+        var_names, param_df = self.var_names, self.param_df
         list_of_param_dicts = param_df.to_dict(orient="records")
         vars_to_add = self.check_missing_means(var_names["all"])
         for var in vars_to_add:
@@ -285,8 +282,8 @@ class BaseModel:
             list_of_param_dicts.append(row)
         self.param_df = pd.DataFrame(list_of_param_dicts)
 
-    def fix_first(self, var_names):
-        param_df = self.param_df
+    def fix_first(self):
+        var_names, param_df = self.var_names, self.param_df
         ind1 = (param_df["rel"] == "=~") & (
             param_df["lhs"].isin(var_names["nob"]))
         ltable = param_df.loc[ind1]
@@ -349,49 +346,7 @@ class BaseModel:
                 param_df.loc[j, "r"], param_df.loc[j, "c"] \
                     = param_df.loc[j, "c"],  param_df.loc[j, "r"]
         self.param_df = param_df
-    # def assign_matrices(self):
-    #     param_df, var_names = self.param_df, self.var_names
-    #     obs_names = sorted(var_names["obs"], key=_default_sort_key)
-    #     lav_names = sorted(var_names["lav"], key=_default_sort_key)
-
-    #     mes = param_df["rel"] == "=~" # is measurement (conceptually)
-    #     reg = param_df["rel"] == "~"  # is regression
-    #     cov = param_df["rel"] == "~~" # is covariance
-    #     mst = param_df["rhs"] == "1"  # is mean
-
-    #     ix = {}
-    #     rvl = param_df["rhs"].isin(lav_names) #rhs is in structural model
-    #     rvo = param_df["rhs"].isin(obs_names) #rhs is observed
-    #     lvl = param_df["lhs"].isin(lav_names) #lhs is in structural model
-    #     lol = param_df["lhs"].isin(obs_names) #lhs is observed
-
-    #     rvb = rvl & rvo # rhs is both structural and observed
-    #     ix[0] = mes & ~rvl #rhs is not in structural model and measurement
-    #     ix[1] = (mes & rvb) | (mes & ~rvo) | reg #regression or higher order
-    #     ix[2] = (cov & ~rvl) | (cov & lvl) #any structural covariance
-    #     ix[3] = cov & ~lvl #residual covariance
-    #     ix[4] = lol & ~lvl & reg & mst #observed means
-    #     ix[5] = lvl & reg & mst # latent means
-    #     param_df["mat"] = 0
-    #     param_df["mat"] = param_df["mat"].astype(int)
-    #     for i in range(6):
-    #         param_df.loc[ix[i], "mat"] = i
-    #         if i == 0:
-    #             param_df.loc[ix[i], "r"] = param_df.loc[ix[i], "rhs"]
-    #             param_df.loc[ix[i], "c"] = param_df.loc[ix[i], "lhs"]
-    #         elif i < 4:
-    #             param_df.loc[ix[i], "r"] = param_df.loc[ix[i], "lhs"]
-    #             param_df.loc[ix[i], "c"] = param_df.loc[ix[i], "rhs"]
-    #         else:
-    #             param_df.loc[ix[i], "c"] = param_df.loc[ix[i], "lhs"]
-    #             param_df.loc[ix[i], "r"] = 0
-
-    #         if i == 1:
-    #             j = (param_df["mat"] == 1) & (param_df["rel"] == "=~")
-    #             param_df.loc[j, "r"], param_df.loc[j, "c"] \
-    #                 = param_df.loc[j, "c"],  param_df.loc[j, "r"]
-    #     self.param_df = param_df
-
+  
     def sort_table(self):
         param_df = self.param_df
         obs_order, lav_order = self.obs_order, self.lav_order
@@ -415,7 +370,6 @@ class BaseModel:
         param_df = self.param_df
         fixed_df = param_df.loc[param_df["fixed"]
                                 & ~param_df["fixedval"].isnull()]
-#        end_vars = self.check_missing_covs(self.var_names["enx"],fixed_df )
         lox_vars = self.check_missing_covs(self.var_names["lox"], fixed_df)
         lvx_vars = self.check_missing_covs(self.var_names["lvx"], fixed_df)
         is_cov = param_df["rel"] == "~~"
@@ -449,10 +403,6 @@ class BaseModel:
             for x1, x2 in lvx_vars:
                 ix_var = ((param_df["lhs"] == x1) & (param_df["rhs"] == x2) |
                           (param_df["rhs"] == x1) & (param_df["lhs"] == x2))
-                # ix = is_cov & ix_var & ix_group
-                # if np.any(ix):
-                #     param_df.loc[ix, "fixedval"] = covi.loc[x1, x2]
-                #     param_df.loc[ix, "fixed"] = True
         self.param_df = param_df
         self.free_ix = self.param_df["free"] != 0
         self.free_df = self.param_df.loc[self.free_ix]
@@ -506,6 +456,12 @@ class BaseModel:
         self.mat_rows = mat_rows
         self.mat_cols = mat_cols
         self.mat_dims = mat_dims
+        
+
+    def construct_model_mats(self):
+        self.prepare_matrices()
+        self.apply_fixed_and_free_values()
+        self.flatten_matrices()
 
     def apply_fixed_and_free_values(self):
         lvo = self.var_names["lvo"]
@@ -536,12 +492,7 @@ class BaseModel:
             self.p_templates[j] = p_template
             self.indexers[j] = indexer
             self.free_params[j] = self.p_templates[j][self.indexers[j].flat_indices]
-
-    def construct_model_mats(self):
-        self.prepare_matrices()
-        self.apply_fixed_and_free_values()
-        self.flatten_matrices()
-
+            
     def reduce_parameters(self, shared):
         self.shared = shared
         ftable = self.free_df
