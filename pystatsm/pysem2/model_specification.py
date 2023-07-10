@@ -118,7 +118,7 @@ class ModelSpecification(ModelBase):
         par[self.indexer.flat_indices] = free
         return par
 
-    def par_to_model_mats(self, par, i):
+    def par_to_model_mats(self, par):
         slices = self.indexer.slices
         shapes = self.indexer.shapes
         L = _invec(par[slices[0]], *shapes[0])
@@ -131,5 +131,5 @@ class ModelSpecification(ModelBase):
 
     def group_free_to_model_mats(self, free, i):
         par = self.group_free_to_par(free, i)
-        mats = self.par_to_model_mats(par, i)
+        mats = self.par_to_model_mats(par)
         return mats
