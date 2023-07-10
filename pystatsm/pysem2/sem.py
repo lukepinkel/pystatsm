@@ -22,7 +22,7 @@ pd.set_option("mode.chained_assignment", None)
 class SEM(ModelSpecification):
     def __init__(self, formula, data, group_col=None, model_spec_kws=None, group_kws=None):
         default_model_spec_kws = dict(extension_kws=dict(fix_lv_var=False))
-        model_spec_kws = handle_default_kws(model_spec_kws, default_model_spec_kws)
+        #model_spec_kws = handle_default_kws(model_spec_kws, default_model_spec_kws)
         group_kws = dict(shared=[True] * 6) if group_kws is None else group_kws
         super().__init__(formula, data, group_col, **group_kws)
 
@@ -37,7 +37,7 @@ class SEM(ModelSpecification):
         for i in range(self.n_groups):
             group_free = self.transform_free_to_group_free(free, i)
             par = self.group_free_to_par(group_free, i)
-            mats = self.par_to_model_mats(par, i)
+            mats = self.par_to_model_mats(par)
             Sigma, mu = self._implied_cov_mean(*mats)
             r = (self.model_data.sample_mean[i] - mu).flatten()
             V = np.linalg.inv(Sigma)
@@ -68,7 +68,7 @@ class SEM(ModelSpecification):
         for i in range(self.n_groups):
             group_free = self.transform_free_to_group_free(free, i)
             par = self.group_free_to_par(group_free, i)
-            L, B, F, P, a, b = self.par_to_model_mats(par, i)
+            L, B, F, P, a, b = self.par_to_model_mats(par)
             B = np.linalg.inv(np.eye(B.shape[0]) - B)
             LB = np.dot(L, B)
             mu = (a + LB.dot(b.T).T).reshape(-1)
@@ -103,7 +103,7 @@ class SEM(ModelSpecification):
         for i in range(self.n_groups):
             group_free = self.transform_free_to_group_free(free, i)
             par = self.group_free_to_par(group_free, i)
-            L, B, F, P, a, b = self.par_to_model_mats(par, i)
+            L, B, F, P, a, b = self.par_to_model_mats(par)
             B = np.linalg.inv(np.eye(B.shape[0]) - B)
             LB = np.dot(L, B)
             mu = (a + LB.dot(b.T).T).reshape(-1)
@@ -135,7 +135,7 @@ class SEM(ModelSpecification):
         for i in range(self.n_groups):
             group_free = self.transform_free_to_group_free(free, i)
             par = self.group_free_to_par(group_free, i)
-            L, B, F, _, a, b = self.par_to_model_mats(par, i)
+            L, B, F, _, a, b = self.par_to_model_mats(par)
             B = np.linalg.inv(np.eye(B.shape[0]) - B)
             kws = dict(dA=self.dA, m_size=self.m_size, m_type=self.m_kind,
                        vind=self._vech_inds, n=self.nf, p2=self.p2)
@@ -149,7 +149,7 @@ class SEM(ModelSpecification):
         for i in range(self.n_groups):
             group_free = self.transform_free_to_group_free(free, i)
             par = self.group_free_to_par(group_free, i)
-            L, B, F, _, a, b = self.par_to_model_mats(par, i)
+            L, B, F, _, a, b = self.par_to_model_mats(par)
             B = np.linalg.inv(np.eye(B.shape[0]) - B)
             a, b = a.flatten(), b.flatten()
             kws = dict(dA=self.dA, m_size=self.m_size, m_type=self.d2_kind,
@@ -172,7 +172,7 @@ class SEM(ModelSpecification):
         for i in range(self.n_groups):
             group_free = self.transform_free_to_group_free(free, i)
             par = self.group_free_to_par(group_free, i)
-            mats = self.par_to_model_mats(par, i)
+            mats = self.par_to_model_mats(par)
             Sigma[i], mu[i] = self._implied_cov_mean(*mats)
         return Sigma, mu
 
@@ -184,7 +184,7 @@ class SEM(ModelSpecification):
         for i in range(self.n_groups):
             group_free = self.transform_free_to_group_free(free, i)
             par = self.group_free_to_par(group_free, i)
-            L, B, F, P, a, b = self.par_to_model_mats(par, i)
+            L, B, F, P, a, b = self.par_to_model_mats(par)
             B = np.linalg.inv(np.eye(B.shape[0]) - B)
             LB = np.dot(L, B)
             Sigma = LB.dot(F).dot(LB.T) + P
@@ -229,7 +229,7 @@ class SEM(ModelSpecification):
             ix = self.model_data.group_indices[i]
             group_free = self.transform_free_to_group_free(free, i)
             par = self.group_free_to_par(group_free, i)
-            mats = self.par_to_model_mats(par, i)
+            mats = self.par_to_model_mats(par)
             Sigma, mu = self._implied_cov_mean(*mats)
             L = sp.linalg.cholesky(Sigma)
             Y = self.model_data.data[ix] - mu
