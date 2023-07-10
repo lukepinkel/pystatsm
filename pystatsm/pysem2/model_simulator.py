@@ -68,7 +68,7 @@ class SimulatedSEM:
         for i in range(self.model_spec.n_groups):
             group_free = self.model_spec.transform_free_to_group_free(free, i)
             par = self.model_spec.group_free_to_par(group_free, i)
-            L[i], B[i], F[i], P[i], a[i], b[i] = self.model_spec.par_to_model_mats(par, i)
+            L[i], B[i], F[i], P[i], a[i], b[i] = self.model_spec.par_to_model_mats(par)
             B[i] = np.linalg.inv(np.eye(B[i].shape[0]) - B[i])
             L[i] = pd.DataFrame(L[i], index=self.model_spec.mat_labels[0][0], columns=self.model_spec.mat_labels[1][0])
             B[i] = pd.DataFrame(B[i], index=self.model_spec.mat_labels[0][1], columns=self.model_spec.mat_labels[1][1])
