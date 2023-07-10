@@ -63,11 +63,6 @@ class ParameterTable(FormulaParser, ModelBuilder, ModelMatrixMapper, VariableOrd
         """
         Adds lower and upper bounds to the parameter table.
 
-        Parameters
-        ----------
-        param_df : pandas.DataFrame
-            parameter table
-
         Returns
         -------
         None
