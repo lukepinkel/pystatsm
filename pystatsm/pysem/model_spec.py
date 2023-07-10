@@ -5,7 +5,6 @@ from ..utilities.linalg_operations import _invec, _invech
 from .param_table import BaseModel
 from .model_data import ModelData
 
-
 def _sparse_post_mult(A, S):
     prod = S.T.dot(A.T)
     prod = prod.T
@@ -25,18 +24,42 @@ def equality_constraint_mat(unique_locs):
     return arr
 
 
-class ModelSpecification(BaseModel):
 
-    def __init__(self, formula, data, group_col, shared):
-        model_data = ModelData.from_dataframe(data, group_col)
-        super().__init__(formula, model_data, var_order=model_data.var_order,
-                         n_groups=model_data.n_groups)
+
+class ModelSpecification(BaseModel):
+    
+    def __init__(self, formula, data=None, group_col=None, shared=None, n_groups=1):
+        if data is not None:
+            self.set_data(data, group_col)
+        if hasattr(self, "model_data"):
+            base_kws={"sample_stats":self.model_data, 
+                      "var_order":self.model_data.var_order, 
+                      "n_groups":self.model_data.n_groups}
+        else:
+            base_kws = {"sample_stats":None,  "var_order":None,"n_groups":n_groups}
+            
+        super().__init__(formula, **base_kws)
+
+        if hasattr(self, 'model_data'):
+            self.initialize(shared)
+        self._check_complex = False
+
+    def initialize(self, shared=None):
         self.construct_model_mats()
         self.reduce_parameters(shared)
-        self.model_data = model_data
+        if hasattr(self, "model_data"):
+            self.model_data.subset_and_order(self.obs_order)
         self.p = len(self.var_names["obs"])
         self.q = len(self.var_names["lav"])
-        self._check_complex = False
+
+    def set_data(self, data, group_col):
+        self.model_data = ModelData.from_dataframe(data, group_col)
+        
+
+    def update_data(self, data, group_col, shared=None):
+        self.set_data(data, group_col)
+        self.init_parameter_table(self.model_data.var_order)
+        self.initialize(shared)
 
     def transform_free_to_theta(self, free):
         theta = free[self._first_locs]
@@ -87,3 +110,15 @@ class ModelSpecification(BaseModel):
         par = self.group_free_to_par(free, i)
         mats = self.par_to_model_mats(par, i)
         return mats
+    
+    # def __init__(self, formula, data, group_col, shared=None):
+    #     model_data = ModelData.from_dataframe(data, group_col)
+    #     super().__init__(formula, model_data, var_order=model_data.var_order,
+    #                      n_groups=model_data.n_groups)
+    #     self.construct_model_mats()
+    #     self.reduce_parameters(shared)
+    #     self.model_data = model_data
+    #     self.model_data.subset_and_order(self.obs_order)
+    #     self.p = len(self.var_names["obs"])
+    #     self.q = len(self.var_names["lav"])
+    #     self._check_complex = False

@@ -79,6 +79,9 @@ class BaseModel:
         fix_lv_mean = self.kwargs.get('fix_lv_mean', True)
         self.add_means(fix_lv_mean=fix_lv_mean)
 
+    def update_sample_stats(self, sample_stats):
+        self.fix_sample_stats(sample_stats)
+
     def set_ordering(self, var_order):
         lav_order = self.default_sort(self.var_names["lav"], self.var_names)
         if var_order is None:
@@ -295,12 +298,13 @@ class BaseModel:
                     param_df.loc[ltable.index[ix][0], "fixed"] = True
                     param_df.loc[ltable.index[ix][0], "fixedval"] = 1.0
         self.param_df = param_df
+
     @property
     def masks(self):
         param_df, var_names = self.param_df, self.var_names
         obs_names = sorted(var_names["obs"], key=_default_sort_key)
         lav_names = sorted(var_names["lav"], key=_default_sort_key)
-    
+
         masks = {}
         masks['mes'] = param_df["rel"] == "=~"
         masks['reg'] = param_df["rel"] == "~"
@@ -311,24 +315,25 @@ class BaseModel:
         masks['lvl'] = param_df["lhs"].isin(lav_names)
         masks['lol'] = param_df["lhs"].isin(obs_names)
         masks['rvb'] = masks['rvl'] & masks['rvo']
-    
+
         return masks
-    
+
     def assign_matrices(self):
         param_df = self.param_df
         masks = self.masks
-    
+
         ix = {}
         ix[0] = masks['mes'] & ~masks['rvl']
-        ix[1] = (masks['mes'] & masks['rvb']) | (masks['mes'] & ~masks['rvo']) | masks['reg']
+        ix[1] = (masks['mes'] & masks['rvb']) | (
+            masks['mes'] & ~masks['rvo']) | masks['reg']
         ix[2] = (masks['cov'] & ~masks['rvl']) | (masks['cov'] & masks['lvl'])
         ix[3] = masks['cov'] & ~masks['lvl']
         ix[4] = masks['lol'] & ~masks['lvl'] & masks['reg'] & masks['mst']
         ix[5] = masks['lvl'] & masks['reg'] & masks['mst']
-        
+
         param_df["mat"] = 0
         param_df["mat"] = param_df["mat"].astype(int)
-    
+
         for i in range(6):
             param_df.loc[ix[i], "mat"] = i
             if i == 0:
@@ -340,13 +345,13 @@ class BaseModel:
             else:
                 param_df.loc[ix[i], "c"] = param_df.loc[ix[i], "lhs"]
                 param_df.loc[ix[i], "r"] = 0
-    
+
             if i == 1:
                 j = (param_df["mat"] == 1) & (param_df["rel"] == "=~")
                 param_df.loc[j, "r"], param_df.loc[j, "c"] \
                     = param_df.loc[j, "c"],  param_df.loc[j, "r"]
         self.param_df = param_df
-  
+
     def sort_table(self):
         param_df = self.param_df
         obs_order, lav_order = self.obs_order, self.lav_order
@@ -456,7 +461,6 @@ class BaseModel:
         self.mat_rows = mat_rows
         self.mat_cols = mat_cols
         self.mat_dims = mat_dims
-        
 
     def construct_model_mats(self):
         self.prepare_matrices()
@@ -492,8 +496,9 @@ class BaseModel:
             self.p_templates[j] = p_template
             self.indexers[j] = indexer
             self.free_params[j] = self.p_templates[j][self.indexers[j].flat_indices]
-            
-    def reduce_parameters(self, shared):
+
+    def reduce_parameters(self, shared=None):
+        shared = [True]*6 if shared is None else shared
         self.shared = shared
         ftable = self.free_df
         ix = ftable["mod"].isnull()
@@ -540,3 +545,317 @@ class BaseModel:
             self.dfree_dgroup[i] = sp.sparse.csc_array(
                 (d, (rows, cols)), shape=(nrows, ncols)).T
         self.n_total_free = len(self.free_df)
+
+
+docstrings = {
+    'class':
+    """
+    BaseModel class provides a base for defining structural equation models.
+
+    Attributes:
+        matrix_names (list): The names of the matrices involved in the model.
+        matrix_order (dict): The order of the matrices.
+        is_symmetric (dict): Specifies if a matrix is symmetric or not.
+        is_vector (dict): Specifies if a matrix is a vector or not.
+        kwargs (dict): Additional keyword arguments.
+
+    Typical Usage and Sequence of Operations:
+
+    1. Initialize BaseModel object with specific inputs.
+        - Initializes some constants and assigns input parameters to object properties.
+        - Depending on the process_steps value, it performs the following operations:
+            - If process_steps >= 1, it calls self.init_formula_parser(formulas).
+            - If process_steps >= 2, it calls self.init_parameter_table(var_order).
+            - If process_steps >= 3, it calls self.extend_param_df().
+            - If sample_stats is not None and process_steps >= 4, it calls self.fix_sample_stats(sample_stats).
+
+    Detailed Sequence of Operations:
+
+    1. __init__():
+        - Assigns input parameters to object properties.
+        - Depending on the process_steps value, it calls the following methods:
+            - self.init_formula_parser(formulas)
+            - self.init_parameter_table(var_order)
+            - self.extend_param_df()
+            - self.fix_sample_stats(sample_stats)
+
+    2. init_formula_parser(formulas):
+        - Initializes the formula parser with the given formulas.
+        - Assigns the formula parser, variable names, all variable names, and parameter dataframe to the object properties.
+
+    3. init_parameter_table(var_order):
+        - Calls the following methods in order:
+            - self.process_parameter_table()
+            - self.set_ordering(var_order)
+            - self.sort_and_index_parameters()
+
+    4. process_parameter_table():
+        - Retrieves fix_lv_cov, y_cov, and fix_lv_mean from kwargs.
+        - Calls the following methods in order:
+            - self.add_variances(fix_lv_cov)
+            - self.fix_first()
+            - self.add_covariances(lvx_cov, y_cov)
+            - self.add_means(fix_lv_mean)
+
+    5. set_ordering(var_order):
+        - Sets the order of latent and observed variables based on var_order.
+        - Assigns the order of latent and observed variables to the object properties.
+
+    6. sort_and_index_parameters():
+        - Calls the following methods in order:
+            - self.assign_matrices()
+            - self.sort_table()
+            - self.param_df = self.index_params(self.param_df)
+            - self.param_df = self.add_bounds(self.param_df)
+        - Assigns free indexes and free dataframe to the object properties.
+
+    7. extend_param_df():
+        - Makes copies of the parameter and free dataframes.
+        - Concatenates and resets the original parameter and free dataframes.
+        - Adds labels to the free dataframe.
+
+    8. fix_sample_stats(sample_stats):
+        - Checks missing covariances and fixes them.
+        - Updates the parameter dataframe, free indexes, and free dataframe.
+    """,
+    'init':
+        """
+        Initializes the BaseModel object.
+
+        Parameters
+        ----------
+        formulas : str
+            Set of formulas to parse.
+        sample_stats : DataFrame or None, optional
+            Sample statistics, by default None. If None, no statistics are used.
+        var_order : dict or None, optional
+            Ordering for the variables. If None, default ordering is used, by default None.
+        n_groups : int, optional
+            The number of groups in the data, by default 1.
+        process_steps : int, optional
+            Number of steps to process for model initialization, by default 4.
+        **kwargs : dict
+            Arbitrary keyword arguments.
+        """,
+    'add_variances':
+        """
+        Augments the parameter DataFrame with variances for certain variables.
+
+        This method identifies variables that are missing variances from the
+        current parameter DataFrame and adds them. The variables are first
+        sorted using the default_sort method. For each variable,  a new row is
+        added to the parameter DataFrame with the left-hand side (lhs) and
+        the right-hand side (rhs)  set to the variable itself, the relation
+        (rel) set to "~~" (indicating a variance), and the starting
+        value (start) set to 1.0.
+
+        If the variable is in the set of observed exogenous variables
+        (var_names["lox"]),  its variance is fixed, i.e., its "fixed" field is
+        set to True. Additionally, if the variable is  a non-observed variable
+        (var_names["nob"]) and the fix_lv_cov flag is True, its variance is
+        also fixed.  For all other variables, the "fixed" field is set to
+        False, implying the variance can be estimated. At the end, the list of
+        parameter dictionaries is converted back to a DataFrame and replaces
+        the current parameter DataFrame.
+
+        Parameters
+        ----------
+        fix_lv_cov : bool, optional
+            If True, sets the variances of the structural/latent model as fixed.
+            Default is False.
+
+        Notes
+        -----
+        - Uses the following class attributes: `var_names`, `param_df`
+        - Modifies the class attribute: `param_df`
+        - Uses the following class methods `check_missing_variances`, `default_sort`
+        """,
+    'fix_first':
+        """
+        Fixes the loading of the first observed variable onto each latent variable to 1.0.
+
+        This method operates on the parameter DataFrame and modifies it
+        in-place. The logic is as follows:
+            For each non-observed variable (latent variable, var_names["nob"]),
+            it checks if there is any  row in the DataFrame where the
+            relationship (rel) is "=~" (indicating a loading), the left-hand
+            side  (lhs) is the latent variable, and the parameter is not yet
+            fixed. If such a row exists, the "fixed"  field of the first such
+            row is set to True, and the "fixedval" field is set to 1.0. This
+            implies that  the loading of the first observed variable onto this
+            latent variable is fixed to 1.0.
+
+        This process is repeated for all latent variables. After modifying,
+        the updated DataFrame replaces the original parameter DataFrame.
+        Notes
+        -----
+        - Uses the following class attributes: `var_names`, `param_df`
+        - Modifies the class attribute: `param_df`
+        """,
+    'add_covariances':
+        """
+        Add missing covariances to the parameter DataFrame (`param_df`) for
+        different variable types.
+
+        This method checks for missing covariances among observable exogenous
+        variables (`lox`), latent exogenous variables  (`lvx`), and endogenous
+        variables (`enx`). For each pair of variables with missing covariance,
+        it appends a new row to  the `param_df`. Covariances of exogenous
+        variables (`lox`) are fixed to zero by default. Covariances of latent
+        exogenous variables (`lvx`) and endogenous variables (`enx`) are added
+        with initial values of zero and can be estimated from the data
+        depending on the `lvx_cov` and `y_cov` parameters.
+
+        Parameters
+        ----------
+        lvx_cov : bool, default True
+            If True, covariance for latent exogenous variables (`lvx`) will be
+            added and estimated from the data.
+            If False, the covariances are assumed to be zero and will not be
+            estimated from the data.
+        y_cov : bool, default True
+            If True, covariance for endogenous variables (`enx`) will be added
+            and estimated from the data.
+            If False, the covariances are assumed to be zero and will not be
+            estimated from the data.
+
+        Notes
+        -----
+        - Uses the following class attributes: `var_names`, `param_df`
+        - Modifies the class attribute: `param_df`
+        - Uses the following class methods: `check_missing_covs`
+        """,
+    'add_means':
+        """
+        Add missing means to the parameter DataFrame (`param_df`) for different
+        types of variables.
+
+        This method checks for missing means among observed exogenous (`lox`),
+        endogenous (`enx`), and disturbance (`dis`)  variables. For each
+        variable with a missing mean, it appends a new row to `param_df` with a
+        mean of zero, which can be  estimated from the data. Means of latent
+        exogenous variables (`lvx`) are fixed to zero by default and are not
+        estimated from the data.
+
+        Notes
+        -----
+        - Uses the following class attributes: `var_names`, `param_df`
+        - Modifies the class attribute: `param_df`
+        - Uses the following class methods: `check_missing_means`, `default_sort`
+        """,
+    'masks':
+        """
+        Create boolean masks for different types of model parameters.
+
+        This method creates and assigns four different boolean masks
+        (`mask_1`, `mask_2`, `mask_3`, `mask_4`) based on the  relations in
+        `param_df`. These masks are used for various operations like setting
+        values and checking conditions in the parameter DataFrame.
+
+        The masks are as follows:
+        - `mask_1`: True for parameters where relation is '=~' or '~~'
+        - `mask_2`: True for parameters where relation is '~1' or '1~'
+        - `mask_3`: True for parameters where relation is either '=~' or '~1'
+                    or '1~'
+        - `mask_4`: True for parameters where relation is '~~'
+
+        Notes
+        -----
+        - Uses the following class attribute: `param_df`
+        - Modifies the following class attributes: `mask_1`, `mask_2`,
+        `mask_3`, `mask_4`
+        """,
+    'assign_matrices':
+        """
+        Assign matrix indices and related attributes to each row in the
+        `param_df`.
+
+        This method leverages masks to categorize different types of model
+        parameters and assign them to specific matrices represented by the
+        'mat' attribute. It also assigns row ('r')  and column ('c') indices
+        for each parameter's placement within its matrix.
+
+        Notes
+        -----
+        - Uses the following class attributes: `param_df`, `masks`
+        - Modifies the following class attribute: `param_df`
+        """,
+    'sort_table':
+        """
+        Sort `param_df` based on a predefined order of matrices and their
+        elements. This method sorts the parameters based on their assigned
+        matrices ('mat') and  then their row ('r') and column ('c') indices.
+        It ensures the parameters  are ordered according to their placement in
+        the model.
+
+        Notes
+        -----
+        - Uses the following class attributes: `param_df`, `obs_order`,
+         `lav_order`
+        - Modifies the following class attribute: `param_df`
+        """,
+    'index_params':
+        """
+        Assign indices to each free parameter in `param_df`.
+
+        This method assigns a unique index to each non-fixed parameter in the
+        `param_df`  under 'free' attribute. It handles parameters that are
+        equal to each other by assigning them the same index. It also sets an
+        'ind' attribute for each free parameter.
+
+        Notes
+        -----
+        - Uses the following class attribute: `param_df`
+        - Modifies the following class attribute: `param_df`
+        """,
+    'extend_param_df':
+        """
+        Extend `param_df` and `free_df` for each group in a multi-group analysis.
+
+        This method duplicates `param_df` and `free_df` for each group in a
+        multi-group analysis.  It also fills in missing 'label' entries in
+        `free_df`.
+
+        Parameters
+        ----------
+        values : np.ndarray
+            An array of parameter values to be assigned to 'value' column of
+            `param_df`.
+
+        Notes
+        -----
+        - Uses the following class attributes: `param_df`, `free_df`, `n_groups`
+        - Modifies the following class attributes: `param_df`, `free_df`,
+        `_param_df`, `_free_df`
+        """,
+    'default_sort':
+        """
+        Returns a list of variable names sorted by default rules.
+
+        Parameters
+        ----------
+        subset : set
+            A set of variable names to sort.
+        var_names : dict
+            A dictionary of variable names classified by their roles in the model.
+
+        Returns
+        -------
+        g : list
+            The sorted list of variable names.
+        """
+
+
+}
+BaseModel.__init__.__doc__ = docstrings['init']
+BaseModel.add_variances.__doc__ = docstrings['add_variances']
+BaseModel.fix_first.__doc__ = docstrings['fix_first']
+BaseModel.add_covariances.__doc__ = docstrings['add_covariances']
+BaseModel.add_means.__doc__ = docstrings['add_means']
+BaseModel.masks.__doc__ = docstrings['masks']
+BaseModel.assign_matrices.__doc__ = docstrings['assign_matrices']
+BaseModel.sort_table.__doc__ = docstrings['sort_table']
+BaseModel.index_params.__doc__ = docstrings['index_params']
+BaseModel.extend_param_df.__doc__ = docstrings['extend_param_df']
+BaseModel.default_sort.__doc__ = docstrings['default_sort']
+BaseModel.__doc__ = docstrings['class']

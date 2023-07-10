@@ -13,7 +13,7 @@ import pandas as pd
 from ..utilities.linalg_operations import _vech, _invech
 from ..utilities.func_utils import handle_default_kws, triangular_number
 from ..utilities.output import get_param_table
-from .derivatives import _dloglike_mu, _d2loglike_mu, _dsigma_mu, _d2sigma_mu
+from .derivatives import _dloglike_mu, _d2loglike_mu, _dsigma_mu, _d2sigma_mu, _dloglike_mu_alt
 from .model_spec import ModelSpecification
 
 
@@ -71,6 +71,16 @@ class SEM(ModelSpecification):
         self._hess_kws = dict(dA=self.dA, m_size=self.m_size, d2_inds=self.d2_inds,
                               first_deriv_type=self.m_kind,  second_deriv_type=self.d2_kind,
                               n=self.nf)
+        self._grad_kws1 = dict(dL=np.zeros((self.p, self.q)),
+                               dB=np.zeros((self.q, self.q)),
+                               dF=np.zeros((self.q, self.q)),
+                               dP=np.zeros((self.p, self.p)),
+                               da=np.zeros((self.p)),
+                               db=np.zeros((self.q)),
+                               r=self.indexer.row_indices,
+                               c=self.indexer.col_indices,
+                               m_type=self.m_kind,
+                               n=self.nf)
 
     def func(self, theta, per_group=False):
         free = self.transform_theta_to_free(theta)
@@ -105,7 +115,7 @@ class SEM(ModelSpecification):
         f = self.n_obs/2 * f
         return f
 
-    def gradient(self, theta, per_group=False):
+    def gradient(self, theta, per_group=False, method=0):
         free = self.transform_theta_to_free(theta)
         if per_group:
             g = np.zeros((self.n_groups, self.n_group_theta))
@@ -126,8 +136,11 @@ class SEM(ModelSpecification):
             rtV = (self.model_data.sample_mean[i].flatten() - mu).dot(V)
             gi = np.zeros(self.nf)
             kws = self._grad_kws
-            gi = _dloglike_mu(gi, L, B, F, b, VRV, rtV,
-                              **kws) * self.gweights[i]
+            if method == 0:
+                gi = _dloglike_mu(gi, L, B, F, b, VRV, rtV, **kws) * self.gweights[i]
+            else:
+                kws = self._grad_kws1
+                gi = _dloglike_mu_alt(gi, L, B, F, b, VRV, rtV, **kws) * self.gweights[i]
             gi = self.jac_free_to_theta(self.jac_group_free_to_free(gi, i))
             if per_group:
                 g[i] = gi
@@ -257,7 +270,7 @@ class SEM(ModelSpecification):
             gi = -2 * (-t1 / 2 + t2 + t3 / 2)
             gi = self.jac_group_free_to_free(gi.T, i).T
             g[self.model_data.group_indices[i]] = gi
-        g = self.jac_free_to_theta(g, axes=(1,))
+        g = self.jac_free_to_theta(g, axes=(1,)) / 2
         return g
 
     def loglike(self, theta, level="sample"):
@@ -309,10 +322,20 @@ class SEM(ModelSpecification):
                                    bounds=bounds,  **minimize_kws)
         return res
 
-    def fit(self,  theta_init=None, minimize_kws=None, minimize_options=None, use_hess=False):
+    def get_standard_errors(self, theta, robust=False):
+        cov_params = np.linalg.inv(self.hessian(theta))
+        if robust:
+            G = self.gradient_obs(theta)
+            M = G.T.dot(G) 
+            V = cov_params
+            cov_params = np.dot(V, M.dot(V))
+        se_params = np.sqrt(np.diag(cov_params))
+        return se_params
+    
+    def fit(self, robust_se=False, theta_init=None, minimize_kws=None, minimize_options=None, use_hess=False):
         res = self._fit(theta_init=theta_init, minimize_kws=minimize_kws,
                         minimize_options=minimize_options, use_hess=use_hess)
-        if np.linalg.norm(res.grad) > 1e16:
+        if np.linalg.norm(res.get("grad", res.get("jac", self.gradient(res.x)))) > 1e16:
             if minimize_options is None:
                 minimize_options = {}
             minimize_options["initial_tr_radius"] = 0.01
@@ -322,7 +345,7 @@ class SEM(ModelSpecification):
         self.theta = res.x
         self.free = self.transform_theta_to_free(self.theta)
         params = res.x
-        se_params = np.sqrt(np.diag(np.linalg.inv(self.hessian(self.theta))))
+        se_params = self.get_standard_errors(params, robust=robust_se)
         self.res = get_param_table(params, se_params, degfree=self.n_obs-2,
                                    index=self.theta_names)
         self.res_free = pd.DataFrame(self.transform_theta_to_free(self.res.values),

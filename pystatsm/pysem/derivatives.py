@@ -146,6 +146,61 @@ def _dloglike_mu(g, L, B, F, b, VRV, rtV, dA, m_size, m_type, n):
     return g
 
 @numba.jit(nopython=True)
+def _dloglike_mu_alt(g, L, B, F, b, VRV, rtV, dL, dB, dF, dP, da, db, r, c, m_type, n):
+    LB, BF = L.dot(B), B.dot(F)
+    Bbt = B.dot(b.T)
+    LBt, BFBt = LB.T, BF.dot(B.T)
+    vecBFBt = BFBt.flatten()
+    vecVRV = VRV.flatten()
+    VRVL = VRV.dot(L)
+    rtVL = rtV.dot(L)
+    BtLtVRV = np.dot(LBt, VRVL.dot(B)).flatten()                                          
+    rtVL = rtV.dot(L)                                                                       
+    rtVLB = rtVL.dot(B)   
+    for i in range(n):
+        kind = m_type[i]
+        if kind == 0:
+            dL[r[i], c[i]] = 1.0
+            dmi = dL.dot(Bbt)
+            g[i] += -2*np.dot((dL.T.dot(VRVL)).flatten(), vecBFBt)
+            g[i] += -(2.0 * np.dot(dmi.T, rtV) + 2*np.dot(rtVL, BFBt.dot(rtV.dot(dL))))
+            dL[r[i], c[i]] = 0.0
+        elif kind == 1:
+            dB[r[i], c[i]] = 1.0
+            J1 = dB.dot(BF)                                                                  
+            JJ = J1 + J1.T                                                                 
+            g[i] += -np.dot(BtLtVRV, JJ.flatten())                                          
+            g[i] += -(2.0 * rtVLB.dot(dB.dot(Bbt)) + np.dot(rtVLB, JJ).dot(rtVLB))
+            dB[r[i], c[i]] = 0.0
+        elif kind==2:
+            dF[r[i], c[i]] = 1.0
+            dF[c[i], r[i]] = 1.0
+            J1 = LB.dot(dF).dot(LBt)
+            dSi = J1
+            g[i] += -np.dot(vecVRV, dSi.flatten())
+            g[i] += -(rtV.dot(dSi.dot(rtV)))
+            dF[r[i], c[i]] = 0.0
+            dF[c[i], r[i]] = 0.0
+        elif kind == 3:
+            dP[r[i], c[i]] = 1.0
+            dP[c[i], r[i]] = 1.0
+            g[i] += -np.dot(vecVRV, dP.flatten())
+            g[i] += -(rtV.dot(dP.dot(rtV)))
+            dP[r[i], c[i]] = 0.0
+            dP[c[i], r[i]] = 0.0
+        elif kind == 4:
+            da[c[i]] = 1.0
+            g[i] += -2.0 * np.dot(da.T, rtV)
+            da[c[i]] = 0.0
+        elif kind == 5:
+            db[c[i]] = 1.0
+            dmi = LB.dot(db.T)
+            g[i] += -2.0 * np.dot(dmi.T, rtV)
+            db[c[i]] = 0.0
+    return g
+
+
+@numba.jit(nopython=True)
 def _d2loglike_mu(H, d1Sm, L, B, F, a, b, VRV, rtV, V, dA, m_size,
                    d2_inds, first_deriv_type, second_deriv_type, n):
     LB, BF = L.dot(B), B.dot(F)
