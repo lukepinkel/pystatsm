@@ -495,3 +495,7 @@ def dmat_exp(A):
 
 
   
+def _sparse_post_mult(A, S):
+    prod = S.T.dot(A.T)
+    prod = prod.T
+    return prod
