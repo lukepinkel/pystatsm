@@ -2,17 +2,39 @@
 import numpy as np
 
 from ..utilities.func_utils import triangular_number
-from ..utilities.linalg_operations import _invec, _invech
+from ..utilities.linalg_operations import _invec, _invech, _sparse_post_mult
 from .model_base import ModelBase
 from .model_data import ModelData
 
-def _sparse_post_mult(A, S):
-    prod = S.T.dot(A.T)
-    prod = prod.T
-    return prod
 
 
 class ModelSpecification(ModelBase):
+    """
+    Class for specifying a structural equation model (SEM), particularly for grouped data.
+
+    Parameters
+    ----------
+    formula : str
+        The SEM formula specifying the model.
+    data : DataFrame, optional
+        The dataset to use. Required if `model_data` is not provided.
+    group_col : str, optional
+        The name of the column in `data` that represents the group variable. 
+    shared : list of bool, optional
+        A list indicating which parameters are shared across groups.
+    model_data : ModelData instance, optional
+        Preprocessed model data. If provided, `data` and `group_col` are ignored.
+    **kwargs : dict, optional
+        Additional parameters to pass to the parent class.
+
+    Attributes
+    ----------
+    model_data : ModelData
+        The preprocessed model data.
+    n_groups : int
+        The number of groups in the data.
+    ...
+    """
     def __init__(self, formula, data=None, group_col=None, shared=None, model_data=None, **kwargs):
         if model_data is None:
             self.model_data = ModelData.from_dataframe(data, group_col)
@@ -29,6 +51,10 @@ class ModelSpecification(ModelBase):
         self.get_constants()
 
     def get_constants(self):
+        """
+        Calculates and stores various constants necessary for the model, such as the number of observed and latent variables, 
+        the bounds of the free parameters, the sizes of the groups, etc.
+        """
         self.model_data.subset_and_order(self.obs_order)
         self.p, self.q = len(self.var_names["obs"]), len(self.var_names["lav"])
         self.bounds = [tuple(x) for x in self.free_df[["lb", "ub"]].values[self._first_locs]]
@@ -45,6 +71,9 @@ class ModelSpecification(ModelBase):
         self.theta = self.transform_free_to_theta(self.free)
 
     def make_derivative_matrices(self):
+        """
+        Creates arrays to store the derivatives of the model with respect to the parameters. 
+        """
         self.indexer.create_derivative_arrays(
             [(0, 0), (1, 0), (2, 0), (1, 1), (2, 1), (5, 0), (5, 1)])
         self.dA = self.indexer.dA
@@ -77,6 +106,19 @@ class ModelSpecification(ModelBase):
                                n=self.nf)
 
     def transform_free_to_theta(self, free):
+        """
+        Transforms the free parameters to theta parameters.
+    
+        Parameters
+        ----------
+        free : array-like
+            The free parameters of the model.
+    
+        Returns
+        -------
+        theta : array-like
+            The transformed parameters.
+        """
         theta = free[self._first_locs]
         return theta
 
