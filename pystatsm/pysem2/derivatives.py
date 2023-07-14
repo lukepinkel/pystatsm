@@ -144,6 +144,23 @@ def _dloglike_mu(g, L, B, F, b, VRV, rtV, dA, m_size, m_type, n):
 
 @numba.jit(nopython=True)
 def _dloglike_mu_alt(g, L, B, F, b, VRV, rtV, dL, dB, dF, dP, da, db, r, c, m_type, n):
+    # g         array(float64, 1d, C)
+    # L         array(float64, 2d, F)
+    # B         array(float64, 2d, C)
+    # F         array(float64, 2d, C)
+    # b         array(float64, 1d, C)
+    # VRV       array(float64, 2d, C)
+    # rtV       array(float64, 1d, C)
+    # dL        array(float64, 2d, C)
+    # dB        array(float64, 2d, C)
+    # dF        array(float64, 2d, C)
+    # dP        array(float64, 2d, C)
+    # da        array(float64, 1d, C)
+    # db        array(float64, 1d, C)
+    # r         array(int64, 1d, C)
+    # c         array(int64, 1d, C)
+    # m_type    array(int64, 1d, C)
+    # n         int64
     LB, BF = L.dot(B), B.dot(F)
     Bbt = B.dot(b.T)
     LBt, BFBt = LB.T, BF.dot(B.T)
