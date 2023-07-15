@@ -1,11 +1,9 @@
-
 import numpy as np
 
-from ..utilities.func_utils import triangular_number
-from ..utilities.linalg_operations import _invec, _invech, _sparse_post_mult
 from .model_base import ModelBase
 from .model_data import ModelData
-
+from ..utilities.func_utils import triangular_number
+from ..utilities.linalg_operations import _invec, _invech, _sparse_post_mult
 
 
 class ModelSpecification(ModelBase):
@@ -35,18 +33,19 @@ class ModelSpecification(ModelBase):
         The number of groups in the data.
     ...
     """
+
     def __init__(self, formula, data=None, group_col=None, shared=None, model_data=None, **kwargs):
         if model_data is None:
             self.model_data = ModelData.from_dataframe(data, group_col)
         else:
             self.model_data = model_data
         self.n_groups = self.model_data.n_groups
-        super().__init__(formula, **kwargs)
-        self.duplicate_parameter_table(self.n_groups)
-        self.update_sample_stats(sample_stats=self.model_data)
-        self.make_indexer()
-        self.make_parameter_templates()
-        self.reduce_parameters(shared)
+        super().__init__(formula, **kwargs)  # Adds _param_df and _free_df
+        self.duplicate_parameter_table(self.n_groups)  # ModelBase
+        self.update_sample_stats(sample_stats=self.model_data)  # ModelBase -> FixedValueManager
+        self.make_indexer()  # ModelBase -> ParameterMapping
+        self.make_parameter_templates()  # ModelBase -> ParameterMapping
+        self.reduce_parameters(shared)  # ModelBase
         self._check_complex = False
         self.get_constants()
 
