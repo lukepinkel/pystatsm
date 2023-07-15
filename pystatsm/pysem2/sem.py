@@ -21,7 +21,6 @@ pd.set_option("mode.chained_assignment", None)
 
 class SEM(ModelSpecification):
     def __init__(self, formula, data, group_col=None, model_spec_kws=None, group_kws=None):
-        default_model_spec_kws = dict(extension_kws=dict(fix_lv_var=False))
         group_kws = dict(shared=[True] * 6) if group_kws is None else group_kws
         super().__init__(formula, data, group_col, **group_kws)
 
