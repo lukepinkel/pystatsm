@@ -8,6 +8,21 @@ class VariableOrder:
     """
     This class manages the ordering of observed and latent variables.
     It includes methods for setting, getting, and sorting the order.
+
+    The internal usage involves
+        (1) Selection or specification of the order of observed and latent variables
+        (2) Sorting the parameter table so that is follows the pattern of matrices
+            L, B, F, P, a, b, and within each matrix the parameters are in
+             column major / colexicographic order
+    For example in the reorder_table method the following calls are made:
+        self.set_obs_order(obs_order)
+        self.set_lav_order(lav_order)
+        self.assign_matrices()          #ModelMatrixMapper
+        self.sort_table()
+        self.index_params()              #ParamterTable
+    But only the set_obs_order, set_lav order, and sort_table are required if
+    matrix assignments have been done already.
+
     """
     @staticmethod
     def default_sort(subset, var_names):
