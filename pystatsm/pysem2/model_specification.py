@@ -22,8 +22,6 @@ class ModelSpecification(ModelBase):
         A list indicating which parameters are shared across groups.
     model_data : ModelData instance, optional
         Preprocessed model data. If provided, `data` and `group_col` are ignored.
-    **kwargs : dict, optional
-        Additional parameters to pass to the parent class.
 
     Attributes
     ----------
