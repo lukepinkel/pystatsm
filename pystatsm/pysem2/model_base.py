@@ -12,9 +12,29 @@ pd.set_option("mode.chained_assignment", None)
 
 
 class FixedValueManager:
-
+    """
+    The FixedValueManager class provides static methods to handle and manipulate
+    fixed values in a structural equation model.
+    """
     @staticmethod
     def _get_fixed_mask(param_df, exclude_null=True):
+        """
+        Generates a boolean mask based on the 'fixed' column of param_df. The mask
+        indicates which parameters are fixed. If exclude_null is True, the mask also
+        excludes any rows where 'fixedval' is null.
+
+        Parameters
+        ----------
+        param_df : pandas.DataFrame
+            A DataFrame representing the parameter table.
+        exclude_null : bool, optional
+            Whether to exclude rows where 'fixedval' is null, by default True.
+
+        Returns
+        -------
+        pandas.Series
+            A boolean mask indicating which parameters are fixed.
+        """
         mask = param_df["fixed"]
         if exclude_null:
             mask = mask & ~param_df["fixedval"].isnull()
@@ -22,6 +42,25 @@ class FixedValueManager:
 
     @staticmethod
     def _get_cov_mask(param_df, var1, var2):
+        """
+        Generates a boolean mask indicating rows in param_df where the left-hand
+        side (lhs) and right-hand side (rhs) variables correspond to var1 and var2
+        (in any order), and the relationship (rel) is covariance (~~).
+
+        Parameters
+        ----------
+        param_df : pandas.DataFrame
+            A DataFrame representing the parameter table.
+        var1 : str
+            The first variable.
+        var2 : str
+            The second variable.
+
+        Returns
+        -------
+        pandas.Series
+            A boolean mask indicating where the covariance relationship between var1 and var2 exists.
+        """
         var1_var2_mask = (param_df["lhs"] == var1) & (param_df["rhs"] == var2)
         var2_var1_mask = (param_df["lhs"] == var2) & (param_df["rhs"] == var1)
         var1_var2_mask = (var1_var2_mask | var2_var1_mask) & (param_df["rel"] == "~~")
@@ -29,10 +68,45 @@ class FixedValueManager:
 
     @staticmethod
     def _get_mean_mask(param_df, var):
+        """
+        Generates a boolean mask indicating rows in param_df where the lhs variable
+        corresponds to var, rhs is 1, and the relationship (rel) is '~'.
+
+        Parameters
+        ----------
+        param_df : pandas.DataFrame
+            A DataFrame representing the parameter table.
+        var : str
+            The variable.
+
+        Returns
+        -------
+        pandas.Series
+            A boolean mask indicating where the mean relationship for var exists.
+        """
         return (param_df["lhs"] == var) & (param_df["rhs"] == "1") & (param_df["rel"] == "~")
 
     @staticmethod
     def _update_value(param_df, mask, value):
+        """
+        Updates 'fixedval' and 'fixed' columns of param_df using the provided mask
+        and value. It sets the 'fixedval' to the provided value and 'fixed' to True
+        where the mask is True.
+
+        Parameters
+        ----------
+        param_df : pandas.DataFrame
+            A DataFrame representing the parameter table.
+        mask : pandas.Series
+            A boolean mask indicating which rows to update.
+        value : float
+            The value to update 'fixedval' with.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Updated DataFrame representing the parameter table.
+        """
         if np.any(mask):
             param_df.loc[mask, "fixedval"] = value
             param_df.loc[mask, "fixed"] = True
@@ -40,6 +114,28 @@ class FixedValueManager:
 
     @staticmethod
     def _update_sample_stats(param_df, vars, sample_cov, sample_mean, group_mask=None):
+        """
+        Updates param_df with sample covariance and mean values for specified variables.
+        If group_mask is provided, the updates are limited to the specific group.
+
+        Parameters
+        ----------
+        param_df : pandas.DataFrame
+            A DataFrame representing the parameter table.
+        vars : list of str
+            List of variables for which sample statistics are to be updated.
+        sample_cov : pandas.DataFrame
+            DataFrame containing sample covariance values.
+        sample_mean : pandas.DataFrame
+            DataFrame containing sample mean values.
+        group_mask : pandas.Series, optional
+            A boolean mask indicating which group to update, by default None.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Updated DataFrame representing the parameter table.
+        """
         n_vars = len(vars)
         for j, k in list(zip(*tril_indices(n_vars))):
             varj, vark = vars[j], vars[k]
@@ -53,6 +149,20 @@ class FixedValueManager:
         return param_df
 
     def update_sample_stats(self, sample_stats=None):
+        """
+        Updates param_df with sample statistics (covariance and mean) for each group
+        of latent observed variables.
+
+        Parameters
+        ----------
+        sample_stats : ModelData, optional
+            Object containing sample statistics, by default None. If None, it uses
+            self.sample_stats.
+
+        Returns
+        -------
+        None
+        """
         sample_stats = self.sample_stats if sample_stats is None else sample_stats
         param_df = self.get_table()
         lav_order = self.get_lav_order()
@@ -70,6 +180,27 @@ class ParameterMapping:
 
     @staticmethod
     def _make_indexer(param_df, p, q, symmetries, mat_dims):
+        """
+        Constructs an indexer for each matrix of free parameters.
+
+        Parameters
+        ----------
+        param_df : pandas.DataFrame
+            Dataframe containing the matrix and parameter information.
+        p : int
+            Number of observed variables.
+        q : int
+            Number of latent variables.
+        symmetries : list of bool
+            List indicating whether each matrix is symmetric or not.
+        mat_dims : list of tuple
+            List of dimensions for each matrix.
+
+        Returns
+        -------
+        indexer : BlockFlattenedArrays
+            Indexer for each matrix of free parameters.
+        """
         indexers = []
         for i in range(6):
             sub_table = param_df.loc[(param_df["mat"] == i) & (param_df["free"] != 0)]
@@ -81,6 +212,10 @@ class ParameterMapping:
         return indexer
 
     def make_indexer(self):
+        """
+        Constructs an indexer for the main group of parameters in the model.
+        The indexer is stored in the `indexer` attribute of the instance.
+        """
         param_df = self.get_table()
         group_param_df = param_df.loc[param_df["group"] == 0]
         self.indexer = self._make_indexer(group_param_df, self.n_obs_vars, self.n_lav_vars,
@@ -88,6 +223,33 @@ class ParameterMapping:
 
     @staticmethod
     def _make_parameter_templates(param_df, p, q, symmetries, mat_dims, var_names, ov_order, lv_order):
+        """
+        Constructs templates for parameters in each matrix.
+
+        Parameters
+        ----------
+        param_df : pandas.DataFrame
+            Dataframe containing the matrix and parameter information.
+        p : int
+            Number of observed variables.
+        q : int
+            Number of latent variables.
+        symmetries : list of bool
+            List indicating whether each matrix is symmetric or not.
+        mat_dims : list of tuple
+            List of dimensions for each matrix.
+        var_names : dict
+            Dictionary of variable names.
+        ov_order : dict
+            Ordering of observed variables.
+        lv_order : dict
+            Ordering of latent variables.
+
+        Returns
+        -------
+        template : numpy.ndarray
+            Concatenated list of parameter templates for each matrix.
+        """
         template = []
         for i in range(6):
             sub_table = param_df.loc[param_df["mat"] == i]
@@ -121,6 +283,10 @@ class ParameterMapping:
         return template
 
     def make_parameter_templates(self):
+        """
+        Constructs parameter templates for each group of parameters in the model.
+        The templates are stored in the `parameter_templates` attribute of the instance.
+        """
         self.parameter_templates = {}
         param_df = self.get_table()
         for i in range(self.n_groups):
