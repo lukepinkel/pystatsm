@@ -30,15 +30,15 @@ class ParameterTable(FormulaParser, ModelBuilder, ModelMatrixMapper, VariableOrd
         self.set_lav_order(kwargs.get("lav_order", None))  # from VariableOrder
         self.set_obs_order(kwargs.get("obs_order", None))  # from VariableOrder
         if kwargs.get("add_default_params", True):
-            self.add_default_params(**kwargs)  # from ModelBuilder
+            self.add_default_params(**kwargs)              # from ModelBuilder
         if kwargs.get("assign_matrices", True):
-            self.assign_matrices()  # from ModelMatrixMapper
+            self.assign_matrices()                         # from ModelMatrixMapper
         if kwargs.get("sort_table", True):
-            self.sort_table()  # from VariableOrder
+            self.sort_table()                              # from VariableOrder
         if kwargs.get("index_parameters", True):
-            self.index_params()  # from this class
+            self.index_params()                            # from this class
         if kwargs.get("add_bounds", True):
-            self.add_bounds()  # from this class
+            self.add_bounds()                              # from this class
 
     def set_table(self, param_df):
         self.param_df = param_df
