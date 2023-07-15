@@ -302,12 +302,68 @@ class ParameterMapping:
 
 
 class ModelBase(ParameterTable, FixedValueManager, ParameterMapping):
+    """
+    Base class for models. Inherits from ParameterTable with FixedValueManager
+    and ParameterMapping mixins. Initialization creates a copy of param_df (get_table
+    method) and free_df (get_free_table method) attributes.
+
+    """
     def __init__(self, formula, **kwargs):
+        """"
+        Parameters
+        ----------
+            formula : str
+                Model formula.
+
+        Required Methods
+        ----------------
+            get_table : returns a copy of the parameter table. Inherited from ParameterTable.
+            get_free_table : returns a copy of the free parameter table. Inherited from ParameterTable.
+
+        Added Attributes
+        ----------------
+            _param_df : pandas.DataFrame
+                Copy of the parameter table.
+            _free_df : pandas.DataFrame
+                Copy of the free parameter table.
+        """
         super().__init__(formula, **kwargs)
         self._param_df = self.get_table().copy()
         self._free_df = self.get_free_table().copy()
 
     def duplicate_parameter_table(self, n_groups=None):
+        """
+        Duplicates the parameter table n_groups times. The group column is
+        added to the table and the label column is updated to reflect the group
+        number. Specifically the label column is updated to be the lhs, rel, rhs
+        columns concatenated with a space separator.
+
+        Parameters
+        ----------
+        n_groups
+
+        Returns
+        -------
+        None
+
+        Required Methods
+        ----------------
+            get_table : returns a copy of the parameter table. Inherited from ParameterTable.
+            set_table : sets the parameter table. Inherited from ParameterTable.
+
+        Required Attributes
+        -------------------
+            n_groups : int
+                Number of groups in the model.
+            _param_df : pandas.DataFrame
+                Copy of the parameter table.
+
+        Modified Attributes
+        -------------------
+            param_df : pandas.DataFrame
+                Parameter table with group column added and label column updated.
+
+        """
         param_df = self._param_df.copy()
         n_groups = self.n_groups if n_groups is None else n_groups
         keys = range(n_groups)
@@ -318,6 +374,53 @@ class ModelBase(ParameterTable, FixedValueManager, ParameterMapping):
         self.set_table(param_df)
 
     def reduce_parameters(self, shared=None):
+        """
+        Reduces the number of parameters in the model by sharing parameters
+        Parameters
+        ----------
+        shared : subscriptable, optional
+            Subscriptable object returning of booleans indicating whether
+            the parameter matrix is shared. Default is None which sets all
+            matrices to be shared.
+
+
+        Returns
+        -------
+        None
+
+        Required Methods
+        ----------------
+            get_free_table : returns a copy of the free parameter table. Inherited from ParameterTable.
+
+        Added Attributes
+        ----------------
+            shared : subscriptable
+                Subscriptable object returning of booleans indicating whether
+                the parameter matrix is shared.
+            dfree_dtheta: sparse array
+                Derivative of free parameters with respect to the reduced
+                parameter vector.
+            _unique_locs : np.ndarray
+                Unique locations of the free parameters in the reduced parameter
+                vector.
+            _first_locs : np.ndarray
+                First locations of the free parameters in the reduced parameter
+                vector.
+            free : np.ndarray
+                Reduced parameter vector.
+            dfree_dgroup : dict of sparse arrays
+                Derivative of free parameters with respect to the group
+                parameter vector.
+            free_to_group_free pd.DataFrame
+                Mapping of free parameters to group free parameters.
+            n_total_free : int
+                Total number of free parameters.
+
+        Modified Attributes
+        -------------------
+            free_df : pandas.DataFrame
+
+        """
         shared = [True] * 6 if shared is None else shared
         self.shared = shared
         ftable = self.get_free_table()
