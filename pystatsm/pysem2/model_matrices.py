@@ -1,9 +1,36 @@
 
 
 class ModelMatrixMapper:
+    """
+    The ModelMatrixMapper is a class that is responsible for assigning parameters to matrices in the model.
+    It operates by taking a dataframe containing model parameters, and using information about the relationships
+    between variables, the class determines to which matrix a parameter belongs and assigns the row and column
+    for each parameter in that matrix.
 
+    This class can be used to manipulate or inspect the matrices of the model, especially in situations
+    where matrix-specific operations need to be performed.
+    """
     @staticmethod
     def get_matrix_assignments(param_df, var_names):
+        """
+        Assigns parameters to matrices in the model based on the information contained in the param_df.
+
+        Parameters
+        ----------
+        param_df: pandas DataFrame
+            DataFrame containing parameters of the model. The DataFrame should contain columns "rel", "rhs",
+            "lhs" and "dummy" which represent the relationship type, right-hand side and left-hand side of
+            the equation and whether it's a dummy variable or not respectively.
+
+        var_names: dict
+            A dictionary containing lists of names for latent (lav) and observed (obs) variables in the model.
+
+        Returns
+        -------
+        dict
+            A dictionary where keys are integers representing matrix numbers and values are boolean indexing
+            arrays indicating which parameters belong to the corresponding matrix.
+        """
         lav_names, obs_names = var_names["lav"], var_names["obs"]
         mats = {}
         mes = param_df["rel"] == "=~"
@@ -37,6 +64,25 @@ class ModelMatrixMapper:
 
     @staticmethod
     def _assign_matrices(param_df, ix):
+        """
+        Assigns parameters to matrices and determines the row and column of each parameter in the assigned matrix.
+
+        Parameters
+        ----------
+        param_df: pandas DataFrame
+            DataFrame containing parameters of the model. The DataFrame should contain columns "rel", "rhs" and
+            "lhs" which represent the relationship type, right-hand side and left-hand side of the equation respectively.
+
+        ix: dict
+            A dictionary where keys are integers representing matrix numbers and values are boolean indexing arrays
+            indicating which parameters belong to the corresponding matrix.
+
+        Returns
+        -------
+        pandas DataFrame
+            The original param_df but with additional columns "mat", "r", and "c" indicating the matrix assignment,
+            and the row and column location of each parameter in the corresponding matrix respectively.
+        """
         param_df["mat"] = 0
         param_df["mat"] = param_df["mat"].astype(int)
         for i in range(6):
