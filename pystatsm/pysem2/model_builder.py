@@ -12,11 +12,30 @@ class ModelBuilder:
 
     def add_default_params(self, **kwargs):
         """
-        Adds variances, covariances, and means to parameter table and fixes first latent indicator
+        Adds default parameters to param_df. Default parameter modifications are:
+        - fixing of the first loading to 1.0 (determined by keyword argument fix_first)
+        - variances for all latent variables (determined by keword argument fix_lv_var)
+        - covariances for all latent exogenous variables  (determined by keyword argument lvx_cov)
+        - covariances for all observed variables (determined by keyword argument y_cov)
+        - means for all latent variables (determined by keyword argument fix_lv_mean)
+        - latent dummies for all latent variables
+
+        Parameters
+        ----------
+        fix_first : bool, optional
+            whether to fix the first loading to 1.0. Default is True.
+        fix_lv_var : bool, optional
+            whether to fix the latent variable variance to 1.0. Default is False.
+        lvx_cov : bool, optional
+            whether to include covariances for all latent exogenous variables. Default is False.
+        y_cov : bool, optional
+            whether to include covariances for all observed variables. Default is True.
+        fix_lv_mean : bool, optional
+            whether to fix the latent variable mean to 0.0. Default is True.
         """
         self.add_variances(fix_lv_cov=kwargs.get('fix_lv_var', False))
         self.fix_first()
-        self.add_covariances(lvx_cov=~kwargs.get('fix_lv_cov', False), y_cov=~kwargs.get('y_cov', True))
+        self.add_covariances(lvx_cov=~kwargs.get('lvx_cov', False), y_cov=~kwargs.get('y_cov', True))
         self.add_means(fix_lv_mean=kwargs.get('fix_lv_mean', True))
         self.add_latent_dummies()
 
@@ -46,7 +65,21 @@ class ModelBuilder:
 
     def add_variances(self, fix_lv_cov=False):
         """
-        Adds variances to parameter table.
+        Adds variances to the parameter table.
+
+        Parameters
+        ----------
+        fix_lv_cov : bool
+            whether to fix the latent variable variance to 1.0
+
+        Required attributes
+        -------------------
+        param_df: pd.DataFrame
+        var_names: dict
+
+        Modified attributes
+        -------------------
+        param_df: pd.DataFrame
         """
         var_names, param_df = self.var_names, self.param_df
         vars_to_add = self.check_missing_variances(var_names["all"])
@@ -156,9 +189,14 @@ class ModelBuilder:
         fix_lv_mean : bool
             whether to fix means of latent variables to zero
 
-        Returns
-        -------
-        None
+        Required attributes
+        -------------------
+        param_df: pd.DataFrame
+        var_names: dict
+
+        Modified attributes
+        -------------------
+        param_df: pd.DataFrame
         """
         var_names, param_df = self.var_names, self.param_df
         list_of_param_dicts = param_df.to_dict(orient="records")
@@ -176,6 +214,20 @@ class ModelBuilder:
         self.param_df = pd.DataFrame(list_of_param_dicts)
 
     def check_latent_dummies(self, vars_to_check, param_df_to_check=None):
+        """
+        Checks for missing latent dummies in the parameter table.
+        Parameters
+        ----------
+        vars_to_check: set
+            set of variables to check for latent dummies
+        param_df_to_check: pd.DataFrame
+            parameter table to check for latent dummies
+
+        Returns
+        -------
+        vars_to_add: set
+            set of variables whose latent dummies are missing
+        """
         param_df = self.param_df if param_df_to_check is None else param_df_to_check
         lav_names, obs_names = self.var_names["lav"], self.var_names["obs"]
         mes = param_df["rel"] == "=~"
@@ -195,6 +247,17 @@ class ModelBuilder:
         return vars_to_add
 
     def add_latent_dummies(self):
+        """
+        Adds latent dummies to parameter table.
+        Required attributes
+        -------------------
+        param_df: pd.DataFrame
+        var_names: dict
+
+        Modified attributes
+        -------------------
+        param_df: pd.DataFrame
+        """
         param_df = self.param_df
         vars_to_check = self.var_names["lvo"]
         vars_to_add = self.check_latent_dummies(vars_to_check)
@@ -209,9 +272,14 @@ class ModelBuilder:
         """
         Fixes the first loading of each latent variable to 1.0.
 
-        Returns
-        -------
-        None
+        Required attributes
+        -------------------
+        param_df: pd.DataFrame
+        var_names: dict
+
+        Modified attributes
+        -------------------
+        param_df: pd.DataFrame
         """
         var_names, param_df = self.var_names, self.param_df
         ind1 = (param_df["rel"] == "=~") & (
