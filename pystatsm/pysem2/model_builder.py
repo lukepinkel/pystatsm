@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
 
-from ..utilities.indexing_utils import tril_indices
 from .sort_key import _default_sort_key
+from ..utilities.indexing_utils import tril_indices
 
 
 class ModelBuilder:
