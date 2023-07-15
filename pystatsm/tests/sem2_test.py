@@ -342,12 +342,12 @@ def test_sem():
     x = model.theta.copy() * 1.2 + 0.02
     model._check_complex = True
     grad_exact = model.gradient(x)
-    grad_approx = fo_fc_cs(model.func, x)
+    grad_approx = fo_fc_cs(model.fit_func, x)
     # np.abs(grad_exact-grad_approx).max()
     assert (np.allclose(grad_exact, grad_approx, atol=1e-4, rtol=1e-4))
 
     grad_exact = model.gradient(x, per_group=True)
-    grad_approx = jac_cs(lambda x: model.func(x, per_group=True), x)
+    grad_approx = jac_cs(lambda x: model.fit_func(x, per_group=True), x)
     assert (np.allclose(grad_exact, grad_approx, atol=1e-4, rtol=1e-4))
 
     hess_exact = model.hessian(x)
