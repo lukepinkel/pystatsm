@@ -239,6 +239,30 @@ def jac_approx2(f, x, eps=1e-4, tol=None, d=1e-4, nr=6, v=2):
         A = (A[1:(nr-i)]*t - A[:(nr-i-1)]) / (t-1.0)
     return A
 
+def jac_approx3(F, X, eps=1e-4, tol=None, d=1e-4, args=(), progress_bar=False):
+    def Func(X, args=()):
+        return np.atleast_1d(F(X, *args))
+    
+    X = np.asarray(X)
+    Y = np.asarray(Func(X, *args))
+    
+    tol = np.finfo(float).eps**(1/3) if tol is None else tol
+    H = np.zeros_like(X)
+    J = np.zeros(Y.shape+X.shape)
+    
+    if progress_bar:
+        pbar = tqdm.tqdm(total=np.product(X.shape))
+        
+    for jj in np.ndindex(X.shape):
+        H[jj] = (np.abs(d * X[jj]) + eps * (np.abs(X[jj]) < tol))
+        J[(Ellipsis,)+jj] =  Func(X+H * 1j, *args).imag / H[jj]
+        H[jj] = 0.0
+        if progress_bar:
+            pbar.update(1)
+    if progress_bar:
+        pbar.close()
+    return J
+
 def hess_approx(F, X, eps=1e-4, tol=None, d=1e-4, args=(), progress_bar=False,  mask=None):
     def Func(X, args=()):
         return np.atleast_1d(F(X, *args))
