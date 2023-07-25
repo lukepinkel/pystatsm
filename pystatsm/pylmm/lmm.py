@@ -10,6 +10,7 @@ import patsy
 import numpy as np
 import scipy as sp
 import scipy.sparse as sps
+from scipy.linalg.lapack import dtrtri
 from .ranef_terms import RandomEffects, RandomEffectTerm
 from ..utilities.linalg_operations import invech_chol, invech, vech
 from ..utilities.numerical_derivs import fo_fc_cd, so_fc_cd, so_gc_cd
@@ -19,7 +20,8 @@ from sksparse.cholmod import cholesky, cholesky_AAt
 import pandas as pd
 
 
-
+def sparsity(sparse_arr):
+    return sparse_arr.nnz / np.prod(sparse_arr.shape)
 
 class LMM(object):
     
@@ -237,8 +239,7 @@ class LMM(object):
         H = A + B
         return H
     
-    
-    def gradient(self, theta, reml=True, use_sw=False):
+    def _gradient_old(self, theta, reml=True, use_sw=False):
         s = theta[-1]
         W = self.R / s
         Ginv = self.update_gmat(theta, inverse=True)
@@ -279,6 +280,143 @@ class LMM(object):
 
         for dR in [self.dR]:
             g1 = W.diagonal().sum() - (M.dot((RZ.T).dot(dR).dot(RZ))).diagonal().sum()
+            g2 = Py.T.dot(Py)
+            if reml:
+                g3 = np.trace(XtWX_inv.dot(WX.T.dot(WX)))
+            else:
+                g3 = 0
+            gi = g1 - g2 - g3
+            grad.append(gi)
+        grad = np.concatenate(grad)
+        grad = np.asarray(grad).reshape(-1)
+        return grad
+    
+    def _gradient_dense(self, theta, reml=True, use_ws=False):
+        s = theta[-1]
+        W = self.R / s
+        Ginv = self.update_gmat(theta, inverse=True)
+        X, Z, y = self.X, self.Z, self.y
+        RZ, RX, Ry = W.dot(Z), W.dot(X), W.dot(y)
+        ZtRZ, XtRX, ZtRX, ZtRy = RZ.T.dot(Z), X.T.dot(RX), RZ.T.dot(X), RZ.T.dot(y)
+    
+        Q = Ginv + ZtRZ
+        Q_chol = sp.linalg.cholesky(Q.toarray(), lower=True)
+        Q_cinv, _ = dtrtri(Q_chol, lower=1)
+        M = Q_cinv.T.dot(Q_cinv)
+        
+        ZtRZ = ZtRZ.toarray() 
+        ZtWZ = ZtRZ - ZtRZ.dot(M).dot(ZtRZ)
+                    
+        MZtRX = M.dot(ZtRX)
+        
+        XtWX = XtRX - ZtRX.T.dot(MZtRX)
+        XtWX_inv = np.linalg.inv(XtWX)
+        ZtWX = ZtRX - ZtRZ.dot(MZtRX)
+        WX = RX - RZ.dot(MZtRX)
+        U = XtWX_inv.dot(WX.T)
+        Vy = Ry - RZ.dot(M.dot(ZtRy))
+        Py = Vy - WX.dot(U.dot(y))
+        ZtPy = Z.T.dot(Py)
+        grad = []
+        for i in range(self.levels):
+            ind = self.jac_inds[i]
+            ZtWZi = ZtWZ[ind][:, ind]
+            ZtWXi = ZtWX[ind]
+            ZtPyi = ZtPy[ind]
+            for dGdi in self.random_effects.terms[i].G_deriv:
+                g1 = dGdi.dot(ZtWZi).diagonal().sum() 
+                g2 = ZtPyi.T.dot(dGdi.dot(ZtPyi))
+                if reml:
+                    g3 = np.trace(XtWX_inv.dot(ZtWXi.T.dot(dGdi.dot(ZtWXi))))
+                else:
+                    g3 = 0
+                gi = g1 - g2 - g3
+                grad.append(gi)
+
+        for dR in [self.dR]:
+            RZt_dR_RZ = RZ.T.dot(dR).dot(RZ)
+            g1 = W.diagonal().sum() - (RZt_dR_RZ.T.dot(M.T)).diagonal().sum()
+            g2 = Py.T.dot(Py)
+            if reml:
+                g3 = np.trace(XtWX_inv.dot(WX.T.dot(WX)))
+            else:
+                g3 = 0
+            gi = g1 - g2 - g3
+            grad.append(gi)
+        grad = np.concatenate(grad)
+        grad = np.asarray(grad).reshape(-1)
+        return grad
+    
+    def gradient(self, theta, reml=True, use_sw=False, assume_sparse_inverse=True):
+        s = theta[-1]
+        W = self.R / s
+        Ginv = self.update_gmat(theta, inverse=True)
+        X, Z, y = self.X, self.Z, self.y
+        RZ, RX, Ry = W.dot(Z), W.dot(X), W.dot(y)
+        ZtRZ, XtRX, ZtRX, ZtRy = RZ.T.dot(Z), X.T.dot(RX), RZ.T.dot(X), RZ.T.dot(y)
+        Q = Ginv + ZtRZ
+        ztrz_sparse = sparsity(ZtRZ) < 0.05
+        if not ztrz_sparse:
+            ZtRZ = ZtRZ.toarray()
+        
+        if assume_sparse_inverse and ztrz_sparse:
+            M = cholesky(Q).inv()
+            m_sparse = sparsity(M) < 0.05
+            if not m_sparse:
+                M = M.toarray()
+        else:
+            Q_chol = sp.linalg.cholesky(Q.toarray(), lower=True)
+            Q_cinv, _ = dtrtri(Q_chol, lower=1)
+            M = Q_cinv.T.dot(Q_cinv)
+            m_sparse = False
+        
+        if m_sparse:
+            if ztrz_sparse:
+                ZtWZ = ZtRZ - ZtRZ.dot(M).dot(ZtRZ)
+            else:
+                ZtWZ = ZtRZ - ZtRZ.dot(M.dot(ZtRZ))
+        else:
+            if ztrz_sparse:
+                ZtWZ = ZtRZ - (ZtRZ.T.dot((ZtRZ.dot(M)).T)).T
+            else:                
+                ZtWZ = ZtRZ - ZtRZ.dot(M).dot(ZtRZ)
+                    
+        MZtRX = M.dot(ZtRX)
+        
+        XtWX = XtRX - ZtRX.T.dot(MZtRX)
+        XtWX_inv = np.linalg.inv(XtWX)
+        ZtWX = ZtRX - ZtRZ.dot(MZtRX)
+        WX = RX - RZ.dot(MZtRX)
+        U = XtWX_inv.dot(WX.T)
+        Vy = Ry - RZ.dot(M.dot(ZtRy))
+        Py = Vy - WX.dot(U.dot(y))
+        ZtPy = Z.T.dot(Py)
+        grad = []
+        for i in range(self.levels):
+            ind = self.jac_inds[i]
+            ZtWZi = ZtWZ[ind][:, ind]
+            ZtWXi = ZtWX[ind]
+            ZtPyi = ZtPy[ind]
+            for dGdi in self.random_effects.terms[i].G_deriv:
+                g1 = dGdi.dot(ZtWZi).diagonal().sum() 
+                g2 = ZtPyi.T.dot(dGdi.dot(ZtPyi))
+                if reml:
+                    g3 = np.trace(XtWX_inv.dot(ZtWXi.T.dot(dGdi.dot(ZtWXi))))
+                else:
+                    g3 = 0
+                gi = g1 - g2 - g3
+                grad.append(gi)
+
+        for dR in [self.dR]:
+            RZt_dR_RZ = RZ.T.dot(dR).dot(RZ)
+            if sparsity(RZt_dR_RZ) < 0.05:
+                if m_sparse:
+                    g1 = W.diagonal().sum() - (M.dot(RZt_dR_RZ)).diagonal().sum()
+                else:
+                    g1 = W.diagonal().sum() - (RZt_dR_RZ.T.dot(M.T)).diagonal().sum()
+            else:
+                RZt_dR_RZ = RZt_dR_RZ.toarray()
+                g1 = W.diagonal().sum() - (M.dot(RZt_dR_RZ)).diagonal().sum()
             g2 = Py.T.dot(Py)
             if reml:
                 g3 = np.trace(XtWX_inv.dot(WX.T.dot(WX)))
