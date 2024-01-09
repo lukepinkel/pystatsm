@@ -15,6 +15,19 @@ from ..utilities.special_mats import nmat, lmat, kmat
 
 
 def get_d2_chol(p):
+    """
+    Compute the Hessian of the cholesky factor of a covariance matrix.
+
+    Parameters
+    ----------
+    p : int
+        Dimension of the covariance matrix.
+
+    Returns
+    -------
+    H : ndarray
+        Hessian of the cholesky factor, has shape (p*(p+1)//2, p, p).
+    """
     Lp = lmat(p).A
     T = np.zeros((p, p))
     H = []
@@ -28,12 +41,75 @@ def get_d2_chol(p):
     return H
 
 class RandomEffectTerm(object):
-    
+    """
+    Term for a random effect in a mixed model.
+
+    Parameters
+    ----------
+    re_form : str
+        Formula for the random effect.
+    gr_form : str
+        Grouping variable.
+    data : DataFrame
+        Data used for the design matrices.
+
+    Attributes
+    ----------
+    G_deriv : list of csc_matrix
+        Derivative of the G matrix with respect to the parameters, has length m.
+    L_deriv : list of csc_matrix
+        Derivative of the L matrix with respect to the parameters, has length m.
+    re_form : str
+        Formula for the random effect.
+    gr_form : str
+        Grouping variable.
+    Xi : ndarray
+        Design matrix for the random effect, has shape (n, p).
+    j_rows : ndarray
+        Array for the rows of the design matrix, has length n.
+    j_cols : ndarray
+        Array for the columns of the design matrix, has length n.
+    z_rows : ndarray
+        Array for the rows of the Z matrix, has length n*p.
+    z_cols : ndarray
+        Array for the columns of the Z matrix, has length n*p.
+    g_rows : ndarray
+        Array for the rows of the G matrix, has length p*q*p.
+    g_cols : ndarray
+        Array for the columns of the G matrix, has length p*q*p.
+    l_rows : ndarray
+        Array for the rows of the L matrix, has length m*q.
+    l_cols : ndarray
+        Array for the columns of the L matrix, has length m*q.
+    n_group : int
+        Number of groups.
+    n_rvars : int
+        Number of random variables.
+    n_param : int
+        Number of parameters.
+    g_size : int
+        Size of the G matrix.
+    """
     def __init__(self, re_form, gr_form, data):
+        # re_form: formula for the random effects
+        # gr_form: formula for the grouping variable
+        # data: dataframe containing the data
+        
+        # Create a design matrix for the random effect term using the provided formula 're_form' and the data.
+        # The design matrix Xi is a 2D array (shape: n x p) that contains the values of the random effect variables for each observation.
         Xi = patsy.dmatrix(re_form, data=data, return_type='dataframe').values
+        
+        # Dummy encode the group variable using the provided formula 'gr_form' and the data.
+        # The function _dummy_encode returns row indices, column indices and the number of groups (q).
         j_rows, j_cols, q =  _dummy_encode(data[gr_form])
+        
+        # The row indices of the group variable are sorted to maintain the original order of groups in the data.
+        # This is crucial because the subsequent operations rely on this specific order (C, row-major, or lexicographical order) to correctly map the random effects to their respective groups.
         j_sort = np.argsort(j_rows)
+        
+        # Get the number of observations (n) and random effect variables (p) from the shape of the design matrix Xi.
         n, p = Xi.shape
+        
         z_rows = np.repeat(np.arange(n), p)
         z_cols = np.repeat(j_cols[j_sort] * p, p) + np.tile(np.arange(p), n)
         
@@ -71,6 +147,60 @@ class RandomEffectTerm(object):
 
 
 class RandomEffects(object):
+    """
+    Random effects for a mixed model.
+
+    Parameters
+    ----------
+    terms : list of RandomEffectTerm
+        Terms for the random effects in the model.
+
+    Attributes
+    ----------
+    Z : csc_matrix
+        Design matrix for the random effects, has shape (n_rows, n_cols).
+    G : csc_matrix
+        G matrix for the random effects, has shape (n_cols, n_cols).
+    L : csc_matrix
+        L matrix for the random effects, has shape (n_cols, n_cols).
+    terms : list of RandomEffectTerm
+        Terms for the random effects in the model.
+    theta : ndarray
+        Parameters for the random effects, has length n_par.
+    t_inds : list of ndarray
+        Indices for the parameters, has length levels+1.
+    l_inds : list of ndarray
+        Indices for the L matrix, has length levels.
+    g_inds : list of ndarray
+        Indices for the G matrix, has length levels.
+    jac_inds : list of ndarray
+        Indices for the Jacobian, has length levels.
+    g_data : ndarray
+        Data for the G matrix, has length n_cols*n_cols.
+    l_data : ndarray
+        Data for the L matrix, has length n_cols*n_cols.
+    group_sizes : list of int
+        Sizes of the groups, has length levels.
+    n_pars : list of int
+        Number of parameters for each term, has length levels.
+    n_rvars : list of int
+        Number of random variables for each term, has length levels.
+    n_par : int
+        Total number of parameters.
+    levels : int
+        Number of levels in the model.
+    H : ndarray
+        Hessian matrix, has shape (n_par, n_par).
+    elim_mats : dict of ndarray
+        Elimination matrices for each term, has length levels.
+    symm_mats : dict of ndarray
+        Symmetry matrices for each term, has length levels.
+    iden_mats : dict of ndarray
+        Identity matrices for each term, has length levels.
+    d2g_dchol : dict of ndarray
+        Second derivative of the G matrix with respect to the cholesky factor for each term, has length levels.
+    """
+
     
     def __init__(self, terms):
         z_offset, g_offset, l_offset, t_offset, cov_offset = 0, 0, 0, 0, 0
@@ -154,6 +284,14 @@ class RandomEffects(object):
         
             
     def get_u_indices(self): 
+        """
+        Get the indices for the random effects.
+
+        Returns
+        -------
+        u_indices : dict of ndarray
+            Indices for the random effects for each term.
+        """
         u_indices = {}
         start=0
         for i in range(self.levels):
@@ -163,6 +301,14 @@ class RandomEffects(object):
         return u_indices
     
     def wishart_info(self):
+        """
+        Get the Wishart information for the random effects.
+
+        Returns
+        -------
+        ws : dict of dict
+            Wishart information for each term.
+        """
         ws = {}
         for i in range(self.levels):
             ws[i] = {}
