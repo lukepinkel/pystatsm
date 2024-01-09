@@ -501,4 +501,10 @@ class OLS(RegressionMixin, LikelihoodModel):
             pbar.close()
         return p_values_fwer, p_values
     
+    def predict(self, X=None, beta=None):
+        X = self.X if X is None else X
+        beta = self.beta if beta is None else beta
+        yhat = np.dot(X, beta)
+        return yhat
+    
     
