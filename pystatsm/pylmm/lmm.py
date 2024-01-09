@@ -365,7 +365,7 @@ class LMM(object):
             if not m_sparse:
                 M = M.toarray()
         else:
-            Q_chol = sp.linalg.cholesky(Q.toarray(), lower=True)
+            Q_chol = sp.linalg.cholesky(Q.toarray(), lower=True, check_finite=False)
             Q_cinv, _ = dtrtri(Q_chol, lower=1)
             M = Q_cinv.T.dot(Q_cinv)
             m_sparse = False
