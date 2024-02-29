@@ -152,7 +152,7 @@ class LinearModelSim(object):
         terms = re.split("[+]", formula)
         x_vars = set([y for x in terms for y in re.split("[:]", x)])
         x_vars = set([y for x in x_vars for y in re.split("[*]", x)])
-        for match in re.findall("C\([^)]+\)", formula):
+        for match in set(re.findall("C\([^)]+\)", formula)):
           x_vars.remove(match)
         cat_terms = re.findall("(?<=C[(])(.*?)(?=[)])", formula)
         for x in cat_terms:
