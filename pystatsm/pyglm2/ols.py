@@ -9,6 +9,7 @@ import tqdm
 import numba
 import numpy as np
 import scipy as sp
+import pandas as pd
 from .regression_model import RegressionMixin
 from .likelihood_model import LikelihoodModel
 from ..utilities import output
@@ -301,6 +302,41 @@ class OLS(RegressionMixin, LikelihoodModel):
                                           list(self.xcols)+["log_scale"],
                                           )
         self.params_labels = list(self.xcols)+["log_scale"]
+    
+    def fit(self, **kwargs):
+        self._fit(**kwargs)
+        self.yhat = self.predict()
+        self.ymean = np.mean(self.y)
+        resids = self.y - self.yhat
+        dfr = self.n - self.p
+        dfm = self.p - 1
+        dft = self.n - 1
+        
+        ssr = np.sum(resids**2)
+        ssm = np.sum((self.yhat - self.ymean)**2)
+        sst = np.sum((self.y - self.ymean)**2)
+        
+        msr = ssr / dfr
+        msm = ssm / dfm
+        mst = sst / dft
+        
+        rsquared = 1.0 - ssr / sst
+        rsquared_adj = 1.0 - (msr / mst)
+        
+        fvalue = msm / msr
+        fpval = sp.stats.f(dfm, dfr).sf(fvalue)
+        
+        self.sumstats = pd.DataFrame([[rsquared, '-'], 
+                                      [rsquared_adj, '-'],
+                                      [fvalue, fpval]])
+        self.sumstats.index =['R2', 'R2 Adj', 'F test']
+        self.sumstats.columns = ['Statistic', 'P']
+        ssq_ind = ['Residuals','Model',' Total']
+        ssq_col = ['Sum Square', 'Degrees of Freedom', 'Mean Square']
+        self.ssq = pd.DataFrame([[ssr, dfr, msr], 
+                                 [ssm, dfm, msm],
+                                 [sst, dft, mst]], index=ssq_ind, columns=ssq_col)
+        
 
     @staticmethod
     def _get_coef_constrained(params, sse, data, C, d=None, L=None, Linv=None):
