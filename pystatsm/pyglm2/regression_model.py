@@ -370,7 +370,7 @@ class RegressionMixin(object):
         
     @staticmethod
     def _process_data(formula=None, data=None, X=None, y=None, data_class=None,
-                      default_varname='x', *args, **kwargs):
+                      default_varname='x', flatten_y=True, *args, **kwargs):
         """
         Process input data for the regression model.
     
@@ -409,7 +409,7 @@ class RegressionMixin(object):
             model_data = data_class(*((*X,)+args+(y,)))
         
         if np.ndim(model_data.data[-1]) == 2:
-            if model_data.data[-1].shape[1] == 1:
+            if model_data.data[-1].shape[1] == 1 and flatten_y:
                 model_data.flatten_y()
                 
         return model_data
