@@ -83,6 +83,7 @@ class LMM(object):
         self.symm_mats = random_effects.symm_mats
         self.iden_mats = random_effects.iden_mats
         self.d2g_dchol = random_effects.d2g_dchol
+        self.n_fe = self.p = self.X.shape[1]
         self.bounds = [(0, None) if x==1 else (None, None) for x in self.theta[:-1]]+[(None, None)]
         
             
@@ -128,8 +129,20 @@ class LMM(object):
         C = sp.sparse.block_diag([self.zero_mat1, G, self.zero_mat2])
         return C
     
-    def update_mme(self, Ginv, theta):
+    def _update_mme(self, Ginv, theta):
         M =  self.M.copy()/theta[-1]
+        C = sp.sparse.block_diag([self.zero_mat1, Ginv, self.zero_mat2])
+        M+=C
+        return M
+    
+    def update_mme2(self, Ginv, theta):
+        M =  self.M.copy()/theta[-1]
+        M[self.n_fe:-1, self.n_fe:-1] +=Ginv
+        return M
+    
+    def update_mme(self, Ginv, theta):
+        M = self.M.copy()
+        M.data /=theta[-1]
         C = sp.sparse.block_diag([self.zero_mat1, Ginv, self.zero_mat2])
         M+=C
         return M
