@@ -5,7 +5,9 @@ __pycache__/
 
 # C extensions
 *.so
-*.c
+ordered_indices.c
+cs_kron_wrapper.c
+
 
 # Distribution / packaging
 .Python
