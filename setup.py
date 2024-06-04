@@ -43,5 +43,5 @@ setuptools.setup(
         'patsy>=0.5.1',
         'pandas>=1.2.1'
         ],
-    ext_modules=cythonize(ext_modules)
+    ext_modules=cythonize(ext_modules, compiler_directives={'language_level' : "3"})
 )
