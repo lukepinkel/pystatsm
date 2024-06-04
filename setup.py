@@ -6,12 +6,21 @@ Created on Tue Oct  5 14:25:28 2021
 """
 
 import setuptools
+import numpy as np
 from Cython.Build import cythonize
 
-ext_modules = [setuptools.Extension("pystatsm.utilities.ordered_indices", 
-                                    ["pystatsm/utilities/ordered_indices.pyx"]
-                                    )
-               ]
+ext_modules = [
+    setuptools.Extension(
+        "pystatsm.utilities.ordered_indices", 
+        sources=["pystatsm/utilities/ordered_indices.pyx"]
+        ),
+    setuptools.Extension(
+        "pystatsm.utilities.cs_kron_wrapper",
+        sources=["pystatsm/utilities/cs_kron_wrapper.pyx", 
+                 "pystatsm/utilities/cs_kron.c"],
+        include_dirs=[np.get_include()],
+       )
+    ]
 
 setuptools.setup(
     name="pystatsm",
