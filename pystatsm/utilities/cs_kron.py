@@ -2,7 +2,7 @@ import scipy as sp
 import numpy as np
 import numba
 from .cs_kron_wrapper import cs_kron_wrapper
-
+from .indexing_utils import vech_inds_reverse
 
 
 
@@ -51,7 +51,16 @@ def _id_kron_csc(q, B):
     n, m = B.shape
     qm = q * m
     indptr = np.arange(0, qm+1) * n
-    indices =  np.tile(np.arange(n), qm) + np.repeat(np.arange(q) * n, n * m)
+    #row indices tiled 
+    # [0,...,n] [0,...,n] (qm times)
+    # m times for B and q times the blocks
+    row_tile = np.tile(np.arange(n), qm) 
+    # [0,n, 2n, ..., (q-1)n] are the block offsets 
+    # [0,,...,0] [n,...,n] [2n,...,2n]...
+    # nm times for each entry in each blocks B
+    block_offset = np.repeat(np.arange(q) * n, n * m)
+    indices =  row_tile + block_offset
+    
     indptr = indptr.astype(np.int32)
     indices = indices.astype(np.int32)
     data = np.tile(B.reshape(-1, order='F'), q)
@@ -123,3 +132,79 @@ def get_csc_eq(A, B):
         (np.allclose(A.indptr, B.indptr)))
     return b
     
+        
+def dkr_spsq_dnsq(A, p, r, return_array=True):
+    Anr, Anc = A.shape
+    Bnr, Bnc = p, p
+    Anz = A.nnz
+   
+    Ap, Ai, Ax = A.indptr, A.indices, A.data
+    row, col = vech_inds_reverse(r, p)
+    diag = row==col
+    
+    Cnr = Anr * p
+    Cnc = Anc * p
+    
+    Bp = np.zeros(p+1, dtype=np.int32)
+    Bp[row+1:]+=1
+    if diag:
+        Bi=np.array([row], dtype=np.int32)
+        Bx = np.array([1], dtype=np.double)
+        Bnz = 1
+    else:
+        Bp[col+1:]+=1
+        Bi = np.array([row, col], dtype=np.int32)
+        Bx = np.array([1, 1], dtype=np.double)
+        Bnz = 2
+        
+    Cnz = Anz * Bnz
+   
+    Cp = np.zeros(Cnc + 1, dtype=np.int32)
+    Ci = np.zeros(Cnz, dtype=np.int32)
+    Cx = np.zeros(Cnz, dtype=np.double)
+    cs_kron_wrapper(Ap, Ai, Ax, Anr, Anc, Bp, Bi, Bx, Bnr, Bnc, Cp, Ci, Cx)
+    if return_array:
+        ret = sp.sparse.csc_array((Cx, Ci, Cp), shape=(Cnr, Cnc))
+    else:
+        ret = (Cnr, Cnc) , Cnz, Cp, Ci, Cx
+    return ret
+        
+def dkr_spid_dnsq(q, p, r, return_array=True):
+    Anr, Anc = q, q
+    Bnr, Bnc = p, p
+    Anz = q
+   
+    Ap = np.arange(q+1, dtype=np.int32)
+    Ai = np.arange(q, dtype=np.int32)
+    Ax = np.ones(q, dtype=np.double)
+    row, col = vech_inds_reverse(r, p)
+    diag = row==col
+    
+    Cnr = Anr * p
+    Cnc = Anc * p
+    
+    Bp = np.zeros(p+1, dtype=np.int32)
+    Bp[row+1:]+=1
+    if diag:
+        Bi=np.array([row], dtype=np.int32)
+        Bx = np.array([1], dtype=np.double)
+        Bnz = 1
+    else:
+        Bp[col+1:]+=1
+        Bi = np.array([row, col], dtype=np.int32)
+        Bx = np.array([1, 1], dtype=np.double)
+        Bnz = 2
+        
+    Cnz = Anz * Bnz
+   
+    Cp = np.zeros(Cnc + 1, dtype=np.int32)
+    Ci = np.zeros(Cnz, dtype=np.int32)
+    Cx = np.zeros(Cnz, dtype=np.double)
+    cs_kron_wrapper(Ap, Ai, Ax, Anr, Anc, Bp, Bi, Bx, Bnr, Bnc, Cp, Ci, Cx)
+    if return_array:
+        ret = sp.sparse.csc_array((Cx, Ci, Cp), shape=(Cnr, Cnc))
+    else:
+        ret = (Cnr, Cnc) , Cnz, Cp, Ci, Cx
+    return ret
+        
+
