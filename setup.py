@@ -18,8 +18,13 @@ ext_modules = [
         "pystatsm.utilities.cs_kron_wrapper",
         sources=["pystatsm/utilities/cs_kron_wrapper.pyx", 
                  "pystatsm/utilities/cs_kron.c"],
-        include_dirs=[np.get_include()],
-       )
+        include_dirs=[np.get_include()]),
+    setuptools.Extension(
+        "pystatsm.utilities.coo_to_csc_wrapper",
+        sources=["pystatsm/utilities/coo_to_csc_wrapper.pyx", 
+                 "pystatsm/utilities/coo_to_csc.c"],
+        include_dirs=[np.get_include()]
+        )
     ]
 
 setuptools.setup(

@@ -3,6 +3,7 @@ import numpy as np
 import numba
 from .cs_kron_wrapper import cs_kron_wrapper
 from .indexing_utils import vech_inds_reverse
+from .coo_to_csc_wrapper import coo_to_csc_wrapper
 
 
 
@@ -207,4 +208,20 @@ def dkr_spid_dnsq(q, p, r, return_array=True):
         ret = (Cnr, Cnc) , Cnz, Cp, Ci, Cx
     return ret
         
+
+def coo_to_csc(row_inds, col_inds, data, shape, return_array=True):
+    Anr, Anc = shape
+    Anz =  data.shape[0] 
+    Ai, Aj = row_inds.astype(np.int32), col_inds.astype(np.int32)
+    Ax = data.astype(np.double)
+    Bp = np.zeros((Anc+1), dtype=np.int32)
+    Bi = np.zeros(Anz, dtype=np.int32)
+    Bx = np.zeros(Anz, dtype=np.double)
+    coo_to_csc_wrapper(Anr, Anc, Anz, Ai, Aj, Ax, Bp, Bi, Bx)
+    if return_array:
+        ret = sp.sparse.csc_array((Bx, Bi, Bp), shape=(Anr, Anc))
+    else:
+        ret = (Anr, Anc) , Anz, Bp, Bi, Bx
+    return ret
+    
 

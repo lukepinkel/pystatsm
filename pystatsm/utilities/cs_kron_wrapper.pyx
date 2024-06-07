@@ -20,3 +20,5 @@ def cs_kron_wrapper(np.ndarray[int, ndim=1, mode="c"] Ap not None,
     cs_kron(&Ap[0], &Ai[0], &Ax[0], Anr, Anc,
             &Bp[0], &Bi[0], &Bx[0], Bnr, Bnc,
             &Cp[0], &Ci[0], &Cx[0])
+    
+  

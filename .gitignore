@@ -7,7 +7,7 @@ __pycache__/
 *.so
 ordered_indices.c
 cs_kron_wrapper.c
-
+coo_to_csc_wrapper.c
 
 # Distribution / packaging
 .Python
