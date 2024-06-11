@@ -4,8 +4,18 @@ import numba
 from .cs_kron_wrapper import cs_kron_wrapper
 from .indexing_utils import vech_inds_reverse
 from .coo_to_csc_wrapper import coo_to_csc_wrapper
+from .csc_matmul import csc_matmul_wrapper
 
-
+def csc_matmul(A, B, C):
+    Anr, Anc = A.shape
+    Bnr, Bnc = B.shape
+    
+    Ap, Ai, Ax = A.indptr, A.indices, A.data
+    Bp, Bi, Bx = B.indptr, B.indices, B.data
+    Cp, Ci, Cx = C.indptr, C.indices, C.data
+    
+    csc_matmul_wrapper(Ap, Ai, Ax, Anr, Anc, Bp, Bi, Bx, Bnr, Bnc, Cp, Ci, Cx)
+    C.sort_indices()
 
 def fully_dense_to_csc(arr):
     n, m = arr.shape
