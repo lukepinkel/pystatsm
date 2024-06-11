@@ -132,3 +132,4 @@ dmypy.json
 .DS_Store?
 *.DS_Store
 *.py,cover
+pystatsm/utilities/csc_matmul_wrapper.c
