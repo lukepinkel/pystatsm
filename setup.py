@@ -23,6 +23,11 @@ ext_modules = [
         "pystatsm.utilities.coo_to_csc_wrapper",
         sources=["pystatsm/utilities/coo_to_csc_wrapper.pyx", 
                  "pystatsm/utilities/coo_to_csc.c"],
+        include_dirs=[np.get_include()]),
+    setuptools.Extension(
+        "pystatsm.utilities.csc_matmul",
+        sources=["pystatsm/utilities/csc_matmul_wrapper.pyx", 
+                 "pystatsm/utilities/csc_matmul.c"],
         include_dirs=[np.get_include()]
         )
     ]
