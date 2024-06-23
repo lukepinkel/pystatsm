@@ -12,24 +12,32 @@ from Cython.Build import cythonize
 ext_modules = [
     setuptools.Extension(
         "pystatsm.utilities.ordered_indices", 
-        sources=["pystatsm/utilities/ordered_indices.pyx"]
-        ),
+        sources=["pystatsm/utilities/ordered_indices.pyx"]),
+    
     setuptools.Extension(
         "pystatsm.utilities.cs_kron_wrapper",
         sources=["pystatsm/utilities/cs_kron_wrapper.pyx", 
                  "pystatsm/utilities/cs_kron.c"],
         include_dirs=[np.get_include()]),
+    
     setuptools.Extension(
         "pystatsm.utilities.coo_to_csc_wrapper",
         sources=["pystatsm/utilities/coo_to_csc_wrapper.pyx", 
                  "pystatsm/utilities/coo_to_csc.c"],
         include_dirs=[np.get_include()]),
+    
     setuptools.Extension(
         "pystatsm.utilities.csc_matmul",
         sources=["pystatsm/utilities/csc_matmul_wrapper.pyx", 
                  "pystatsm/utilities/csc_matmul.c"],
-        include_dirs=[np.get_include()]
-        )
+        include_dirs=[np.get_include()]),
+    
+    setuptools.Extension(
+        "pystatsm.utilities.cs_add_inplace_wrapper",
+        sources=["pystatsm/utilities/cs_add_inplace_wrapper.pyx", 
+                 "pystatsm/utilities/cs_add_inplace.c"],
+        include_dirs=[np.get_include()]),
+    
     ]
 
 setuptools.setup(

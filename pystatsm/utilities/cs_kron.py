@@ -5,6 +5,7 @@ from .cs_kron_wrapper import cs_kron_wrapper
 from .indexing_utils import vech_inds_reverse
 from .coo_to_csc_wrapper import coo_to_csc_wrapper
 from .csc_matmul import csc_matmul_wrapper
+from .cs_add_inplace_wrapper import cs_add_inplace_wrapper
 
 def csc_matmul(A, B, C):
     Anr, Anc = A.shape
@@ -235,3 +236,13 @@ def coo_to_csc(row_inds, col_inds, data, shape, return_array=True):
     return ret
     
 
+
+def cs_add_inplace(A, B, C, alpha=1.0, beta=1.0):
+    Ap, Ai, Ax = A.indptr, A.indices, A.data
+    Bp, Bi, Bx = B.indptr, B.indices, B.data
+    Cp, Ci, Cx = C.indptr, C.indices, C.data
+    Cnr, Cnc = C.shape
+    
+    cs_add_inplace_wrapper(Ap, Ai, Ax, Bp, Bi, Bx, alpha, beta, Cp, Ci, Cx, Cnr, Cnc)
+    C.eliminate_zeros()
+    return C
