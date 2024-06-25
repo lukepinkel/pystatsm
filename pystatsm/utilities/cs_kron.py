@@ -6,6 +6,7 @@ from .indexing_utils import vech_inds_reverse
 from .coo_to_csc_wrapper import coo_to_csc_wrapper
 from .csc_matmul import csc_matmul_wrapper
 from .cs_add_inplace_wrapper import cs_add_inplace_wrapper
+from .tile_1d_wrapper import tile_1d_modulo_wrapper, tile_1d_nested_wrapper
 
 def csc_matmul(A, B, C):
     Anr, Anc = A.shape
@@ -26,21 +27,42 @@ def fully_dense_to_csc(arr):
     nnz = n * m
     return (n, m), nnz, indptr, indices, data
 
-def sparse_dense_kron(A, B):
+# def sparse_dense_kron(A, B):
+#     Anr, Anc = A.shape
+#     Anz, Ap, Ai, Ax = A.nnz, A.indptr, A.indices, A.data
+
+#     (Bnr, Bnc), Bnz, Bp, Bi, Bx = fully_dense_to_csc(B)
+#     Cnr = Anr * Bnr
+#     Cnc = Anc * Bnc 
+#     Cnz = Anz * Bnz
+#     Cp = np.zeros(Cnc+1, dtype=np.int32)
+#     Ci = np.zeros(Cnz, dtype=np.int32)
+#     Cx = np.zeros(Cnz, dtype=np.double)
+    
+#     cs_kron_wrapper(Ap, Ai, Ax, Anr, Anc, Bp, Bi, Bx, Bnr, Bnc, Cp, Ci, Cx)
+#     return sp.sparse.csc_array((Cx, Ci, Cp), shape=(Cnr, Cnc))
+
+def sparse_dense_kron(A, B, out=None):
     Anr, Anc = A.shape
     Anz, Ap, Ai, Ax = A.nnz, A.indptr, A.indices, A.data
-
     (Bnr, Bnc), Bnz, Bp, Bi, Bx = fully_dense_to_csc(B)
     Cnr = Anr * Bnr
     Cnc = Anc * Bnc 
     Cnz = Anz * Bnz
-    Cp = np.zeros(Cnc+1, dtype=np.int32)
-    Ci = np.zeros(Cnz, dtype=np.int32)
-    Cx = np.zeros(Cnz, dtype=np.double)
+    
+    if out is None:
+        Cx = np.zeros(Cnz, dtype=np.double)
+        Ci = np.zeros(Cnz, dtype=np.int32)
+        Cp = np.zeros(Cnc+1, dtype=np.int32)
+    else:
+        Cx, Ci, Cp = out
     
     cs_kron_wrapper(Ap, Ai, Ax, Anr, Anc, Bp, Bi, Bx, Bnr, Bnc, Cp, Ci, Cx)
-    return sp.sparse.csc_array((Cx, Ci, Cp), shape=(Cnr, Cnc))
-
+    
+    if out is None:
+        return sp.sparse.csc_array((Cx, Ci, Cp), shape=(Cnr, Cnc))
+    else:
+        return Cx, Ci, Cp
 
 def _id_kron_coo(q, B):
     #I_q and A (n, m) to (qn, qm)
@@ -246,3 +268,12 @@ def cs_add_inplace(A, B, C, alpha=1.0, beta=1.0):
     cs_add_inplace_wrapper(Ap, Ai, Ax, Bp, Bi, Bx, alpha, beta, Cp, Ci, Cx, Cnr, Cnc)
     C.eliminate_zeros()
     return C
+
+def tile_1d(arr, reps, out=None, method='modulo'):
+    n = len(arr)
+    out = np.zeros(n*reps, dtype=np.double) if out is None else out
+    if method == 'modulo':
+        tile_1d_modulo_wrapper(arr, reps, out)
+    elif method == 'nested':
+        tile_1d_nested_wrapper(arr, reps, out)
+    return out

@@ -38,6 +38,13 @@ ext_modules = [
                  "pystatsm/utilities/cs_add_inplace.c"],
         include_dirs=[np.get_include()]),
     
+    setuptools.Extension(
+        "pystatsm.utilities.tile_1d_wrapper",
+        sources=["pystatsm/utilities/tile_1d_wrapper.pyx", 
+                 "pystatsm/utilities/tile_1d.c"],
+        include_dirs=[np.get_include()]),
+    
+    
     ]
 
 setuptools.setup(
