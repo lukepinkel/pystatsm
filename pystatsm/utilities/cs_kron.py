@@ -269,7 +269,7 @@ def cs_add_inplace(A, B, C, alpha=1.0, beta=1.0):
     C.eliminate_zeros()
     return C
 
-def tile_1d(arr, reps, out=None, method='modulo'):
+def tile_1d(arr, reps, out=None, method='nested'):
     n = len(arr)
     out = np.zeros(n*reps, dtype=np.double) if out is None else out
     if method == 'modulo':
