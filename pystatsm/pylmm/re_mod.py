@@ -270,70 +270,109 @@ class RandomEffects:
         return out
 
 
-        
-class MMEU:
-    def __init__(self, Z, X, y, G, re_mod, R=None):
-        self.Z = Z
+class BaseMME:
+    def __init__(self, X, y, re_mod, R=None):
+        self.Z = re_mod.Z
         self.X = X
         self.y = y
-        self.G = G
+        self.G = re_mod.G
         self.R = R 
         self.re_mod = re_mod
         
-        self.Zt = Z.T.tocsc()
-        self.n_ranef = Z.shape[1]
+        self.n_ranef = self.Z.shape[1]
         self.n_fixef = X.shape[1]
         self.n_obs = y.shape[0]
         
-        # Block X and y together
-        self.Xy = np.hstack([X, y])
-        
-        if R is None:
-            self.ZtR = None
-            self.ZtZ = self.Zt.dot(Z)
-            self.ZtRZ = self.ZtZ.copy()
-            
-            self.ZtXy = self.Zt.dot(self.Xy)
-            self.ZtRXy = self.ZtXy.copy()
-            
-            self.XytXy = self.Xy.T.dot(self.Xy)
-            self.XytRXy = self.XytXy.copy()
-            
+        self._initialize_matrices()
+        self._setup_cholesky()
+    
+    def _initialize_matrices(self):
+        raise NotImplementedError("Subclasses must implement this method")
+    
+    def _setup_cholesky(self):
+        raise NotImplementedError("Subclasses must implement this method")
+    
+    def update_crossprods(self, theta):
+        raise NotImplementedError("Subclasses must implement this method")
+    
+    def update_chol(self, theta):
+        raise NotImplementedError("Subclasses must implement this method")
+    
+    def update_chol_diag(self, theta):
+        raise NotImplementedError("Subclasses must implement this method")
+    
+    def _loglike(self, theta, reml=True):
+        l = self.update_chol_diag(theta)
+        ytPy = l[-1]**2
+        logdetG = self.re_mod.lndet_gmat(theta)
+        logdetR = np.log(theta[-1]) * self.n_obs
+        if reml:
+            logdetC = np.sum(2 * np.log(l[:-1]))
+            ll = logdetR + logdetC + logdetG + ytPy
         else:
-            self.ZtR = self.Zt.dot(R).tocsc()
-            self.ZtZ = None
-            self.ZtRZ = self.ZtR.dot(Z).tocsc()
-            
-            self.ZtXy = None
-            self.ZtRXy = self.ZtR.dot(self.Xy)
-            
-            self.XytXy = None
-            self.XytRXy = self.Xy.T.dot(R.dot(self.Xy))
-        
+            logdetV = np.sum(2 * np.log(l[:self.n_ranef]))
+            ll = logdetR + logdetV + logdetG + ytPy
+        return ll
+    
+    
+class MMEBlocked(BaseMME):
+    def __init__(self, X, y, re_mod, R=None):
+        self.Zt = re_mod.Z.T.tocsc()
+        self.Xy = np.hstack([X, y])
+        super().__init__(X, y, re_mod, R)
+    
+    def _initialize_matrices(self):
+        if self.R is None:
+            self._initialize_unweighted()
+        else:
+            self._initialize_weighted()
         self.C = self.ZtRZ + self.G
-        
-        self.chol_fac = sksparse.cholmod.analyze(sp.sparse.csc_matrix(self.C), 
-                                                 ordering_method="best")
+    
+    def _initialize_unweighted(self):
+        self.ZtR = None
+        self.ZtZ = self.Zt.dot(self.Z)
+        self.ZtRZ = self.ZtZ.copy()
+        self.ZtXy = self.Zt.dot(self.Xy)
+        self.ZtRXy = self.ZtXy.copy()
+        self.XytXy = self.Xy.T.dot(self.Xy)
+        self.XytRXy = self.XytXy.copy()
+    
+    def _initialize_weighted(self):
+        self.ZtR = self.Zt.dot(self.R).tocsc()
+        self.ZtZ = None
+        self.ZtRZ = self.ZtR.dot(self.Z).tocsc()
+        self.ZtXy = None
+        self.ZtRXy = self.ZtR.dot(self.Xy)
+        self.XytXy = None
+        self.XytRXy = self.Xy.T.dot(self.R.dot(self.Xy))
+    
+    def _setup_cholesky(self):
+        self.chol_fac = sksparse.cholmod.analyze(sp.sparse.csc_matrix(self.C), ordering_method="best")
         self._p = np.argsort(self.chol_fac.P())
-        self.dg = np.zeros(self.n_fixef+self.n_ranef+1, dtype=np.double)
+        self.dg = np.zeros(self.n_fixef + self.n_ranef + 1, dtype=np.double)
         
-    def update_crossprods_scalar(self, theta):
-        self.ZtRZ = self.ZtZ / theta[-1]
-        self.ZtRXy = self.ZtXy / theta[-1]
-        self.XytRXy = self.XytXy / theta[-1]
+    def update_crossprods(self, theta):
+        if self.R is None:
+            self._update_crossprods_scalar(theta)
+        else:
+            self._update_crossprods_nontrv(theta)
+    
+    def _update_crossprods_scalar(self, theta):
+        scale = 1 / theta[-1]
+        self.ZtRZ = self.ZtZ * scale
+        self.ZtRXy = self.ZtXy * scale
+        self.XytRXy = self.XytXy * scale
         
-    def update_crossprods_nontrv(self, theta):
+    def _update_crossprods_nontrv(self, theta):
         self._update_rcov(theta)  # Assuming this method exists to update R
         csc_matmul(self.Zt, self.R, self.ZtR)
         csc_matmul(self.ZtR, self.Z, self.ZtRZ)
         self.ZtRXy = self.ZtR.dot(self.Xy)
         self.XytRXy = self.Xy.T.dot(self.R.dot(self.Xy))
-        
-    def update_crossprods(self, theta):
-        if self.R is None:
-            self.update_crossprods_scalar(theta)
-        else:
-            self.update_crossprods_nontrv(theta)
+    
+    def _update_rcov(self, theta):
+        # Implement this method to update R based on theta
+        raise NotImplementedError("_update_rcov method needs to be implemented")
     
     def update_chol(self, theta):
         self.update_crossprods(theta)
@@ -349,213 +388,67 @@ class MMEU:
     
     def update_chol_diag(self, theta, out=None):
         out = self.dg if out is None else out
-        self.update_crossprods(theta)
-        Ginv = self.re_mod.update_gcov(theta, inv=True, G=self.G)
-        cs_add_inplace(self.ZtRZ, Ginv, self.C)
-        self.chol_fac.cholesky_inplace(sp.sparse.csc_matrix(self.C))
-        L11 = self.chol_fac.L()[self._p,:][:,self._p].toarray()
-        L21 = self.chol_fac.apply_Pt(
-                self.chol_fac.solve_L(
-                    self.chol_fac.apply_P(self.ZtRXy), False)).T
-        L22 = np.linalg.cholesky(self.XytRXy - L21.dot(L21.T))
+        L11, L21, L22 = self.update_chol(theta)
         out[:self.n_ranef] = np.diag(L11)
         out[self.n_ranef:] = np.diag(L22)
         return out
         
+class MMEUnBlocked(BaseMME):
+    def __init__(self, X, y, re_mod, R=None):
+        super().__init__(X, y, re_mod, R)
     
-class LMM2(object):
+    def _initialize_matrices(self):
+        ZXyt = sp.sparse.hstack([self.Z, sp.sparse.csc_array(self.X), 
+                                 sp.sparse.csc_array(self.y)], format='csr').T
+        self.M = ZXyt.dot(ZXyt.T)
+        self.M_work = self.M.copy()
+        self.G_aug = sp.sparse.block_diag([self.G, sp.sparse.eye(self.n_fixef + 1) * 0.0], format="csc")
     
-    def __init__(self,  formula, data, residual_formula=None):
-        model_info = parse_random_effects(formula)
-        re_terms = model_info["re_terms"]
-        re_mod = RandomEffects(re_terms, data=data)
-        y_vars = model_info["y_vars"]
-        fe_form = model_info["fe_form"]
-        X = formulaic.model_matrix(fe_form, data)
-        fe_vars = X.columns
-        X = X.values
-        y = data[y_vars].values
-        if y.ndim==1:
-            y = y.reshape(-1, 1)
-        Z = re_mod.Z
-        G = re_mod.G
-        
-        X_sp = sp.sparse.csc_array(X)
-        y_sp = sp.sparse.csc_array(y)
-        
-        ZXyt = sp.sparse.hstack([Z, X_sp, y_sp], format='csr').T
-        ZXyt_work = ZXyt.copy()
-        M = ZXyt.dot(ZXyt.T)
-        M_work = M.copy()
-        self.model_info = model_info
-        self.re_mod = re_mod
-        self.fe_vars = fe_vars
-        self.y_vars = y_vars
-        self.G = G
-        self.Z = Z
-        self.X = X
-        self.y = y
-        self.ZXyt = ZXyt
-        self.M = M
-        self.ZXyt_work = ZXyt_work
-
-        self.data = data
-        self.n_rt = self.Z.shape[1]
-        self.zero_mat = sp.sparse.eye(X.shape[1]+1)*0.0
-        self.G_aug = sp.sparse.block_diag([self.G, self.zero_mat], format="csc")
-        self.M_work = M_work + self.G_aug
-        self.chol_fac = sksparse.cholmod.analyze(sp.sparse.csc_matrix(self.M_work))
-        
-        self.mme = MMEU(self.Z, self.X, self.y, self.G, self.re_mod)
-        
-    def update_gmat(self, theta, inv=False):
-        G = self.re_mod.update_gcov(theta, inv=inv, G=self.G)
-        return G
+    def _setup_cholesky(self):
+        self.chol_fac = sksparse.cholmod.analyze(sp.sparse.csc_matrix(self.M_work + self.G_aug))
     
-    def update_gmat_aug(self, theta, inv=False):
-        G_aug = self.re_mod.update_gcov(theta, inv=inv, G=self.G_aug)
-        return G_aug
-        
-    def lndet_gmat(self, theta):
-        lnd = self.re_mod.lndet_gmat(theta)
-        return lnd
+    def update_crossprods(self, theta):
+        self.M_work = self.M.copy()
+        self.M_work.data /= theta[-1]
     
-    def update_mme(self, theta):
-        G_aug = self.update_gmat_aug(theta, inv=True)
-        #TODO sort this out for the nontrivial R situation
-        M_work = self.M.copy()
-        M_work.data /= theta[-1]
-        
-        M_work = cs_add_inplace(M_work, G_aug, M_work)
-        return M_work
+    def update_chol(self, theta):
+        self.update_crossprods(theta)
+        G_aug = self.re_mod.update_gcov(theta, inv=True, G=self.G_aug)
+        M = cs_add_inplace(self.M_work, G_aug, self.M_work)
+        return self.mme_chol(M)
     
-    def mme_chol(self, M, use_sparse=True, use_fac=True, sparse_threshold=0.4):
-        #TODO: Actually take advantage of chol pattern
+    def mme_chol(self, M, use_sparse=True, sparse_threshold=0.4):
         if (sparsity(M) < sparse_threshold) and use_sparse:
             M = sp.sparse.csc_matrix(M)
-            if use_fac:
-                self.chol_fac.cholesky_inplace(M)
-                L = self.chol_fac.L().toarray()
-            else:
-                L = cholesky(M).L().toarray()
+            self.chol_fac.cholesky_inplace(M)
+            L = self.chol_fac.L().toarray()
         else:
             L = np.linalg.cholesky(M.toarray())
         return L
-
-    def loglike(self, theta, reml=True, use_sw=False, use_sparse=True,
-                use_mme=True):
-        if use_mme:
-            l = self.mme.update_chol_diag(theta)
-        else:
-            M = self.update_mme(theta)
-            L = self.mme_chol(M, use_sparse=use_sparse)
-            l = np.diag(L)
-        ytPy = l[-1]**2
-        logdetG = self.lndet_gmat(theta)
-        #TODO Actually implement this with resid and memory sharing
-        logdetR = np.log(theta[-1]) * self.Z.shape[0]
-        if reml:
-            logdetC = np.sum(2*np.log(l[:-1]))
-            ll = logdetR + logdetC + logdetG + ytPy
-        else:
-            logdetV = np.sum(2*np.log(l[:self.n_rt]))
-            ll = logdetR + logdetV + logdetG + ytPy
-        return ll
-        
-        
-        
+    
+    def update_chol_diag(self, theta):
+        L = self.update_chol(theta)
+        return np.diag(L)
+    
     
 class LMM2(object):
     
-    def __init__(self,  formula, data, residual_formula=None):
+    def __init__(self,  formula, data, residual_formula=None, use_blocked=True):
         model_info = parse_random_effects(formula)
         re_terms = model_info["re_terms"]
         re_mod = RandomEffects(re_terms, data=data)
         y_vars = model_info["y_vars"]
         fe_form = model_info["fe_form"]
-        X = formulaic.model_matrix(fe_form, data)
-        fe_vars = X.columns
-        X = X.values
-        y = data[y_vars].values
-        if y.ndim==1:
-            y = y.reshape(-1, 1)
-        Z = re_mod.Z
-        G = re_mod.G
-        
-        X_sp = sp.sparse.csc_array(X)
-        y_sp = sp.sparse.csc_array(y)
-        
-        ZXyt = sp.sparse.hstack([Z, X_sp, y_sp], format='csr').T
-        ZXyt_work = ZXyt.copy()
-        M = ZXyt.dot(ZXyt.T)
-        M_work = M.copy()
-        self.model_info = model_info
-        self.re_mod = re_mod
-        self.fe_vars = fe_vars
-        self.y_vars = y_vars
-        self.G = G
-        self.Z = Z
-        self.X = X
-        self.y = y
-        self.ZXyt = ZXyt
-        self.M = M
-        self.ZXyt_work = ZXyt_work
-
-        self.data = data
-        self.n_rt = self.Z.shape[1]
-        self.zero_mat = sp.sparse.eye(X.shape[1]+1)*0.0
-        self.G_aug = sp.sparse.block_diag([self.G, self.zero_mat], format="csc")
-        self.M_work = M_work + self.G_aug
-        self.chol_fac = sksparse.cholmod.analyze(sp.sparse.csc_matrix(self.M_work))
-        
-    def update_gmat(self, theta, inv=False):
-        G = self.re_mod.update_gcov(theta, inv=inv, G=self.G)
-        return G
-    
-    def update_gmat_aug(self, theta, inv=False):
-        G_aug = self.re_mod.update_gcov(theta, inv=inv, G=self.G_aug)
-        return G_aug
-        
-    def lndet_gmat(self, theta):
-        lnd = self.re_mod.lndet_gmat(theta)
-        return lnd
-    
-    def update_mme(self, theta):
-        G_aug = self.update_gmat_aug(theta, inv=True)
-        #TODO sort this out for the nontrivial R situation
-        M_work = self.M.copy()
-        M_work.data /= theta[-1]
-        
-        M_work = cs_add_inplace(M_work, G_aug, M_work)
-        return M_work
-    
-    def mme_chol(self, M, use_sparse=True, use_fac=True):
-        #TODO: Actually take advantage of chol pattern
-        if sparsity(M) < 0.05 and use_sparse:
-            M = sp.sparse.csc_matrix(M)
-            if use_fac:
-                self.chol_fac.cholesky_inplace(M)
-                L = self.chol_fac.L().toarray()
-            else:
-                L = cholesky(M).L().toarray()
+        X = formulaic.model_matrix(fe_form, data).values
+        y = data[y_vars].values.reshape(-1, 1)
+        R = None
+        if use_blocked:
+            self.mme = MMEBlocked(X, y, re_mod, R) 
         else:
-            L = np.linalg.cholesky(M.toarray())
-        return L
+            self.mme = MMEUnBlocked(X, y, re_mod, R) 
 
-    def loglike(self, theta, reml=True, use_sw=False, use_sparse=True):
-        M = self.update_mme(theta)
-        L = self.mme_chol(M, use_sparse=use_sparse)
-        l = np.diag(L)
-        ytPy = l[-1]**2
-        logdetG = self.lndet_gmat(theta)
-        #TODO Actually implement this with resid and memory sharing
-        logdetR = np.log(theta[-1]) * self.Z.shape[0]
-        if reml:
-            logdetC = np.sum(2*np.log(l[:-1]))
-            ll = logdetR + logdetC + logdetG + ytPy
-        else:
-            logdetV = np.sum(2*np.log(l[:self.n_rt]))
-            ll = logdetR + logdetV + logdetG + ytPy
-        return ll
+
+    def loglike(self, theta, reml=True):
+        return self.mme._loglike(theta, reml)
         
     
