@@ -269,7 +269,6 @@ class RandomEffects:
             out = term.get_logdet(theta_i, out)
         return out
 
-
 class BaseMME:
     def __init__(self, X, y, re_mod, R=None):
         self.Z = re_mod.Z
@@ -316,9 +315,10 @@ class BaseMME:
     
     
 class MMEBlocked(BaseMME):
-    def __init__(self, X, y, re_mod, R=None):
+    def __init__(self, X, y, re_mod, R=None, sparse_threshold=0.4):
         self.Zt = re_mod.Z.T.tocsc()
         self.Xy = np.hstack([X, y])
+        self.sparse_threshold = sparse_threshold
         super().__init__(X, y, re_mod, R)
     
     def _initialize_matrices(self):
@@ -364,7 +364,7 @@ class MMEBlocked(BaseMME):
         self.XytRXy = self.XytXy * scale
         
     def _update_crossprods_nontrv(self, theta):
-        self._update_rcov(theta)  # Assuming this method exists to update R
+        self._update_rcov(theta)
         csc_matmul(self.Zt, self.R, self.ZtR)
         csc_matmul(self.ZtR, self.Z, self.ZtRZ)
         self.ZtRXy = self.ZtR.dot(self.Xy)
@@ -378,11 +378,25 @@ class MMEBlocked(BaseMME):
         self.update_crossprods(theta)
         Ginv = self.re_mod.update_gcov(theta, inv=True, G=self.G)
         cs_add_inplace(self.ZtRZ, Ginv, self.C)
-        self.chol_fac.cholesky_inplace(sp.sparse.csc_matrix(self.C))
+        
+        if sparsity(self.C) < self.sparse_threshold:
+            return self._chol_sparse(self.C)
+        else:
+            return self._chol_dense(self.C)
+    
+    def _chol_sparse(self, C):
+        self.chol_fac.cholesky_inplace(sp.sparse.csc_matrix(C))
         L11 = self.chol_fac.L()[self._p,:][:,self._p].toarray()
         L21 = self.chol_fac.apply_Pt(
                 self.chol_fac.solve_L(
                     self.chol_fac.apply_P(self.ZtRXy), False)).T
+        L22 = np.linalg.cholesky(self.XytRXy - L21.dot(L21.T))
+        return L11, L21, L22
+    
+    def _chol_dense(self, C):
+        C_dense = C.toarray()
+        L11 = np.linalg.cholesky(C_dense)
+        L21 = sp.linalg.solve_triangular(L11, self.ZtRXy, trans=0, lower=True).T
         L22 = np.linalg.cholesky(self.XytRXy - L21.dot(L21.T))
         return L11, L21, L22
     
@@ -451,4 +465,3 @@ class LMM2(object):
     def loglike(self, theta, reml=True):
         return self.mme._loglike(theta, reml)
         
-    
