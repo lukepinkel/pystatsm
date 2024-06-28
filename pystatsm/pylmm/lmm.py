@@ -154,10 +154,10 @@ class LMM(object):
             lnd += self.ng[i]*np.linalg.slogdet(Sigma_i)[1]
         return lnd
         
-    def loglike(self, theta, reml=True, use_sw=False, use_sparse=True):
+    def loglike(self, theta, reml=True, use_sw=False, use_sparse=True, sparsity_threshold=0.4):
         Ginv = self.update_gmat(theta, inverse=True)
         M = self.update_mme(Ginv, theta)
-        if (M.nnz / np.prod(M.shape) < 0.05) and use_sparse:
+        if (M.nnz / np.prod(M.shape) < sparsity_threshold) and use_sparse:
             L = cholesky(M.tocsc()).L().A
         else:
             L = np.linalg.cholesky(M.A)
