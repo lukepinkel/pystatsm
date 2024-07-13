@@ -44,6 +44,11 @@ ext_modules = [
                  "pystatsm/utilities/tile_1d.c"],
         include_dirs=[np.get_include()]),
     
+    setuptools.Extension(
+        "pystatsm.utilities.repeat_1d_wrapper",
+        sources=["pystatsm/utilities/repeat_1d_wrapper.pyx", 
+                 "pystatsm/utilities/repeat_1d.c"],
+        include_dirs=[np.get_include()]),
     
     ]
 

@@ -7,6 +7,7 @@ from .coo_to_csc_wrapper import coo_to_csc_wrapper
 from .csc_matmul import csc_matmul_wrapper
 from .cs_add_inplace_wrapper import cs_add_inplace_wrapper
 from .tile_1d_wrapper import tile_1d_modulo_wrapper, tile_1d_nested_wrapper
+from .repeat_1d_wrapper import repeat_1d_wrapper
 
 def csc_matmul(A, B, C):
     Anr, Anc = A.shape
@@ -46,6 +47,29 @@ def sparse_dense_kron(A, B, out=None):
     Anr, Anc = A.shape
     Anz, Ap, Ai, Ax = A.nnz, A.indptr, A.indices, A.data
     (Bnr, Bnc), Bnz, Bp, Bi, Bx = fully_dense_to_csc(B)
+    Cnr = Anr * Bnr
+    Cnc = Anc * Bnc 
+    Cnz = Anz * Bnz
+    
+    if out is None:
+        Cx = np.zeros(Cnz, dtype=np.double)
+        Ci = np.zeros(Cnz, dtype=np.int32)
+        Cp = np.zeros(Cnc+1, dtype=np.int32)
+    else:
+        Cx, Ci, Cp = out
+    
+    cs_kron_wrapper(Ap, Ai, Ax, Anr, Anc, Bp, Bi, Bx, Bnr, Bnc, Cp, Ci, Cx)
+    
+    if out is None:
+        return sp.sparse.csc_array((Cx, Ci, Cp), shape=(Cnr, Cnc))
+    else:
+        return Cx, Ci, Cp
+    
+    
+def dense_sparse_kron(A, B, out=None):
+    Bnr, Bnc = B.shape
+    Bnz, Bp, Bi, Bx = B.nnz, B.indptr, B.indices, B.data
+    (Anr, Anc), Anz, Ap, Ai, Ax = fully_dense_to_csc(A)
     Cnr = Anr * Bnr
     Cnc = Anc * Bnc 
     Cnz = Anz * Bnz
@@ -106,7 +130,7 @@ def id_kron_csc(q, B):
     return sp.sparse.csc_array((Cx, Ci, Cp), shape=(Cnr, Cnc))
 
 
-def sparse_kron(A, B):        
+def sparse_kron(A, B, out=None):        
     Anr, Anc = A.shape
     Bnr, Bnc = B.shape
     Anz, Bnz = A.nnz, B.nnz
@@ -117,12 +141,19 @@ def sparse_kron(A, B):
     Cnr = Anr * Bnr
     Cnc = Anc * Bnc 
     Cnz = Anz * Bnz
-    Cp = np.zeros(Cnc+1, dtype=np.int32)
-    Ci = np.zeros(Cnz, dtype=np.int32)
-    Cx = np.zeros(Cnz, dtype=np.double)
+    if out is None:
+        Cx = np.zeros(Cnz, dtype=np.double)
+        Ci = np.zeros(Cnz, dtype=np.int32)
+        Cp = np.zeros(Cnc+1, dtype=np.int32)
+    else:
+        Cx, Ci, Cp = out
+   
     
     cs_kron_wrapper(Ap, Ai, Ax, Anr, Anc, Bp, Bi, Bx, Bnr, Bnc, Cp, Ci, Cx)
-    return sp.sparse.csc_array((Cx, Ci, Cp), shape=(Cnr, Cnc))
+    if out is None:
+        return sp.sparse.csc_array((Cx, Ci, Cp), shape=(Cnr, Cnc))
+    else:
+        return Cx, Ci, Cp
 
 @numba.jit(
     numba.void(numba.int32[:], numba.int32[:], numba.float64[:], numba.int32, numba.int32,
@@ -277,3 +308,11 @@ def tile_1d(arr, reps, out=None, method='nested'):
     elif method == 'nested':
         tile_1d_nested_wrapper(arr, reps, out)
     return out
+
+
+def repeat_1d(arr, reps, out=None):
+    n = len(arr)
+    out = np.zeros(n*reps, dtype=np.double) if out is None else out
+    repeat_1d_wrapper(arr, reps, out)
+    return out
+    
