@@ -96,7 +96,7 @@ class UnstructuredCovariance(BaseCovarianceStructure):
     def __init__(self, n_vars):
        
         n_pars = int((n_vars + 1) * n_vars // 2)
-        theta_init = _vech(np.eye(n_pars))
+        theta_init = _vech(np.eye(n_vars))
         d_theta = np.zeros_like(theta_init)
         r_inds, c_inds = vech_inds_reverse(np.arange(n_pars),  n_vars)
         d_mask = r_inds == c_inds
@@ -325,7 +325,7 @@ class RandomEffectTerm:
         self.theta_init = self.cov_structure.unstructured_cov.theta_init
         self.n_pars = self.cov_structure.unstructured_cov.n_pars
         
-        self.reparam = reparam(self.n_pars)  
+        self.reparam = reparam(self.n_revars)  
 
     @classmethod
     def from_formula(cls, re_formula, re_grouping, data, a_cov=None):
@@ -372,7 +372,7 @@ class DiagResidualCovTerm:
         self.theta_init = self.cov_structure.unstructured_cov.theta_init
         self.n_pars = self.cov_structure.unstructured_cov.n_pars
         
-        self.reparam = reparam(self.n_pars)
+        self.reparam = reparam(self.n_revars)
 
 
     @classmethod
