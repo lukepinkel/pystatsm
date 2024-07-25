@@ -15,41 +15,26 @@ ext_modules = [
         sources=["pystatsm/utilities/ordered_indices.pyx"]),
     
     setuptools.Extension(
-        "pystatsm.utilities.cs_kron_wrapper",
-        sources=["pystatsm/utilities/cs_kron_wrapper.pyx", 
-                 "pystatsm/utilities/cs_kron.c"],
-        include_dirs=[np.get_include()]),
-    
-    setuptools.Extension(
-        "pystatsm.utilities.coo_to_csc_wrapper",
-        sources=["pystatsm/utilities/coo_to_csc_wrapper.pyx", 
-                 "pystatsm/utilities/coo_to_csc.c"],
-        include_dirs=[np.get_include()]),
-    
-    setuptools.Extension(
-        "pystatsm.utilities.csc_matmul",
-        sources=["pystatsm/utilities/csc_matmul_wrapper.pyx", 
-                 "pystatsm/utilities/csc_matmul.c"],
-        include_dirs=[np.get_include()]),
-    
-    setuptools.Extension(
-        "pystatsm.utilities.cs_add_inplace_wrapper",
-        sources=["pystatsm/utilities/cs_add_inplace_wrapper.pyx", 
-                 "pystatsm/utilities/cs_add_inplace.c"],
-        include_dirs=[np.get_include()]),
-    
-    setuptools.Extension(
-        "pystatsm.utilities.tile_1d_wrapper",
-        sources=["pystatsm/utilities/tile_1d_wrapper.pyx", 
-                 "pystatsm/utilities/tile_1d.c"],
-        include_dirs=[np.get_include()]),
-    
-    setuptools.Extension(
-        "pystatsm.utilities.repeat_1d_wrapper",
-        sources=["pystatsm/utilities/repeat_1d_wrapper.pyx", 
-                 "pystatsm/utilities/repeat_1d.c"],
-        include_dirs=[np.get_include()]),
-    
+        "pystatsm.utilities.cython_wrappers",
+        sources=["pystatsm/utilities/cython_wrappers.pyx", 
+                 "pystatsm/utilities/src/coo_to_csc.c",
+                 "pystatsm/utilities/src/cs_add_inplace.c",
+                 "pystatsm/utilities/src/cs_add_inplace_complex.c",
+                 "pystatsm/utilities/src/cs_kron_ss.c",
+                 "pystatsm/utilities/src/cs_kron_ds.c",
+                 "pystatsm/utilities/src/cs_kron_sd.c",
+                 "pystatsm/utilities/src/cs_dot.c",
+                 "pystatsm/utilities/src/cs_pattern_trace.c",
+                 "pystatsm/utilities/src/cs_kron_id_sp.c",
+                 "pystatsm/utilities/src/cs_matmul_inplace.c",
+                 "pystatsm/utilities/src/cs_matmul_inplace_complex.c",
+                 "pystatsm/utilities/src/naive_matmul_inplace.c",
+                 "pystatsm/utilities/src/repeat_1d.c",
+                 "pystatsm/utilities/src/tile_1d.c",
+                 "pystatsm/utilities/src/tile_1d_complex.c",
+                 ],
+        include_dirs=[np.get_include(),
+                      "pystatsm/utilities/src/"]),
     ]
 
 setuptools.setup(

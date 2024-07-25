@@ -1,0 +1,1 @@
+void naive_matmul_inplace(double *A, double *B, double *C, size_t N, size_t M, size_t K);void naive_matmul_inplace2(double *A, double *B, double *C, size_t N, size_t M, size_t K);

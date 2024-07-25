@@ -1,9 +1,9 @@
-#include "csc_matmul.h"
+#include "cs_matmul_inplace.h"
 #include <stdlib.h>
 
-void csc_matmul(const int *Ap, const int *Ai, const double *Ax, int Anr, int Anc,
-                const int *Bp, const int *Bi, const double *Bx, int Bnr, int Bnc,
-                int *Cp, int *Ci, double *Cx) {
+void cs_matmul_inplace(const int *Ap, const int *Ai, const double *Ax, int Anr, int Anc,
+                       const int *Bp, const int *Bi, const double *Bx, int Bnr, int Bnc,
+                       int *Cp, int *Ci, double *Cx) {
     int *w = (int *)malloc(Anr * sizeof(int));
     double *x = (double *)malloc(Anr * sizeof(double));
     int nz = 0;
