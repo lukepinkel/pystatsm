@@ -106,8 +106,10 @@ class CombinedTransform(ParameterTransformBase):
         for index_obj in index_objects:
             if isinstance(index_obj, (int, np.integer)):
                 stop = start + index_obj
-            elif isinstance(index_obj, (slice, tuple, list, np.ndarray)):
+            elif isinstance(index_obj, (tuple, list, np.ndarray)):
                 start, stop = index_obj  # Unpack the tuple into start and stop
+            elif isinstance(index_obj, slice):
+                start, stop = index_obj.start, index_obj.stop
             else:
                 raise ValueError("Invalid index object type")
             index_ranges.append((start, stop))
@@ -524,6 +526,51 @@ class TanhTransform(ParameterTransformBase):
             hess[np.arange(n), np.arange(n), np.arange(n)] = 2 * params / (1 - params ** 2) ** 2
             return hess
 
+
+class IdentityTransform(ParameterTransformBase):
+    @staticmethod
+    def _fwd(params):
+        return params
+
+    @staticmethod
+    def _rvs(transformed_params):
+        return transformed_params
+
+    @staticmethod
+    def _jac_rvs(transformed_params):
+        if np.ndim(transformed_params) == 0:
+            return 1
+        else:
+            n = len(transformed_params)
+            J = np.eye(n)
+            return J
+
+    @staticmethod
+    def _jac_fwd(params):
+        if np.ndim(params) == 0:
+            return 1
+        else:
+            n = len(params)
+            J = np.eye(n)
+            return J
+
+    @staticmethod
+    def _hess_rvs(transformed_params):
+        if np.ndim(transformed_params) == 0:
+            return 0
+        else:
+            n = len(transformed_params)
+            hess = np.zeros((n, n, n))
+            return hess
+
+    @staticmethod
+    def _hess_fwd(params):
+        if np.ndim(params) == 0:
+            return 0
+        else:
+            n = len(params)
+            hess = np.zeros((n, n, n))
+            return hess
 
 
 class UnconstrainedCholeskyCorr(ParameterTransformBase):
