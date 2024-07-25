@@ -1,6 +1,5 @@
 import numpy as np
 import scipy as sp
-from . import utils
 from . import cython_wrappers
 from .cython_wrappers import (coo_to_csc_wrapper,
                               cs_add_inplace_wrapper,
