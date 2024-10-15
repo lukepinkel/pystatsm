@@ -269,7 +269,10 @@ class ParameterMapping:
                 mat_template = np.zeros(mat_dims[i])
 
             if len(free_table) > 0:
-                mat_template[free_table["r"], free_table["c"]] = free_table["start"]
+                tmp = free_table["start"].copy()
+                fillna = dict(zip(free_table.index, mat_template[free_table["r"], free_table["c"]]))
+                tmp = tmp.fillna(fillna)
+                mat_template[free_table["r"], free_table["c"]] = tmp
 
             if len(fixed_table) > 0:
                 mat_template[fixed_table["r"], fixed_table["c"]] = fixed_table["fixedval"]
