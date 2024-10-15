@@ -20,7 +20,7 @@ pd.set_option("mode.chained_assignment", None)
 
 
 class SEM(ModelSpecification):
-    def __init__(self, formula, data, group_col=None, model_spec_kws=None, group_kws=None):
+    def __init__(self, formula, data, model_spec_kws=None):
         """
         Class for fitting structural equation models
         Parameters
@@ -38,8 +38,9 @@ class SEM(ModelSpecification):
             Keyword arguments for the group parameters, by default None
             and not fully implemented
         """
-        group_kws = dict(shared=[True] * 6) if group_kws is None else group_kws
-        super().__init__(formula, data, group_col, **group_kws)
+        default_kws = dict(group_col=None, shared=[True] * 6)
+        model_spec_kws = handle_default_kws(model_spec_kws, default_kws)
+        super().__init__(formula, data, **model_spec_kws)
 
     def fit_func(self, theta, per_group=False):
         """
