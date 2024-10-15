@@ -34,10 +34,11 @@ class ModelBuilder:
             whether to fix the latent variable mean to 0.0. Default is True.
         """
         self.add_variances(fix_lv_cov=kwargs.get('fix_lv_var', False))
-        self.fix_first()
+        self.fix_first(vars_to_fix=kwargs.get('fix_first', True))
         self.add_covariances(lvx_cov=~kwargs.get('lvx_cov', False), y_cov=~kwargs.get('y_cov', True))
         self.add_means(fix_lv_mean=kwargs.get('fix_lv_mean', True))
         self.add_latent_dummies()
+        self.check_initital_loadings()
 
     def check_missing_variances(self, vars_to_check):
         """
@@ -268,7 +269,7 @@ class ModelBuilder:
                 list_of_param_dicts.append(row)
             self.param_df = pd.DataFrame(list_of_param_dicts)
 
-    def fix_first(self):
+    def fix_first(self, vars_to_fix=None):
         """
         Fixes the first loading of each latent variable to 1.0.
 
@@ -281,15 +282,44 @@ class ModelBuilder:
         -------------------
         param_df: pd.DataFrame
         """
-        var_names, param_df = self.var_names, self.param_df
-        ind1 = (param_df["rel"] == "=~") & (
-            param_df["lhs"].isin(var_names["nob"]))
+        var_names = self.var_names
+        vnob = var_names["nob"]
+        if vars_to_fix is None or vars_to_fix is True: #woof
+            vars_to_fix = {v:True for v in vnob}
+        elif type(vars_to_fix) is not dict:
+            raise ValueError("Expected dictionary or a a boolean")
+        #else we have a dict
+        
+        default_vars_to_fix = {v:True for v in vnob}
+        vars_to_fix = {**default_vars_to_fix, **vars_to_fix}
+        
+        param_df = self.param_df
+        ind1 = (param_df["rel"] == "=~") & (param_df["lhs"].isin(vnob))
         ltable = param_df.loc[ind1]
         ltable.groupby("lhs")
-        for v in var_names["nob"]:
+        for v in vnob:
             ix = ltable["lhs"] == v
-            if len(ltable.index[ix]) > 0:
-                if ~np.any(ltable.loc[ix, "fixed"]):
-                    param_df.loc[ltable.index[ix][0], "fixed"] = True
-                    param_df.loc[ltable.index[ix][0], "fixedval"] = 1.0
+            if vars_to_fix[v]:
+                if len(ltable.index[ix]) > 0:
+                    if ~np.any(ltable.loc[ix, "fixed"]):
+                        param_df.loc[ltable.index[ix][0], "fixed"] = True
+                        param_df.loc[ltable.index[ix][0], "fixedval"] = 1.0
+                    
         self.param_df = param_df
+        
+    def check_initital_loadings(self):
+        var_names = self.var_names
+        vnob = var_names["nob"]
+        param_df = self.param_df
+        ind1 = (param_df["rel"] == "=~") & (param_df["lhs"].isin(vnob))
+        ltable = param_df.loc[ind1]
+        ltable.groupby("lhs")
+        for v in vnob:
+            ix = ltable["lhs"] == v
+            nonnulls = ~ltable.loc[ix, "start"].isnull()
+            nonzeros = ltable.loc[ix, "start"] != 0
+            if ~np.any(nonnulls & nonzeros):
+                param_df.loc[ltable.index[ix][0], "start"] = 0.1
+        self.param_df = param_df
+
+
