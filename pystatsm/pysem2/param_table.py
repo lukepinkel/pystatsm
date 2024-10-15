@@ -27,10 +27,11 @@ class ParameterTable(FormulaParser, ModelBuilder, ModelMatrixMapper, VariableOrd
         kwargs
         """
         super().__init__(formula)
+        model_builder_kws = kwargs.get("model_builder_kws", {})
         self.set_lav_order(kwargs.get("lav_order", None))  # from VariableOrder
         self.set_obs_order(kwargs.get("obs_order", None))  # from VariableOrder
         if kwargs.get("add_default_params", True):
-            self.add_default_params(**kwargs)              # from ModelBuilder
+            self.add_default_params(**model_builder_kws) # from ModelBuilder
         if kwargs.get("assign_matrices", True):
             self.assign_matrices()                         # from ModelMatrixMapper
         if kwargs.get("sort_table", True):
@@ -39,6 +40,12 @@ class ParameterTable(FormulaParser, ModelBuilder, ModelMatrixMapper, VariableOrd
             self.index_params()                            # from this class
         if kwargs.get("add_bounds", True):
             self.add_bounds()                              # from this class
+        
+        ##
+        ix = (self.param_df["lhs"] == self.param_df["rhs"]) & (self.param_df["rel"] == "~~") & (self.param_df["start"].isnull())
+        self.param_df.loc[ix, "start"] = self.param_df.loc[ix, "start"].fillna(0.1)
+
+         
 
     def set_table(self, param_df):
         self.param_df = param_df
