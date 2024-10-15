@@ -337,7 +337,8 @@ def test_param_table():
 def test_sem():
     sim = SimulatedSEM(FORMULA2, 5)
     data = sim.simulate()
-    model = SEM(FORMULA2, data, group_col="group", group_kws=dict(shared=[True, False, True, False, False, False]))
+    model = SEM(FORMULA2, data, model_spec_kws=dict(group_col="group", 
+                                                    shared=[True, False, True, False, False, False]))
     model.fit(minimize_kws=dict(method="tnc"), minimize_options=dict(disp=100))
     x = model.theta.copy() * 1.2 + 0.02
     model._check_complex = True
