@@ -200,7 +200,7 @@ def jac_approx(F, X, eps=1e-4, tol=None, d=1e-4, args=(), progress_bar=False, ma
     H = np.zeros_like(X)
     J = np.zeros(Y.shape+X.shape)
     if progress_bar:
-        pbar = tqdm.tqdm(total=np.product(Y.shape)*np.product(X.shape))
+        pbar = tqdm.tqdm(total=np.prod(Y.shape)*np.prod(X.shape))
         
     if mask is None:
         use_mask = False  # If mask is not passed, don't use it
@@ -251,7 +251,7 @@ def jac_approx3(F, X, eps=1e-4, tol=None, d=1e-4, args=(), progress_bar=False):
     J = np.zeros(Y.shape+X.shape)
     
     if progress_bar:
-        pbar = tqdm.tqdm(total=np.product(X.shape))
+        pbar = tqdm.tqdm(total=np.prod(X.shape))
         
     for jj in np.ndindex(X.shape):
         H[jj] = (np.abs(d * X[jj]) + eps * (np.abs(X[jj]) < tol))
@@ -262,6 +262,30 @@ def jac_approx3(F, X, eps=1e-4, tol=None, d=1e-4, args=(), progress_bar=False):
     if progress_bar:
         pbar.close()
     return J
+
+
+def jac_approx4(F, X, eps=1e-4, tol=None, d=1e-4, args=(), progress_bar=False):
+    def Func(X, args=()):
+        return np.atleast_1d(F(X, *args))
+    X = np.asarray(X)
+    Y = np.asarray(Func(X, *args))
+    tol = np.finfo(float).eps**(1/3) if tol is None else tol
+    H = np.zeros_like(X)
+    J = np.zeros(Y.shape+X.shape)
+    if progress_bar:
+        pbar = tqdm.tqdm(total=np.prod(X.shape))
+    for jj in np.ndindex(X.shape):
+        H[jj] = np.abs(d * X[jj]) + eps * (np.abs(X[jj]) < tol)
+        FpH = Func(X+H, *args)
+        FmH = Func(X-H, *args)
+        J[(Ellipsis,)+jj] = (FpH - FmH) / (2.0 * H[jj])
+        H[jj] = 0.0
+        if progress_bar:
+            pbar.update(1)
+    if progress_bar:
+        pbar.close()
+    return J
+
 
 def hess_approx(F, X, eps=1e-4, tol=None, d=1e-4, args=(), progress_bar=False,  mask=None):
     def Func(X, args=()):
@@ -281,7 +305,7 @@ def hess_approx(F, X, eps=1e-4, tol=None, d=1e-4, args=(), progress_bar=False,  
         if use_mask:
             total = int(np.sum(mask))
         else:
-            total = np.product(Y.shape)*np.product(X.shape)*np.product(X.shape)
+            total = np.prod(Y.shape)*np.prod(X.shape)*np.prod(X.shape)
         pbar = tqdm.tqdm(total=total, smoothing=1e-4)
 
     
@@ -315,7 +339,7 @@ def hess_approx(F, X, eps=1e-4, tol=None, d=1e-4, args=(), progress_bar=False,  
 
 
 def _hess_approx(f, x, a_eps=1e-4, r_eps=1e-4, xtol=None, nr=6, s=2):
-    xtol = np.finfo(np.float).eps**(1/3) if xtol is None else xtol
+    xtol = np.finfo(float).eps**(1/3) if xtol is None else xtol
     d = np.abs(r_eps * x) + a_eps * (np.abs(x) < xtol)
     y = f(x)
     u = np.zeros_like(d)
@@ -380,7 +404,7 @@ def hess_approx2(f, x, a_eps=1e-4, r_eps=1e-4, xtol=None, nr=6, s=2):
             k+=1
             H[:, i, j] = H[:, j, i] = D[:, k]
     return H
-    
+  
 
 def fd_coefficients(points, order):
     A = np.zeros((len(points), len(points)))
