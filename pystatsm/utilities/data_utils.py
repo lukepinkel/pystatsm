@@ -132,6 +132,18 @@ def scale_diag(A, s):
     A = s.T * A * s
     return A
 
+def _scale_diag(A, d, out):
+    out[:] = d[...,None].T * A * d[...,None]
+    return out
+
+def scale_dg(A, d, out=None, inplace=False):
+    if inplace:
+        out = A
+    out = np.zeros_like(A) if out is None else out
+    out = _scale_diag(A, d, out)
+    return out
+    
+
 def norm_diag(A):
     s = np.sqrt(1.0 / np.diag(A)).reshape(-1, 1)
     A = s.T * A * s
