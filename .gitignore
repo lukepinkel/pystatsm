@@ -133,3 +133,4 @@ dmypy.json
 *.DS_Store
 *.py,cover
 pystatsm/utilities/csc_matmul_wrapper.c
+pystatsm/utilities/cython_wrappers.c
