@@ -8,7 +8,7 @@ Created on Sun Jul 31 01:22:10 2022
 import numba
 import numpy as np
 import scipy as sp
-import scipy.special 
+import scipy.special
 import itertools
 from .ordered_indices import ascending_indices, generate_indices
 
@@ -182,14 +182,14 @@ def ascending_indices_generator(shape):
     """
     Generate a list of indices with ascending order for a given
     multidimensional array shape.
-    
-    
+
+
     Parameters
     ----------
     shape : tuple of int
         A tuple representing the shape of the multidimensional array, where each
         element is the size of a dimension.
-    
+
     Yields
     ------
     indices : tuple of int
@@ -360,21 +360,21 @@ def vecl_inds_reverse(i, n):
     """
     Returns the row and column indices of the lower triangular matrix element
     corresponding to the i-th element of the half vectorization, excluding the diagonal.
-    
+
     Parameters
     ----------
     i : int
         Index in the half vectorization excluding the diagonal elements.
     n : int
         The number of rows (and columns) of the square matrix.
-        
+
     Returns
     -------
     j : int
         Row index
     k : int
         Column index
-        
+
     The tuple (j, k) represents the row and column indices in the lower
     triangular part of a matrix corresponding to the i-th element of the
     half vectorization, excluding the diagonal elements.
@@ -393,7 +393,7 @@ def vecl_inds_forwards(r, s, m):
     Returns the index of the (r, s)-th element in the lower triangle of a
     square matrix of size (m x m) that has been half vectorized, excluding
     the diagonal.
-    
+
     Parameters
     ----------
     r : int
@@ -402,7 +402,7 @@ def vecl_inds_forwards(r, s, m):
         The column index of the element in the original matrix.
     m : int
         The number of rows (and columns) of the square matrix.
-        
+
     Returns
     -------
     int
@@ -410,9 +410,9 @@ def vecl_inds_forwards(r, s, m):
         (r, s)-th element in the original matrix, excluding the diagonal elements.
     """
     # Index i is computed by summing the total number of elements in the matrix
-    #above the current row (s * m), subtracting the triangular number 
+    #above the current row (s * m), subtracting the triangular number
     #associated with the current column (s * (s + 1) // 2), adding the current
-    #row index (r), and subtracting s to account for the exclusion of the 
+    #row index (r), and subtracting s to account for the exclusion of the
     #diagonal elements
     i = r + s * m - (s * (s + 1) // 2) - s  -1
     return i
@@ -498,9 +498,9 @@ def duplication_matrix_indices(n):
         The row indices of the non-zero elements of the duplication matrix.
     c : array_like
         The column indices of the non-zero elements of the duplication matrix.
-    
-    
-    For duplication matrix corresponding to symmetric matrix of size n for 
+
+
+    For duplication matrix corresponding to symmetric matrix of size n for
     n>i>=j>=0 the jn+i and in+j rows are give by the i+jn-j(j+1)/2 row of
     the n(n+1)/2 sized identity matrix
     """
@@ -541,12 +541,12 @@ def comb_numba(n, k):
         return 0
     if k == 0 or k == n:
         return 1
-    k = min(k, n - k) 
+    k = min(k, n - k)
     c = 1
     for i in range(k):
         c = c * (n - i) // (i + 1)
     return c
-    
+
 
 def ascending_indices_forward(inds):
     f = lambda r: sp.special.comb(r + (inds[r - 1]) - 1, r)
@@ -583,7 +583,7 @@ def multiset_permutations(seq):
         for i in i_indices:
             if k_val < seq[i]:
                 break
-        (seq[k], seq[i]) = (seq[i], seq[k])                
+        (seq[k], seq[i]) = (seq[i], seq[k])
         seq[k + 1:] = seq[-1:k:-1]
 
 
@@ -600,7 +600,7 @@ def fill_tensor(arr, shape):
 @numba.jit(nopython=True)
 def colex_index_forward(index, shape):
     """
-    Converts a multidimensional index to a single-dimensional index using 
+    Converts a multidimensional index to a single-dimensional index using
     colexicographic (column-major) order.
 
     Parameters
@@ -655,7 +655,7 @@ def colex_index_reverse(i, shape):
 @numba.jit(nopython=True)
 def lex_index_forward(index, shape):
     """
-    Converts a multidimensional index to a single-dimensional index using 
+    Converts a multidimensional index to a single-dimensional index using
     lexicographic (row-major) order.
 
     Parameters
@@ -688,7 +688,7 @@ def _lex_index_reverse_nb(a, shape):
 
 def lex_index_reverse(i, shape):
     """
-    Converts a single-dimensional index to a multidimensional index 
+    Converts a single-dimensional index to a multidimensional index
     using lexicographic (row-major) order.
 
     Parameters
@@ -799,4 +799,15 @@ def unique(arr):
     for k, v in d.items():
         inv[inverse==k] = v  # apply the mapping to the inverse array so that this inverse corresponds to the unique values in their original order
     return u, inv, ind
-    
+
+
+
+
+
+def vech_diag_indices_forward(k, p):
+    return k * p - k * (k - 1) // 2
+
+def vech_diag_indices(p):
+    i = np.arange(p)
+    j = i * p - i * (i - 1) // 2
+    return j
