@@ -28,7 +28,7 @@ def get_d2_chol(p):
     H : ndarray
         Hessian of the cholesky factor, has shape (p*(p+1)//2, p, p).
     """
-    Lp = lmat(p).A
+    Lp = lmat(p).toarray()
     T = np.zeros((p, p))
     H = []
     Ip = np.eye(p)
@@ -94,25 +94,25 @@ class RandomEffectTerm(object):
         # re_form: formula for the random effects
         # gr_form: formula for the grouping variable
         # data: dataframe containing the data
-        
+
         # Create a design matrix for the random effect term using the provided formula 're_form' and the data.
         # The design matrix Xi is a 2D array (shape: n x p) that contains the values of the random effect variables for each observation.
         Xi = patsy.dmatrix(re_form, data=data, return_type='dataframe').values
-        
+
         # Dummy encode the group variable using the provided formula 'gr_form' and the data.
         # The function _dummy_encode returns row indices, column indices and the number of groups (q).
         j_rows, j_cols, q =  _dummy_encode(data[gr_form])
-        
+
         # The row indices of the group variable are sorted to maintain the original order of groups in the data.
         # This is crucial because the subsequent operations rely on this specific order (C, row-major, or lexicographical order) to correctly map the random effects to their respective groups.
         j_sort = np.argsort(j_rows)
-        
+
         # Get the number of observations (n) and random effect variables (p) from the shape of the design matrix Xi.
         n, p = Xi.shape
-        
+
         z_rows = np.repeat(np.arange(n), p)
         z_cols = np.repeat(j_cols[j_sort] * p, p) + np.tile(np.arange(p), n)
-        
+
         g_cols = np.repeat(np.arange(p * q), p)
         g_rows = np.repeat(np.arange(q)*p, p * p) + np.tile(np.arange(p), p * q)
         ij = g_rows>= g_cols
@@ -129,8 +129,8 @@ class RandomEffectTerm(object):
             G_deriv.append(dGi)
             L_deriv.append(dLi)
             d_theta[i] = 0
-            
-            
+
+
         self.G_deriv = G_deriv
         self.L_deriv = L_deriv
         self.re_form = re_form
@@ -201,7 +201,7 @@ class RandomEffects(object):
         Second derivative of the G matrix with respect to the cholesky factor for each term, has length levels.
     """
 
-    
+
     def __init__(self, terms):
         z_offset, g_offset, l_offset, t_offset, cov_offset = 0, 0, 0, 0, 0
         z_data, z_rows, z_cols = [], [], []
@@ -211,7 +211,7 @@ class RandomEffects(object):
         theta = []
         jac_inds = []
 
-        for ranef in terms: 
+        for ranef in terms:
             zi_rows, zi_cols = ranef.z_rows, ranef.z_cols + z_offset
             z_rows.append(zi_rows)
             z_cols.append(zi_cols)
@@ -226,13 +226,13 @@ class RandomEffects(object):
             g_rows.append(gi_rows)
             g_cols.append(gi_cols)
             g_data.append(np.tile(g_vec, ranef.n_group))
-            
+
             li_rows, li_cols = ranef.l_rows + cov_offset, ranef.l_cols + cov_offset
             l_inds.append(np.arange(l_offset, l_offset + ranef.n_param * ranef.q))
             l_rows.append(li_rows)
             l_cols.append(li_cols)
             l_data.append(np.tile(g_vech, ranef.n_group))
-            
+
             theta.append(g_vech)
             t_inds.append(np.arange(t_offset, t_offset+ranef.n_param))
             z_offset = z_offset + ranef.p * ranef.q
@@ -242,7 +242,7 @@ class RandomEffects(object):
             cov_offset = cov_offset + ranef.g_size
         theta.append(np.ones(1))
         t_inds.append(np.arange(t_offset, t_offset+1))
-        theta = np.concatenate(theta)  
+        theta = np.concatenate(theta)
         n_rows = terms[0].Xi.shape[0]
         n_cols = z_offset
         z_rows, z_cols = np.concatenate(z_rows),  np.concatenate(z_cols)
@@ -252,7 +252,7 @@ class RandomEffects(object):
         z_data = np.concatenate(z_data)
         g_data = np.concatenate(g_data)
         l_data = np.concatenate(l_data)
-        
+
         self.z_rows, self.z_cols, self.z_data = z_rows, z_cols, z_data
         self.g_rows, self.g_cols = g_rows, g_cols
         self.l_rows, self.l_cols = l_rows, l_cols
@@ -277,13 +277,13 @@ class RandomEffects(object):
         self.d2g_dchol = {}
         for i in range(self.levels):
             p = self.n_rvars[i]
-            self.elim_mats[i] = lmat(p).A
-            self.symm_mats[i] = nmat(p).A
+            self.elim_mats[i] = lmat(p).toarray()
+            self.symm_mats[i] = nmat(p).toarray()
             self.iden_mats[i] = np.eye(p)
             self.d2g_dchol[i] = get_d2_chol(self.n_rvars[i])
-        
-            
-    def get_u_indices(self): 
+
+
+    def get_u_indices(self):
         """
         Get the indices for the random effects.
 
@@ -299,7 +299,7 @@ class RandomEffects(object):
             u_indices[i] = np.arange(start, start+q)
             start+=q
         return u_indices
-    
+
     def wishart_info(self):
         """
         Get the Wishart information for the random effects.
@@ -320,5 +320,5 @@ class RandomEffects(object):
             ws[i]['nu'] = nu
         return ws
 
-            
-                
+
+
