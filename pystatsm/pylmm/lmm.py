@@ -24,13 +24,13 @@ def sparsity(sparse_arr):
     return sparse_arr.nnz / np.prod(sparse_arr.shape)
 
 class LMM(object):
-    
+
     def __init__(self, formula, data):
         model_info = parse_random_effects(formula)
         y_vars = model_info["y_vars"]
         fe_form = model_info["fe_form"]
         groups = model_info["re_terms"]
-        terms = [RandomEffectTerm(re_form, gr_form, data) 
+        terms = [RandomEffectTerm(re_form, gr_form, data)
                        for re_form, gr_form in groups]
         random_effects = RandomEffects(terms)
         X = patsy.dmatrix(fe_form, data=data, return_type='dataframe')
@@ -44,11 +44,11 @@ class LMM(object):
         ZtZ = Z.T.dot(Z)
         ytZ = sp.sparse.csc_matrix(Z.T.dot(y)).T
         yty = sp.sparse.csc_matrix(y.T.dot(y))
-        
+
         M = sp.sparse.bmat([[XtX, ZtX.T, ytX.T],
                             [ZtX, ZtZ,   ytZ.T],
                             [ytX, ytZ,   yty]])
-        
+
         zero_mat1 = sp.sparse.eye(X.shape[1])*0.0
         zero_mat2 = sp.sparse.eye(1)*0.0
         C = sp.sparse.block_diag([zero_mat1, L, zero_mat2])
@@ -85,8 +85,8 @@ class LMM(object):
         self.d2g_dchol = random_effects.d2g_dchol
         self.n_fe = self.p = self.X.shape[1]
         self.bounds = [(0, None) if x==1 else (None, None) for x in self.theta[:-1]]+[(None, None)]
-        
-            
+
+
     def transform_theta(self, theta):
         for i in range(self.levels):
             G = invech(theta[self.t_inds[i]])
@@ -94,15 +94,15 @@ class LMM(object):
             theta[self.t_inds[i]] = vech(L)
         theta[-1] = np.log(theta[-1])
         return theta
-        
+
     def inverse_transform_theta(self, theta):
-        for i in range(self.levels): 
+        for i in range(self.levels):
             L = invech_chol(theta[self.t_inds[i]])
             G = L.dot(L.T)
             theta[self.t_inds[i]] = vech(G)
         theta[-1] = np.exp(theta[-1])
         return theta
-    
+
     def update_gmat(self, theta, inverse=False):
         G = self.G
         for i in range(self.levels):
@@ -113,7 +113,7 @@ class LMM(object):
                 theta_i = invech(theta_i).reshape(-1, order='F')
             G.data[self.g_inds[i]] = np.tile(theta_i, self.ng[i])
         return G
-    
+
     def update_lmat(self, theta, inverse=False):
         L = self.L
         for i in range(self.levels):
@@ -123,44 +123,44 @@ class LMM(object):
                 theta_i = vech(np.linalg.inv(invech_chol(theta_i)))
             L.data[self.l_inds[i]] = np.tile(theta_i, self.ng[i])
         return L
-     
+
     def update_cmat(self, theta):
         G = self.update_gmat(theta, inverse=True)
         C = sp.sparse.block_diag([self.zero_mat1, G, self.zero_mat2])
         return C
-    
+
     def _update_mme(self, Ginv, theta):
         M =  self.M.copy()/theta[-1]
         C = sp.sparse.block_diag([self.zero_mat1, Ginv, self.zero_mat2])
         M+=C
         return M
-    
+
     def update_mme2(self, Ginv, theta):
         M =  self.M.copy()/theta[-1]
         M[self.n_fe:-1, self.n_fe:-1] +=Ginv
         return M
-    
+
     def update_mme(self, Ginv, theta):
         M = self.M.copy()
         M.data /=theta[-1]
         C = sp.sparse.block_diag([self.zero_mat1, Ginv, self.zero_mat2])
         M+=C
         return M
-    
+
     def lndet_gmat(self, theta):
         lnd = 0.0
         for i in range(self.levels):
             Sigma_i = invech(theta[self.t_inds[i]])
             lnd += self.ng[i]*np.linalg.slogdet(Sigma_i)[1]
         return lnd
-        
+
     def loglike(self, theta, reml=True, use_sw=False, use_sparse=True, sparsity_threshold=0.4):
         Ginv = self.update_gmat(theta, inverse=True)
         M = self.update_mme(Ginv, theta)
         if (M.nnz / np.prod(M.shape) < sparsity_threshold) and use_sparse:
-            L = cholesky(M.tocsc()).L().A
+            L = cholesky(M.tocsc()).L().toarray()
         else:
-            L = np.linalg.cholesky(M.A)
+            L = np.linalg.cholesky(M.toarray())
         ytPy = np.diag(L)[-1]**2
         logdetG = self.lndet_gmat(theta)
         logdetR = np.log(theta[-1]) * self.Z.shape[0]
@@ -172,7 +172,7 @@ class LMM(object):
             _, logdetV = cholesky(Q).slogdet()
             ll = logdetR + logdetV + logdetG + ytPy
         return ll
-    
+
     def pls(self, theta, w=None):
         W = self.R if w is None else sps.diags([w], [0])
         L = self.update_lmat(theta)
@@ -195,9 +195,9 @@ class LMM(object):
         pwrss = np.sum(wtres**2) + np.sum(v**2)
         ld = Lfactor.slogdet()[1] + np.linalg.slogdet(RXtRX)[1]
         n, p = X.shape
-        dev = self.n * np.log(2 * np.pi * theta[-1]) + ld + pwrss / theta[-1]        
+        dev = self.n * np.log(2 * np.pi * theta[-1]) + ld + pwrss / theta[-1]
         return dev, b, u
-    
+
     def dg_dchol(self, L_dict):
         Jf = {}
         for i in range(self.levels):
@@ -207,51 +207,51 @@ class LMM(object):
             I = self.iden_mats[i]
             Jf[i] = E.dot(N.dot(np.kron(L, I))).dot(E.T)
         return Jf
-    
+
     def loglike_c(self, theta_chol, reml=True, use_sw=False):
         theta = self.inverse_transform_theta(theta_chol.copy())
         return self.loglike(theta, reml, use_sw)
-    
+
     def gradient_c(self, theta_chol, reml=True, use_sw=False):
         theta = self.inverse_transform_theta(theta_chol.copy())
         return self.gradient(theta, reml, use_sw)
-    
-    
+
+
     def hessian_c(self, theta_chol, reml=True):
         theta = self.inverse_transform_theta(theta_chol.copy())
         return self.hessian(theta, reml)
-    
+
     def gradient_chol(self, theta_chol, reml=True, use_sw=False):
         L_dict = self.update_chol(theta_chol)
         Jf_dict = self.dg_dchol(L_dict)
         Jg = self.gradient_c(theta_chol, reml, use_sw)
-        Jf = sp.linalg.block_diag(*Jf_dict.values()) 
+        Jf = sp.linalg.block_diag(*Jf_dict.values())
         Jf = np.pad(Jf, [[0, 1]])
         Jf[-1, -1] =  np.exp(theta_chol[-1])
         return Jg.dot(Jf)
-    
+
     def hessian_chol(self, theta_chol, reml=True):
         L_dict = self.update_chol(theta_chol)
         Jf_dict = self.dg_dchol(L_dict)
         Hq = self.hessian_c(theta_chol, reml)
         Jg = self.gradient_c(theta_chol, reml)
         Hf = self.d2g_dchol
-        Jf = sp.linalg.block_diag(*Jf_dict.values()) 
+        Jf = sp.linalg.block_diag(*Jf_dict.values())
         Jf = np.pad(Jf, [[0, 1]])
         Jf[-1, -1] = np.exp(theta_chol[-1])
-        A = Jf.T.dot(Hq).dot(Jf)  
+        A = Jf.T.dot(Hq).dot(Jf)
         B = np.zeros_like(Hq)
-        
+
         for i in range(self.levels):
             ix = self.t_inds[i]
             Jg_i = Jg[ix]
             Hf_i = Hf[i]
-            C = np.einsum('i,ijk->jk', Jg_i, Hf_i)  
+            C = np.einsum('i,ijk->jk', Jg_i, Hf_i)
             B[ix, ix[:, None]] += C
         B[-1, -1] = Jg[-1] * np.exp(theta_chol[-1])
         H = A + B
         return H
-    
+
     def _gradient_old(self, theta, reml=True, use_sw=False):
         s = theta[-1]
         W = self.R / s
@@ -259,14 +259,14 @@ class LMM(object):
         X, Z, y = self.X, self.Z, self.y
         RZ, RX, Ry = W.dot(Z), W.dot(X), W.dot(y)
         ZtRZ, XtRX, ZtRX, ZtRy = RZ.T.dot(Z), X.T.dot(RX), RZ.T.dot(X), RZ.T.dot(y)
-    
+
         Q = Ginv + ZtRZ
         M = cholesky(Q).inv()
-        
+
         ZtWZ = ZtRZ - ZtRZ.dot(M).dot(ZtRZ)
-        
+
         MZtRX = M.dot(ZtRX)
-        
+
         XtWX = XtRX - ZtRX.T.dot(MZtRX)
         XtWX_inv = np.linalg.inv(XtWX)
         ZtWX = ZtRX - ZtRZ.dot(MZtRX)
@@ -282,7 +282,7 @@ class LMM(object):
             ZtWXi = ZtWX[ind]
             ZtPyi = ZtPy[ind]
             for dGdi in self.random_effects.terms[i].G_deriv:
-                g1 = dGdi.dot(ZtWZi).diagonal().sum() 
+                g1 = dGdi.dot(ZtWZi).diagonal().sum()
                 g2 = ZtPyi.T.dot(dGdi.dot(ZtPyi))
                 if reml:
                     g3 = np.trace(XtWX_inv.dot(ZtWXi.T.dot(dGdi.dot(ZtWXi))))
@@ -303,7 +303,7 @@ class LMM(object):
         grad = np.concatenate(grad)
         grad = np.asarray(grad).reshape(-1)
         return grad
-    
+
     def _gradient_dense(self, theta, reml=True, use_ws=False):
         s = theta[-1]
         W = self.R / s
@@ -311,17 +311,17 @@ class LMM(object):
         X, Z, y = self.X, self.Z, self.y
         RZ, RX, Ry = W.dot(Z), W.dot(X), W.dot(y)
         ZtRZ, XtRX, ZtRX, ZtRy = RZ.T.dot(Z), X.T.dot(RX), RZ.T.dot(X), RZ.T.dot(y)
-    
+
         Q = Ginv + ZtRZ
         Q_chol = sp.linalg.cholesky(Q.toarray(), lower=True)
         Q_cinv, _ = dtrtri(Q_chol, lower=1)
         M = Q_cinv.T.dot(Q_cinv)
-        
-        ZtRZ = ZtRZ.toarray() 
+
+        ZtRZ = ZtRZ.toarray()
         ZtWZ = ZtRZ - ZtRZ.dot(M).dot(ZtRZ)
-                    
+
         MZtRX = M.dot(ZtRX)
-        
+
         XtWX = XtRX - ZtRX.T.dot(MZtRX)
         XtWX_inv = np.linalg.inv(XtWX)
         ZtWX = ZtRX - ZtRZ.dot(MZtRX)
@@ -337,7 +337,7 @@ class LMM(object):
             ZtWXi = ZtWX[ind]
             ZtPyi = ZtPy[ind]
             for dGdi in self.random_effects.terms[i].G_deriv:
-                g1 = dGdi.dot(ZtWZi).diagonal().sum() 
+                g1 = dGdi.dot(ZtWZi).diagonal().sum()
                 g2 = ZtPyi.T.dot(dGdi.dot(ZtPyi))
                 if reml:
                     g3 = np.trace(XtWX_inv.dot(ZtWXi.T.dot(dGdi.dot(ZtWXi))))
@@ -359,7 +359,7 @@ class LMM(object):
         grad = np.concatenate(grad)
         grad = np.asarray(grad).reshape(-1)
         return grad
-    
+
     def gradient(self, theta, reml=True, use_sw=False, assume_sparse_inverse=True):
         s = theta[-1]
         W = self.R / s
@@ -371,7 +371,7 @@ class LMM(object):
         ztrz_sparse = sparsity(ZtRZ) < 0.05
         if not ztrz_sparse:
             ZtRZ = ZtRZ.toarray()
-        
+
         if assume_sparse_inverse and ztrz_sparse:
             M = cholesky(Q).inv()
             m_sparse = sparsity(M) < 0.05
@@ -382,7 +382,7 @@ class LMM(object):
             Q_cinv, _ = dtrtri(Q_chol, lower=1)
             M = Q_cinv.T.dot(Q_cinv)
             m_sparse = False
-        
+
         if m_sparse:
             if ztrz_sparse:
                 ZtWZ = ZtRZ - ZtRZ.dot(M).dot(ZtRZ)
@@ -391,11 +391,11 @@ class LMM(object):
         else:
             if ztrz_sparse:
                 ZtWZ = ZtRZ - (ZtRZ.T.dot((ZtRZ.dot(M)).T)).T
-            else:                
+            else:
                 ZtWZ = ZtRZ - ZtRZ.dot(M).dot(ZtRZ)
-                    
+
         MZtRX = M.dot(ZtRX)
-        
+
         XtWX = XtRX - ZtRX.T.dot(MZtRX)
         XtWX_inv = np.linalg.inv(XtWX)
         ZtWX = ZtRX - ZtRZ.dot(MZtRX)
@@ -411,7 +411,7 @@ class LMM(object):
             ZtWXi = ZtWX[ind]
             ZtPyi = ZtPy[ind]
             for dGdi in self.random_effects.terms[i].G_deriv:
-                g1 = dGdi.dot(ZtWZi).diagonal().sum() 
+                g1 = dGdi.dot(ZtWZi).diagonal().sum()
                 g2 = ZtPyi.T.dot(dGdi.dot(ZtPyi))
                 if reml:
                     g3 = np.trace(XtWX_inv.dot(ZtWXi.T.dot(dGdi.dot(ZtWXi))))
@@ -440,7 +440,7 @@ class LMM(object):
         grad = np.concatenate(grad)
         grad = np.asarray(grad).reshape(-1)
         return grad
-    
+
     def hessian(self, theta, reml=True, use_sw=False):
         s = theta[-1]
         R = self.R / s
@@ -448,7 +448,7 @@ class LMM(object):
         X, Z, y = self.X, self.Z, self.y
         RZ = R.dot(Z)
         ZtRZ = RZ.T.dot(Z)
-    
+
         Q = ZtRZ + Ginv
         M = cholesky(Q).inv()
         W = R - RZ.dot(M).dot(RZ.T)
@@ -476,7 +476,7 @@ class LMM(object):
                 yPZJ.append(dGdi.dot(ZtPyi))
                 ZPJ.append((dGdi.dot(ZtPi)).T)
                 ix.append(ind)
-            
+
         t_indices = list(zip(*np.triu_indices(len(self.theta)-1)))
         for i, j in t_indices:
             ZtPZij = ZtPZ[ix[i]][:, ix[j]]
@@ -495,40 +495,40 @@ class LMM(object):
         P = W - WX.dot(U)
         H[-1, -1] = Py.T.dot(PPy)*2 - np.einsum("ij,ji->", P, P)
         return H
-    
-    
+
+
     def vinvcrossprod(self, A, B, theta):
         Rinv = self.R / theta[-1]
         Ginv = self.update_gmat(theta, inverse=True)
         RZ = Rinv.dot(self.Z)
         Q = Ginv + self.Z.T.dot(RZ)
         M = cholesky(Q).inv()
-        AtRB = ((Rinv.dot(B)).T.dot(A)).T 
+        AtRB = ((Rinv.dot(B)).T.dot(A)).T
         AtRZ = (RZ.T.dot(A)).T
         ZtRB = RZ.T.dot(B)
         AtVB = AtRB - (M.dot(ZtRB)).T.dot(AtRZ.T).T
         return AtVB
-        
+
     def _compute_effects(self, theta=None):
         theta = self.theta if theta is None else theta
         Ginv = self.update_gmat(theta, inverse=True)
         M = self.update_mme(Ginv, theta)
-        XZy = np.r_[self.Xty.A, self.Zty.A].flatten() / theta[-1]
+        XZy = np.r_[self.Xty.toarray(), self.Zty.toarray()].flatten() / theta[-1]
         chol_fac = cholesky(M[:-1, :-1].tocsc())
         betau = chol_fac.solve_A(XZy)
         u = betau[self.X.shape[1]:].reshape(-1)
         beta = betau[:self.X.shape[1]].reshape(-1)
-        
+
         Rinv = self.R / theta[-1]
         RZ = Rinv.dot(self.Z)
         Q = Ginv + self.Z.T.dot(RZ)
         M = cholesky(Q).inv()
-        XtRinvX = self.X.T.dot(Rinv.dot(self.X)) 
+        XtRinvX = self.X.T.dot(Rinv.dot(self.X))
         XtRinvZ = (RZ.T.dot(self.X)).T
         XtVinvX = XtRinvX - XtRinvZ.dot(M.dot(XtRinvZ.T))
         XtVinvX_inv = np.linalg.inv(XtVinvX)
         return beta, XtVinvX_inv, u
-     
+
     def update_chol(self, theta, inverse=False):
         L_dict = {}
         for i in range(self.levels):
@@ -536,10 +536,10 @@ class LMM(object):
             L_i = invech_chol(theta_i)
             L_dict[i] = L_i
         return L_dict
-    
+
     def _optimize(self, reml=True, use_grad=True, use_hess=False, approx_hess=False,
-                  opt_kws={}):
-      
+                  opt_kws={}, optimize_kws={}):
+
         default_opt_kws = dict(verbose=0, gtol=1e-6, xtol=1e-6)
         for key, value in default_opt_kws.items():
                 if key not in opt_kws.keys():
@@ -553,19 +553,20 @@ class LMM(object):
             else:
                 hess = None
             optimizer = sp.optimize.minimize(self.loglike_c, self.theta, args=(reml,),
-                                             jac=self.gradient_chol, hess=hess, 
+                                             jac=self.gradient_chol, hess=hess,
                                              options=opt_kws, bounds=self.bounds,
-                                             method='trust-constr')
+                                             method='trust-constr', **optimize_kws)
         else:
             jac = lambda x, reml: fo_fc_cd(self.loglike_c, x, args=(reml,))
             hess = lambda x, reml: so_fc_cd(self.loglike_c, x, args=(reml,))
             optimizer = sp.optimize.minimize(self.loglike_c, self.theta, args=(reml,),
                                              jac=jac, hess=hess, bounds=self.bounds,
-                                             method='trust-constr', options=opt_kws)
+                                             method='trust-constr', options=opt_kws,
+                                             **optimize_kws)
         theta_chol = optimizer.x
         theta = self.inverse_transform_theta(theta_chol.copy())
         return theta, theta_chol, optimizer
-        
+
     def _post_fit(self, theta, theta_chol, optimizer, reml=True,
                   use_grad=True, analytic_se=False):
 
@@ -577,20 +578,20 @@ class LMM(object):
             C = re_covs[i]
             v = np.diag(np.sqrt(1/np.diag(C)))
             re_corrs[i] = v.dot(C).dot(v)
-        
+
         if analytic_se:
             Htheta = self.hessian(theta)
         elif use_grad:
             Htheta = so_gc_cd(self.gradient, theta)
         else:
             Htheta = so_fc_cd(self.loglike, theta)
-        
+
         self.theta, self.beta, self.u, self.params = theta, beta, u, params
         self.Hinv_beta = XtWX_inv
         self.Hinv_theta = np.linalg.pinv(Htheta/2.0)
         self.se_beta = np.sqrt(np.diag(XtWX_inv))
         self.se_theta = np.sqrt(np.diag(self.Hinv_theta))
-        self.se_params = np.concatenate([self.se_beta, self.se_theta])  
+        self.se_params = np.concatenate([self.se_beta, self.se_theta])
         self.optimizer = optimizer
         self.theta_chol = theta_chol
         if reml:
@@ -616,7 +617,7 @@ class LMM(object):
                              self.BIC, self.CAIC])
         self.sumstats = pd.DataFrame(sumstats, index=['ll', 'llf', 'AIC', 'AICC',
                                                       'BIC', 'CAIC'], columns=['value'])
-    
+
     def predict(self, X=None, Z=None):
 
         if X is None:
@@ -625,13 +626,13 @@ class LMM(object):
             Z = self.Z
         yhat = X.dot(self.beta)+Z.dot(self.u)
         return yhat
-    
+
     def fit(self, reml=True, use_grad=True, use_hess=False, approx_hess=False,
-            analytic_se=False, adjusted_pvals=True, opt_kws={}):
-    
-        theta, theta_chol, optimizer = self._optimize(reml, use_grad, use_hess, 
-                                                      approx_hess, opt_kws)
-        self._post_fit(theta, theta_chol, optimizer, reml, use_grad, 
+            analytic_se=False, adjusted_pvals=True, opt_kws={}, optimize_kws={}):
+
+        theta, theta_chol, optimizer = self._optimize(reml, use_grad, use_hess,
+                                                      approx_hess, opt_kws, optimize_kws)
+        self._post_fit(theta, theta_chol, optimizer, reml, use_grad,
                        analytic_se)
         param_names = list(self.fe_vars)
         for k in range(self.levels):
@@ -654,7 +655,7 @@ class LMM(object):
             res.loc[self.fe_vars, 'degfree'] = adj_table['df2']
             res.loc[self.fe_vars, 'p'] = adj_table['p']
         self.res = res
-        
+
     def approx_degfree(self, L_list=None, theta=None, beta=None, method='satterthwaite'):
         L_list = [np.eye(self.X.shape[1])] if L_list is None else L_list
         theta = self.theta if theta is None else theta
@@ -692,8 +693,8 @@ class LMM(object):
             nu = 2.0 * E / (E - q)
             res.append(dict(F=f, df1=q, df2=nu, p=sp.stats.f(q, nu).sf(f)))
         return res
-    
 
 
-        
-        
+
+
+
