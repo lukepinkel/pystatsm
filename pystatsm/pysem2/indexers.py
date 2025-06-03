@@ -14,7 +14,7 @@ class FlattenedArray:
         if symmetric:
             v, _size = _vech(array), triangular_number(shape[-1])
         else:
-            v, _size = _vec(array), np.product(shape[-2:])
+            v, _size = _vec(array), np.prod(shape[-2:])
         self._shape = shape
         self._size = _size
         self._symmetric = symmetric

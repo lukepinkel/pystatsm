@@ -32,13 +32,13 @@ class FactorAnalysis(object):
         self.p, self.m = self.n_vars, self.n_facs
         self.E = np.eye(self.n_vars)
         self.Ik = np.eye(self.n_facs)
-        self.Nk = nmat(self.n_facs).A
-        self.Lk = lmat(self.n_facs).A
-        self.Dk = dmat(self.n_facs).A
+        self.Nk = nmat(self.n_facs).toarray()
+        self.Lk = lmat(self.n_facs).toarray()
+        self.Dk = dmat(self.n_facs).toarray()
         self.Ip = np.eye(self.n_vars)
-        self.Dp = dmat(self.n_vars).A
-        self.Lp = lmat(self.n_vars).A
-        self.Np = nmat(self.n_vars).A
+        self.Dp = dmat(self.n_vars).toarray()
+        self.Lp = lmat(self.n_vars).toarray()
+        self.Np = nmat(self.n_vars).toarray()
         self.LpNp = np.dot(self.Lp, self.Np)
         self.d_inds = vec(self.Ip)==1
         self.l_inds = vecl_inds(self.n_facs)
@@ -53,7 +53,7 @@ class FactorAnalysis(object):
         self.rotation_method, self.rotation_type = rotation_method, rotation_type
         rc = np.arange(self.p)*self.p+np.arange(self.p), np.arange(self.p)
         self.Dpsi = sp.sparse.csc_matrix((np.arange(self.p), rc), shape=(self.p**2, self.p))
-        
+
     def _process_data(self, X, S, n_obs):
         given_x = X is not None
         given_s = S is not None
@@ -72,7 +72,7 @@ class FactorAnalysis(object):
         self.S, self.V, self.u = S, V, u
         self.cols, self.inds, self._is_pd = cols, inds, _is_pd
         self.n_obs, self.n_vars = n_obs, n_vars
-        
+
     def _get_n_factors(self, n_factors, proportion=0.6, eigmin=1.0):
         if type(n_factors) is str:
             if n_factors == 'proportion':
@@ -82,7 +82,7 @@ class FactorAnalysis(object):
         elif type(n_factors) in [float, int]:
             n_factors = int(n_factors)
         self.n_facs = self.n_factors = n_factors
-        
+
     def _make_params(self):
         self.n_pars = self.n_vars*self.n_facs + self.n_vars
         self.theta = np.zeros(self.n_pars)
@@ -92,7 +92,7 @@ class FactorAnalysis(object):
         psi = np.diag(self.S - np.dot(L, L.T))
         self.theta[self.lix] = vec(L)
         self.theta[self.pix] = np.log(psi)
-    
+
     def model_matrices(self, theta):
         """
 
@@ -112,10 +112,10 @@ class FactorAnalysis(object):
         L = invec(theta[self.lix], self.n_vars, self.n_facs)
         Psi = np.diag(np.exp(theta[self.pix]))
         return L, Psi
-    
+
     def implied_cov(self, theta):
         """
-        
+
         Parameters
         ----------
         theta : ndarray
@@ -130,10 +130,10 @@ class FactorAnalysis(object):
         L, Psi = self.model_matrices(theta)
         Sigma = L.dot(L.T) + Psi
         return Sigma
-    
+
     def loglike(self, theta):
         """
-        
+
 
         Parameters
         ----------
@@ -151,10 +151,10 @@ class FactorAnalysis(object):
         trSV = np.trace(np.linalg.solve(Sigma, self.S))
         ll = lndS + trSV
         return ll
-    
+
     def gradient(self, theta):
         """
-        
+
         Parameters
         ----------
         theta : ndarray
@@ -163,7 +163,7 @@ class FactorAnalysis(object):
         Returns
         -------
         g : ndarray
-             ndarray of length t containing the derivatives of the 
+             ndarray of length t containing the derivatives of the
              loglikelihood with respect to theta.
 
         """
@@ -177,15 +177,15 @@ class FactorAnalysis(object):
         g[self.lix] = g1
         g[self.pix] = g2
         return g
-    
-        
+
+
     def dsigma(self, theta):
         L, Psi = self.model_matrices(theta)
         DLambda = np.dot(self.LpNp, np.kron(L, self.Ip))
         DPsi = np.dot(self.Lp, np.diag(vec(Psi)))[:, self.d_inds]
         G = np.block([DLambda, DPsi])
         return G
-    
+
     def hessian(self, theta):
         L, Psi = self.model_matrices(theta)
         Sigma = L.dot(L.T) + Psi
@@ -218,18 +218,18 @@ class FactorAnalysis(object):
                 Hij = Hij*0.0
         W = np.linalg.multi_dot([Dp.T, W1, Dp])
         dW = np.dot(d, W)
-        Hp = np.concatenate(Hpp, axis=2) 
-        H3 = np.einsum('k,ijk ->ij', dW, Hp)      
+        Hp = np.concatenate(Hpp, axis=2)
+        H3 = np.einsum('k,ijk ->ij', dW, Hp)
         H = (H1 + H2 - H3 / 2.0)*2.0
         return H
-    
+
     def _make_augmented_params(self, L, Phi, Psi):
         p, q = self.n_vars, self.n_facs
         nl = p * q
         ns = q * (q - 1) // 2
         nr = p
         if self.rotation_type == "oblique":
-            nc = q * (q - 1) 
+            nc = q * (q - 1)
         else:
             nc = q * (q - 1) //2
         nt = nl + ns + nr
@@ -244,16 +244,16 @@ class FactorAnalysis(object):
         self.nl, self.ns, self.nr, self.nc = nl, ns, nr, nc
         self.nt = nl + ns + nr
         self.params = params
-    
+
     def model_matrices_augmented(self, params):
         L = invec(params[self.ixl], self.n_vars, self.n_facs)
-        Phi = invecl(params[self.ixs])            
+        Phi = invecl(params[self.ixs])
         Psi = np.diag(params[self.ixr])
         return L, Phi, Psi
-    
+
     def dsigma_augmented(self, params):
         """
-        
+
 
         Parameters
         ----------
@@ -263,7 +263,7 @@ class FactorAnalysis(object):
         Returns
         -------
         G : ndarray
-            (k x m) matrix of derivatives of the implied covariance with 
+            (k x m) matrix of derivatives of the implied covariance with
             respect to parameters
 
         """
@@ -274,7 +274,7 @@ class FactorAnalysis(object):
         DPsi = np.dot(self.Lp, np.diag(vec(np.eye(self.n_vars))))[:, self.d_inds]
         G= np.block([DLambda, DPhi, DPsi])
         return G
-    
+
     def d2sigma_augmented(self, params):
         L, Phi, Psi = self.model_matrices_augmented(params)
         Hpp = []
@@ -295,11 +295,11 @@ class FactorAnalysis(object):
                 Hij = Hij*0.0
         D2Sigma = np.concatenate(Hpp,axis=0)
         return D2Sigma
-            
-    
+
+
     def implied_cov_augmented(self, params):
         """
-        
+
 
         Parameters
         ----------
@@ -316,10 +316,10 @@ class FactorAnalysis(object):
         L, Phi, Psi = self.model_matrices_augmented(params)
         Sigma = L.dot(Phi).dot(L.T) + Psi
         return Sigma
-    
+
     def loglike_augmented(self, params):
         """
-        
+
 
         Parameters
         ----------
@@ -337,10 +337,10 @@ class FactorAnalysis(object):
         trSV = np.trace(np.linalg.solve(Sigma, self.S))
         ll = lndS + trSV
         return ll
-    
+
     def gradient_augmented(self, params):
         """
-        
+
         Parameters
         ----------
         params : ndarray
@@ -349,7 +349,7 @@ class FactorAnalysis(object):
         Returns
         -------
         g : ndarray
-             ndarray of length m containing the derivatives of the 
+             ndarray of length m containing the derivatives of the
              loglikelihood with respect to params.
 
         """
@@ -365,10 +365,10 @@ class FactorAnalysis(object):
         g[self.ixs] = gPhi
         g[self.ixr] = gPsi
         return g
-    
+
     def hessian_augmented(self, params):
         """
-        
+
 
         Parameters
         ----------
@@ -378,7 +378,7 @@ class FactorAnalysis(object):
         Returns
         -------
         H : ndarray
-             (m x m) matrix of second derivative of the log likelihood with 
+             (m x m) matrix of second derivative of the log likelihood with
              respect to params
 
         """
@@ -411,25 +411,25 @@ class FactorAnalysis(object):
                 Hij = Hij*0.0
         W = np.linalg.multi_dot([Dp.T, W1, Dp])
         dW = np.dot(d, W)
-        Hp = np.concatenate(Hpp, axis=2) 
-        H3 = np.einsum('k,ijk ->ij', dW, Hp)      
+        Hp = np.concatenate(Hpp, axis=2)
+        H3 = np.einsum('k,ijk ->ij', dW, Hp)
         H = (H1 + H2 - H3 / 2.0)*2.0
         return H
-    
+
     def loglike_canonical(self, psi):
         S, q = self.S, self.n_vars - self.n_facs
         s = 1.0 / np.sqrt(psi[:, None])
         u = np.linalg.eigvalsh(s.T * S * s)[:q]
         f = np.sum(u - np.log(u) - 1)
         return f
-    
+
     def gradient_canonical(self, psi):
         S, q = self.S,  self.n_vars - self.n_facs
         s = 1.0 / np.sqrt(psi[:, None])
         u, V = np.linalg.eigh(s.T * S * s)
         g = ((1-u[:q]) * V[:, :q]**2).sum(axis=1)/psi
         return g
-    
+
     def hessian_canonical(self, psi):
         S, q, p= self.S, self.n_vars - self.n_facs, self.n_vars
         s = 1.0 / np.sqrt(psi[:, None])
@@ -445,7 +445,7 @@ class FactorAnalysis(object):
             B+= (b1 + b2) * A
         H = -Psi_inv.dot(B).dot(Psi_inv)
         return H
-    
+
     def loadings_from_psi(self, psi):
         S, m = self.S,  self.n_facs
         s = 1.0 / np.sqrt(psi[:, None])
@@ -453,18 +453,18 @@ class FactorAnalysis(object):
         w = np.sqrt(u[-m:] - 1)
         A = np.sqrt(psi[:,None]) * V[:, -m:] * w
         return A
-    
+
     def _canonical_constraint(self, L, Psi):
         C = vecl(np.dot(L.T, np.diag(1/np.diag(Psi))).dot(L))
         return C
-    
+
     def canonical_constraint(self, theta):
-        L, Psi = self.model_matrices(theta)    
+        L, Psi = self.model_matrices(theta)
         return self._canonical_constraint(L, Psi)
-        
+
     def _unrotated_constraint_derivs(self, L, Psi):
         """
-        
+
 
         Parameters
         ----------
@@ -489,10 +489,10 @@ class FactorAnalysis(object):
         J2 = (Dpsi.T.dot(J2.T)).T
         J = np.concatenate([J1, J2], axis=1)[self.l_inds]
         return J
-        
+
     def constraint_derivs(self, theta):
         """
-        
+
 
         Parameters
         ----------
@@ -506,13 +506,13 @@ class FactorAnalysis(object):
             the orthogonal model.
 
         """
-        L, Psi = self.model_matrices(theta)            
+        L, Psi = self.model_matrices(theta)
         J = self._unrotated_constraint_derivs(L, Psi)
         return J
-    
+
     def _reorder_factors(self, L, T, theta):
         """
-        
+
 
         Parameters
         ----------
@@ -554,10 +554,10 @@ class FactorAnalysis(object):
             theta[self.lix] = vec(L)
         T = T[:, order] * s[:, None]
         return L, T, theta
-        
+
     def _fit_indices(self, Sigma):
         """
-        
+
 
         Parameters
         ----------
@@ -587,10 +587,10 @@ class FactorAnalysis(object):
                          AIC=AIC,
                          BIC=BIC)
         return sumstats
-    
+
     def _fit(self, hess=True, opt_kws=None):
         """
-        
+
 
         Parameters
         ----------
@@ -608,7 +608,7 @@ class FactorAnalysis(object):
                                         hess=hess, method='trust-constr', **opt_kws)
         self.theta = self.opt.x.copy()
         self.A, self.Psi = self.model_matrices(self.theta)
-        
+
         if self.rotation_method is not None:
             self._rotate.A = self.A
             self._rotate.fit()
@@ -635,7 +635,7 @@ class FactorAnalysis(object):
             cix = vec(np.tril(np.ones(self.m), -1)!=0)
             H = np.zeros((nt+nc, nt+nc))
             H[:nt, :nt] = self.H
-            H[nt:, :nl] = dCdL[lix] 
+            H[nt:, :nl] = dCdL[lix]
             H[:nl, nt:] = dCdL[lix].T
             H[nt:, nl:nl+ns] = dCdP[lix][:, cix]
             H[nl:nl+ns, nt:] = dCdP[lix][:, cix].T
@@ -643,14 +643,14 @@ class FactorAnalysis(object):
         elif self.rotation_type == "ortho":
             dCdL = self._rotate.dC_dL_Ortho(self.L, self.Phi)
             nl, nr, nc = self.nl, self.nr, self.nc
-            nt, nc = nl + nr, nc 
+            nt, nc = nl + nr, nc
             H = np.zeros((nt+nc, nt+nc))
             ixp = np.r_[np.arange(self.nl),
                        np.arange(self.nl+self.ns, self.nl+self.ns+self.nr)]
             lix = vec(np.tril(np.ones((self.m, self.m)), -1)!=0)
-            H[:nt, :nt] = self.H[ixp, ixp[:, None]] 
+            H[:nt, :nt] = self.H[ixp, ixp[:, None]]
             H[H.shape[0]-nc:, :nl] = dCdL[lix]
-            H[:nl, H.shape[1]-nc:] = dCdL[lix].T 
+            H[:nl, H.shape[1]-nc:] = dCdL[lix].T
         else:
             dCdL = self.constraint_derivs(self.theta)
             nl, nt, nc = self.nl, self.nl + self.nr, self.nc
@@ -658,13 +658,13 @@ class FactorAnalysis(object):
             ixp = np.r_[np.arange(self.nl),
                        np.arange(self.nl+self.ns, self.nl+self.ns+self.nr)]
             lix = vec(np.tril(np.ones((self.m, self.m)), -1)!=0)
-            H[:nt, :nt] = self.H[ixp, ixp[:, None]] 
+            H[:nt, :nt] = self.H[ixp, ixp[:, None]]
             if self.nc > 0:
                 H[nt:, :-nc] = dCdL
-                H[:-nc, nt:] = dCdL.T 
+                H[:-nc, nt:] = dCdL.T
         self.ixp = ixp
         self.H_aug = H
-        self.se_params = np.sqrt(np.diag(np.linalg.inv(self.H_aug))[:nt]/self.n_obs * 2.0) 
+        self.se_params = np.sqrt(np.diag(np.linalg.inv(self.H_aug))[:nt]/self.n_obs * 2.0)
         self.L_se = invec(self.se_params[self.lix], self.n_vars, self.n_facs)
         if self.rotation_type == "oblique":
             self.Phi_se = invecl(self.se_params[self.ixs])
@@ -672,8 +672,8 @@ class FactorAnalysis(object):
         else:
             self.Phi_se = invecl(np.ones(self.nc))
             self.psi_se = self.se_params[nl:]
-            
-                        
+
+
     def constraint_jac(self, params):
         L, Phi, Psi = self.model_matrices_augmented(params)
         if self.rotation_type == "oblique":
@@ -693,11 +693,11 @@ class FactorAnalysis(object):
             lix = vec(np.tril(np.ones((self.m, self.m)), -1)!=0)
             dC = dCdL[lix]
         return dC
-        
+
     def fit(self, compute_factors=True, factor_method='tenberge', hess=True,
             opt_kws=None):
         """
-        
+
 
         Parameters
         ----------
@@ -719,7 +719,7 @@ class FactorAnalysis(object):
         self.sumstats = self._fit_indices(self.Sigma)
         z = self.params[self.ixp] / self.se_params
         p = sp.stats.norm(0, 1).sf(np.abs(z)) * 2.0
-        
+
         param_labels = []
         for j in range(self.n_facs):
             for i in range(self.n_vars):

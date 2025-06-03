@@ -397,7 +397,7 @@ class CorrCholesky(object):
     def _jac_fwd(self, x):
         M = _invecl(x)
         _, dL, _ = dchol(M, self.dM, self.d2M, order=1)
-        dL = dL.reshape(np.product(dL.shape[:2]), dL.shape[2], order='F')
+        dL = dL.reshape(np.prod(dL.shape[:2]), dL.shape[2], order='F')
         dy_dx = self.E.dot(dL)[np.ix_(self.tril_inds, self.tril_inds)]
         return dy_dx
     
@@ -409,7 +409,7 @@ class CorrCholesky(object):
     def _hess_fwd(self, x):
         M = _invecl(x)
         _, _, d2L = dchol(M, self.dM, self.d2M, order=2)
-        k = (np.product(d2L.shape[:2]),)
+        k = (np.prod(d2L.shape[:2]),)
         d2L = d2L.reshape(k+d2L.shape[2:], order='F')
         d2L = d2L[self.E.tocoo().col]
         d2y_dx2 = d2L[np.ix_(self.tril_inds, self.tril_inds, self.tril_inds)]

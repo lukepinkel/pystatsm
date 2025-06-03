@@ -66,7 +66,7 @@ def _make_sim_theta(model_dict):
 
 
 def get_var_comps(Xb, Z, G):
-    re_var = np.mean(np.einsum("ij,jj,ij->i", Z, G.A, Z))
+    re_var = np.mean(np.einsum("ij,jj,ij->i", Z, G.toarray(), Z))
     fe_var = np.dot(Xb.T, Xb) / Xb.shape[0]
     return fe_var, re_var
 

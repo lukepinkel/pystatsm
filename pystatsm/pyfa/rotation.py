@@ -267,7 +267,7 @@ class GeneralizedCrawfordFerguson(RotationMethod):
         B = L * L
         k1, k2, k3, k4, p, m = self.k1, self.k2, self.k3, self.k4, self.p, self.m
         Jm, Jp = np.ones((m, m)), np.ones((p, p))
-        Ip, Im, Kpm = np.eye(p), np.eye(m), kmat(p, m).A
+        Ip, Im, Kpm = np.eye(p), np.eye(m), kmat(p, m).toarray()
         T1 = k1 * Jp.dot(B).dot(Jm)
         T2 = k2 * (B).dot(Jm)
         T3 = k3 * (Jp).dot(B)

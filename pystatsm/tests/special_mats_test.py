@@ -16,8 +16,8 @@ def test_special_mats():
     vh = linalg.vech(A)
     v = linalg.vec(A)
     
-    Dp = special_mats.dmat(4).A
-    Lp = special_mats.lmat(4).A
+    Dp = special_mats.dmat(4).toarray()
+    Lp = special_mats.lmat(4).toarray()
     Dpp = np.linalg.inv(np.dot(Dp.T, Dp)).dot(Dp.T)
     
     
@@ -29,7 +29,7 @@ def test_special_mats():
     A = linalg.invec(np.arange(20), 5, 4)
     vecA = linalg.vec(A)
     vecAt = linalg.vec(A.T)
-    Kpq = special_mats.kmat(5, 4).A
+    Kpq = special_mats.kmat(5, 4).toarray()
     
     assert(np.allclose(Kpq.dot(vecA), vecAt))
     

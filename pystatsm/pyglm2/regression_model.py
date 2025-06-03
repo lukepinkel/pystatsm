@@ -291,9 +291,9 @@ class OrdinalModelData(ModelData):
         row_ind, col_ind = np.arange(n_obs), inverse
         Y = sp.sparse.csc_matrix((np.ones_like(y), (row_ind, col_ind)), shape=(n_obs, n_unique))
         A1, A2 = Y[:, :-1], Y[:, 1:]
-        o1, o2 = Y[:, -1].A.flatten() * 30e1, Y[:, 0].A.flatten() * -10e5
+        o1, o2 = Y[:, -1].toarray().flatten() * 30e1, Y[:, 0].toarray().flatten() * -10e5
         o1ix = o1 != 0
-        B1, B2 = np.block([A1.A, -X]), np.block([A2.A, -X])
+        B1, B2 = np.block([A1.toarray(), -X]), np.block([A2.toarray(), -X])
         self.data = [B1, B2, o1, o2, o1ix]
         self.counts = counts
         self.n_cats = self.q = n_unique - 1

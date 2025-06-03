@@ -15,7 +15,7 @@ import itertools
 def test_commutation_matrix_indices():
     sizes = list(itertools.product(range(1, 18), range(1, 18)))
     for m, n in sizes:
-        K1 = spmats.kmat(m, n).A
+        K1 = spmats.kmat(m, n).toarray()
         i1, i2 = np.where(K1)
         k1, k2 = indexing_utils.commutation_matrix_indices(m, n)
         order = np.argsort(k1)
@@ -26,7 +26,7 @@ def test_commutation_matrix_indices():
 def test_duplication_matrix_indices():
     sizes = np.arange(20)
     for n in sizes:
-        D1 = spmats.dmat(n).A
+        D1 = spmats.dmat(n).toarray()
         d1, d2 = indexing_utils.duplication_matrix_indices(n)
         i1, i2 = np.where(D1)
         order = np.argsort(d1)
@@ -36,7 +36,7 @@ def test_duplication_matrix_indices():
 def test_elimination_matrix_indices():
     sizes = np.arange(20)
     for n in sizes:
-        L1 = spmats.lmat(n).A
+        L1 = spmats.lmat(n).toarray()
         i1, i2 = np.where(L1)
         l1, l2 = indexing_utils.elimination_matrix_indices(n)
         order = np.argsort(l1)

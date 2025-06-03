@@ -349,8 +349,8 @@ class CLM(RegressionMixin, LikelihoodModel):
         self.beta = self.coefs = self.params[q:]
                 
         intercept = np.ones((self.n_obs, 1))
-        B1 = np.block([self.A1.A, -intercept])
-        B2 = np.block([self.A2.A, -intercept])
+        B1 = np.block([self.A1.toarray(), -intercept])
+        B2 = np.block([self.A2.toarray(), -intercept])
         dat = ModelData(B1, B2,  self.o1, self.o2, self.o1ix, self.weights)
         
         self.paramsn, self.optn = self._fit(self.params_init[:B1.shape[1]], data=dat)

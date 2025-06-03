@@ -37,27 +37,47 @@ def process_optimizer_kwargs(optimizer_kwargs, default_method='trust-constr'):
                 optimizer_kwargs['options'][dfkey] = dfval
     return optimizer_kwargs
 
+class MemoizeJac:
+    def __init__(self, fun):
+        self.fun = fun
+        self.jac = None
+        self._value = None
+        self.x = None
+
+    def _compute_if_needed(self, x, *args):
+        if not np.all(x == self.x) or self._value is None or self.jac is None:
+            self.x = np.asarray(x).copy()
+            fg = self.fun(x, *args)
+            self.jac = fg[1]
+            self._value = fg[0]
+
+    def __call__(self, x, *args):
+        self._compute_if_needed(x, *args)
+        return self._value
+
+    def derivative(self, x, *args):
+        self._compute_if_needed(x, *args)
+        return self.jac
 
 
-# class MemoizeGradHess(MemoizeJac):
-#     """ Decorator that caches the return vales of a function returning
-#         (fun, grad, hess) each time it is called.
-#     https://stackoverflow.com/a/68608349
 
-#     """
+class MemoizeGradHess(MemoizeJac):
+    """ Decorator that caches the return vales of a function returning
+       (fun, grad, hess) each time it is called.
+        https://stackoverflow.com/a/68608349
+    """
+    def __init__(self, fun):
+        super().__init__(fun)
+        self.hess = None
 
-#     def __init__(self, fun):
-#         super().__init__(fun)
-#         self.hess = None
+    def _compute_if_needed(self, x, *args):
+        if not np.all(x == self.x) or self._value is None or self.jac is None or self.hess is None:
+            self.x = np.asarray(x).copy()
+            self._value, self.jac, self.hess = self.fun(x, *args)
 
-#     def _compute_if_needed(self, x, *args):
-#         if not np.all(x == self.x) or self._value is None or self.jac is None or self.hess is None:
-#             self.x = np.asarray(x).copy()
-#             self._value, self.jac, self.hess = self.fun(x, *args)
-
-#     def hessian(self, x, *args):
-#         self._compute_if_needed(x, *args)
-#         return self.hess
+    def hessian(self, x, *args):
+        self._compute_if_needed(x, *args)
+        return self.hess
 
 
 class ZeroConstraint(object):
