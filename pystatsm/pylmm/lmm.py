@@ -646,7 +646,7 @@ class LMM(object):
         res = pd.DataFrame(res, index=param_names, columns=['estimate', 'SE'])
         res['t'] = res['estimate'] / res['SE']
         res['p'] = sp.stats.t(self.X.shape[0]-self.X.shape[1]).sf(np.abs(res['t']))
-        res['degfree'] = self.X.shape[0] - self.X.shape[1]
+        res['degfree'] = (self.X.shape[0] - self.X.shape[1])*1.0
         if adjusted_pvals:
             L = np.eye(self.X.shape[1])
             L_list = [L[[i]] for i in range(self.X.shape[1])]
