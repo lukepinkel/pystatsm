@@ -21,8 +21,7 @@ import scipy.stats
 import matplotlib.pyplot as plt
 from .lmm import LMM
 from ..utilities.data_utils import _check_shape, sign_change
-from ..utilities.linalg_operations import vech
-from sksparse.cholmod import cholesky
+from ..utilities.linalg_operations import vech, cholesky
 from ..utilities.random import trnorm, r_invwishart, r_invgamma
 from ..utilities.func_utils import poisson_logp, log1p, norm_cdf
 from .ranef_terms import RandomEffects, RandomEffectTerm
