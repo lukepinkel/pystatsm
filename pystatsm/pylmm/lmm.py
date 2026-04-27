@@ -16,7 +16,7 @@ from ..utilities.linalg_operations import invech_chol, invech, vech
 from ..utilities.numerical_derivs import fo_fc_cd, so_fc_cd, so_gc_cd
 from ..utilities.formula import parse_random_effects
 
-from sksparse.cholmod import cholesky, cholesky_AAt
+from ..utilities.linalg_operations import cholesky, cholesky_AAt
 import pandas as pd
 
 

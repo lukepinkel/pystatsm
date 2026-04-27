@@ -6,10 +6,126 @@ Created on Sat May 16 21:47:11 2020
 @author: lukepinkel
 """
 
-import numba 
-import numpy as np 
-import scipy as sp 
-from sksparse.cholmod import cholesky
+import numba
+import numpy as np
+import scipy as sp
+import sksparse.cholmod as _cholmod
+
+# scikit-sparse 0.5.0 renamed nearly everything in sksparse.cholmod. The shim
+# below keeps the v0.4.x call sites in pystatsm working against either version.
+try:
+    _legacy_cholesky = _cholmod.cholesky
+    _legacy_cholesky_AAt = _cholmod.cholesky_AAt
+    _legacy_analyze = _cholmod.analyze
+    _SKSPARSE_NEW_API = False
+except AttributeError:
+    _SKSPARSE_NEW_API = True
+    _cho_factor = _cholmod.cho_factor
+    _CholeskyFactor = _cholmod.CholeskyFactor
+
+
+def _to_csc(A):
+    if _SKSPARSE_NEW_API and not isinstance(A, sp.sparse.csc_array):
+        return sp.sparse.csc_array(A)
+    if not _SKSPARSE_NEW_API and not sp.sparse.isspmatrix_csc(A):
+        return A.tocsc()
+    return A
+
+
+class _FactorProxy:
+    """Wraps sksparse 0.5+ CholeskyFactor to expose the v0.4 method names used
+    throughout pystatsm: L, P, apply_P/Pt, solve_A/L/Lt, cholesky_inplace,
+    slogdet, inv."""
+
+    __slots__ = ("_f",)
+
+    def __init__(self, factor):
+        self._f = factor
+
+    def _ensure_ll(self):
+        if not self._f.is_ll:
+            self._f.change_factor(kind="LL")
+
+    def _ensure_ldl(self):
+        if self._f.is_ll:
+            self._f.change_factor(kind="LDL")
+
+    def L(self):
+        self._ensure_ll()
+        return self._f.get_factor(kind="LL", lower=True)
+
+    def P(self):
+        return self._f.get_perm()
+
+    def apply_P(self, b):
+        return b[self._f.perm]
+
+    def apply_Pt(self, b):
+        return b[np.argsort(self._f.perm)]
+
+    def solve_A(self, b):
+        return self._f.solve(b)
+
+    def solve_L(self, b, use_LDLt_decomposition=True):
+        if use_LDLt_decomposition:
+            self._ensure_ldl()
+        else:
+            self._ensure_ll()
+        return self._f.solve(b, system="L")
+
+    def solve_Lt(self, b, use_LDLt_decomposition=True):
+        if use_LDLt_decomposition:
+            self._ensure_ldl()
+        else:
+            self._ensure_ll()
+        return self._f.solve(b, system="Lt")
+
+    def cholesky_inplace(self, A):
+        self._f.factorize(_to_csc(A))
+        return self
+
+    def slogdet(self):
+        return self._f.slogdet()
+
+    def inv(self):
+        return self._f.inv()
+
+
+def cholesky(A, beta=0, mode="auto", ordering_method="default", use_long=None):
+    A = _to_csc(A)
+    if _SKSPARSE_NEW_API:
+        return _FactorProxy(_cho_factor(
+            A, beta=beta, lower=True, order=ordering_method,
+            supernodal_mode=None if mode == "auto" else mode))
+    kw = dict(beta=beta, mode=mode, ordering_method=ordering_method)
+    if use_long is not None:
+        kw["use_long"] = use_long
+    return _legacy_cholesky(A, **kw)
+
+
+def cholesky_AAt(A, beta=0, mode="auto", ordering_method="default", use_long=None):
+    A = _to_csc(A)
+    if _SKSPARSE_NEW_API:
+        return _FactorProxy(_cho_factor(
+            A, beta=beta, lower=True, order=ordering_method,
+            sym_kind="row",
+            supernodal_mode=None if mode == "auto" else mode))
+    kw = dict(beta=beta, mode=mode, ordering_method=ordering_method)
+    if use_long is not None:
+        kw["use_long"] = use_long
+    return _legacy_cholesky_AAt(A, **kw)
+
+
+def analyze(A, mode="auto", ordering_method="default", use_long=None):
+    A = _to_csc(A)
+    if _SKSPARSE_NEW_API:
+        return _FactorProxy(_CholeskyFactor(
+            A, lower=True, order=ordering_method,
+            supernodal_mode=None if mode == "auto" else mode))
+    kw = dict(mode=mode, ordering_method=ordering_method)
+    if use_long is not None:
+        kw["use_long"] = use_long
+    return _legacy_analyze(A, **kw)
 
 def wcrossp(X, w):
     Y =  (X * w[:, np.newaxis]).T.dot(X)

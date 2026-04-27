@@ -10,24 +10,23 @@ import pandas as pd
 import numpy as np
 import formulaic
 import scipy as sp
-import sksparse
-from sksparse.cholmod import cholesky
 from abc import ABCMeta, abstractmethod
 
 from ..utilities.python_wrappers import (sparse_dot,
-                                         sparse_pattern_trace, 
-                                         coo_to_csc, 
+                                         sparse_pattern_trace,
+                                         coo_to_csc,
                                          sparse_dense_kron,
                                          sparse_dense_kron_inplace,
-                                         ds_kron, 
+                                         ds_kron,
                                          ds_kron_inplace,
                                          cs_matmul_inplace,
                                          cs_add_inplace,
                                          tile_1d)
-from ..utilities.linalg_operations import (invech_chol, 
+from ..utilities.linalg_operations import (invech_chol,
                                            _invech, invech,
                                            _vech, vech,
-                                           _vec)
+                                           _vec,
+                                           cholesky, analyze)
 from ..utilities.formula import parse_random_effects
 from ..utilities.indexing_utils import vech_inds_reverse
 from ..utilities.param_transforms import CholeskyCov, CombinedTransform
@@ -615,7 +614,7 @@ class MMEBlocked(BaseMME):
          self.XytRXy, self.XytXy = XytRXy, XytXy
     
     def _setup_cholesky(self):
-        self.chol_fac = sksparse.cholmod.analyze(sp.sparse.csc_matrix(self.C), ordering_method="best")
+        self.chol_fac = analyze(self.C, ordering_method="best")
         self._p = np.argsort(self.chol_fac.P())
         self.dg = np.zeros(self.n_fixef + self.n_ranef + 1, dtype=np.double)
         
