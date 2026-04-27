@@ -8,14 +8,14 @@ Created on Tue Jun  8 05:55:20 2021
 import re
 import patsy
 import numpy as np
-import scipy as sp 
+import scipy as sp
 import scipy.sparse as sps
 import pandas as pd
 from ..utilities.data_utils import dummy, _check_np, _check_shape
-from ..utilities.linalg_operations import vech, invech, vec
+from ..utilities.linalg_operations import vech, invech, vec, cholesky
 from ..utilities.special_mats import lmat, nmat
 from ..utilities.numerical_derivs import so_gc_cd, so_fc_cd, fo_fc_cd
-from sksparse.cholmod import cholesky
+
 
 
 
@@ -99,7 +99,7 @@ def make_gcov(theta, indices, dims, inverse=False):
 
 
 
-    
+
 
 def lndet_gmat(theta, dims, indices):
     lnd = 0.0
@@ -125,8 +125,8 @@ def transform_theta(theta, dims, indices):
         theta[indices['theta'][key]] = vech(L)
     theta[indices['rt']] = np.log(theta[indices['rt']])
     return theta
-        
-    
+
+
 def inverse_transform_theta(theta, dims, indices):
     for key in dims.keys():
         L = invech_chol(theta[indices['theta'][key]])
@@ -134,7 +134,7 @@ def inverse_transform_theta(theta, dims, indices):
         theta[indices['theta'][key]] = vech(G)
     theta[indices['rt']] = np.exp(theta[indices['rt']])
     return theta
-        
+
 def get_d2_chol(dim_i):
     p = dim_i['n_vars']
     Lp = lmat(p).A
@@ -148,8 +148,8 @@ def get_d2_chol(dim_i):
         T[i, j] = 0
     H = np.concatenate(H, axis=0)
     return H
-        
-      
+
+
 def get_jacmats(Zs, dims, indices, theta):
     start = 0
     jac_mats = {}
@@ -178,13 +178,13 @@ def get_jacmats(Zs, dims, indices, theta):
         dRi = sps.diags(x)
         jac_mats['resid'].append(dRi)
     return jac_mats, jac_inds
-      
+
 def sptrace(A):
     tr = A.diagonal().sum()
     return tr
 
 class MLMM:
-    
+
     def __init__(self, formula, data):
         X, Z, y, dims, levels, fe_vars, yvars = construct_model_matrices(formula, data=data)
         n_yvars = len(yvars)
@@ -192,7 +192,7 @@ class MLMM:
             X = np.kron(X, np.eye(n_yvars))
             Z = np.kron(Z, np.eye(n_yvars))
             y = vec(y.T)
-        
+
         indices = {}
         theta, theta_indices = make_theta(dims, n_yvars)
         indices['theta'] = theta_indices
@@ -235,14 +235,14 @@ class MLMM:
         self.bounds_2 = [(1e-6, None) if x==1 else (None, None) for x in self.theta]
         self.zero_mat = sp.sparse.eye(self.X.shape[1])*0.0
         self.zero_mat2 = sp.sparse.eye(1)*0.0
-        
+
     def update_mme(self, Ginv, Rinv):
         RZXy = Rinv.dot(self.XZy)
         M = self.XZy.T.dot(RZXy)
         Omega = sp.sparse.block_diag([self.zero_mat, Ginv, self.zero_mat2])
         M+=Omega
         return M
-    
+
     def update_gmat(self, theta, inverse=False):
         G = self.G
         for key in self.levels:
@@ -254,7 +254,7 @@ class MLMM:
                 theta_i = invech(theta_i).reshape(-1, order='F')
             G.data[self.indices['g'][key]] = np.tile(theta_i, ng)
         return G
-    
+
     def update_rmat(self, theta, inverse=False):
         R = self.R.copy()
         for key in self.ylevels:
@@ -265,7 +265,7 @@ class MLMM:
                 theta_i = theta_i
             R.data[0, self.indices['resid'][key]] = theta_i
         return R
-        
+
     def loglike(self, theta, use_sparse=True, reml=True):
         Ginv = self.update_gmat(theta, inverse=True)
         Rinv = self.update_rmat(theta, inverse=True).copy()
@@ -288,7 +288,7 @@ class MLMM:
             _, logdetV = cholesky(Q).slogdet()
             ll = logdetR + logdetV + logdetG + ytPy
         return ll
-    
+
     def gradient(self, theta, reml=True):
         Ginv = self.update_gmat(theta, inverse=True).copy()
         Rinv = self.update_rmat(theta, inverse=True).copy()
@@ -296,17 +296,17 @@ class MLMM:
         RX = Rinv.dot(self.X)
         Ry = Rinv.dot(self.y)
         ZtRZ = RZ.T.dot(self.Zs)
-        XtRX = self.X.T.dot(RX) 
+        XtRX = self.X.T.dot(RX)
         ZtRX = RZ.T.dot(self.X)
         ZtRy = RZ.T.dot(self.y)
-            
+
         Q = Ginv + ZtRZ
         M = cholesky(Q).inv()
-        
+
         ZtWZ = ZtRZ - ZtRZ.dot(M).dot(ZtRZ)
-        
+
         MZtRX = M.dot(ZtRX)
-        
+
         XtWX = XtRX - ZtRX.T.dot(MZtRX)
         XtWX_inv = np.linalg.inv(XtWX)
         ZtWX = ZtRX - ZtRZ.dot(MZtRX)
@@ -322,7 +322,7 @@ class MLMM:
             ZtWXi = ZtWX[ind]
             ZtPyi = ZtPy[ind]
             for dGdi in self.g_derivs[key]:
-                g1 = dGdi.dot(ZtWZi).diagonal().sum() 
+                g1 = dGdi.dot(ZtWZi).diagonal().sum()
                 g2 = ZtPyi.T.dot(dGdi.dot(ZtPyi))
                 if reml:
                     g3 = np.trace(XtWX_inv.dot(ZtWXi.T.dot(dGdi.dot(ZtWXi))))
@@ -343,7 +343,7 @@ class MLMM:
         grad = np.concatenate(grad)
         grad = _check_shape(np.array(grad))
         return grad
-    
+
     def update_chol(self, theta, inverse=False):
         L_dict = {}
         for key in self.levels:
@@ -351,7 +351,7 @@ class MLMM:
             L_i = invech_chol(theta_i)
             L_dict[key] = L_i
         return L_dict
-    
+
     def dg_dchol(self, L_dict):
         Jf = {}
         for key in self.levels:
@@ -361,34 +361,34 @@ class MLMM:
             I = self.iden_mats[key]
             Jf[key] = E.dot(N.dot(np.kron(L, I))).dot(E.T)
         return Jf
-    
+
     def loglike_c(self, theta_chol, reml=True):
         theta = inverse_transform_theta(theta_chol.copy(), self.dims, self.indices)
         return self.loglike(theta, reml)
-    
+
     def gradient_c(self, theta_chol, reml=True):
         theta = inverse_transform_theta(theta_chol.copy(), self.dims, self.indices)
         return self.gradient(theta, reml)
-    
-    
+
+
     def gradient_chol(self, theta_chol, reml=True):
         L_dict = self.update_chol(theta_chol)
         Jf_dict = self.dg_dchol(L_dict)
         Jg = self.gradient_c(theta_chol, reml)
-        Jf = sp.linalg.block_diag(*Jf_dict.values()) 
+        Jf = sp.linalg.block_diag(*Jf_dict.values())
         Jf = np.pad(Jf, [[0, self.n_yvars]])
         ix = self.indices['rt']
         Jf[ix, ix] = np.exp(theta_chol[ix])
         return Jg.dot(Jf)
-    
+
     def hessian_chol(self, theta_chol, reml=True):
         H = so_gc_cd(self.gradient_chol, theta_chol, args=(reml,))
         return H
-    
+
     def hessian(self, theta, reml=True):
         H = so_gc_cd(self.gradient, theta, reml=True)
         return H
-    
+
     def _compute_effects(self, theta=None):
         theta = self.theta if theta is None else theta
         Ginv = self.update_gmat(theta, inverse=True)
@@ -399,16 +399,16 @@ class MLMM:
         betau = chol_fac.solve_A(RXZy)
         u = betau[self.X.shape[1]:].reshape(-1)
         beta = betau[:self.X.shape[1]].reshape(-1)
-        
+
         RZ = Rinv.dot(self.Zs)
         Q = Ginv + self.Zs.T.dot(RZ)
         M = cholesky(Q).inv()
-        XtRinvX = self.X.T.dot(Rinv.dot(self.X)) 
-        XtRinvZ = self.X.T.dot(Rinv.dot(self.Z)) 
+        XtRinvX = self.X.T.dot(Rinv.dot(self.X))
+        XtRinvZ = self.X.T.dot(Rinv.dot(self.Z))
         XtVinvX = XtRinvX - XtRinvZ.dot(M.dot(XtRinvZ.T))
         XtVinvX_inv = np.linalg.inv(XtVinvX)
         return beta, XtVinvX_inv, u
-    
+
     def _optimize(self, reml=True, use_grad=True, use_hess=False, approx_hess=False,
                   opt_kws={}):
 
@@ -425,7 +425,7 @@ class MLMM:
             else:
                 hess = "3-point"
             optimizer = sp.optimize.minimize(self.loglike_c, self.theta, args=(reml,),
-                                             jac=self.gradient_chol, hess=hess, 
+                                             jac=self.gradient_chol, hess=hess,
                                              options=opt_kws, bounds=self.bounds,
                                              method='trust-constr')
         else:
@@ -437,10 +437,10 @@ class MLMM:
         theta_chol = optimizer.x
         theta = inverse_transform_theta(theta_chol.copy(), self.dims, self.indices)
         return theta, theta_chol, optimizer
-    
+
     def _post_fit(self, theta, theta_chol, optimizer, reml=True,
                   use_grad=True, analytic_se=False):
-        
+
         beta, XtWX_inv, u = self._compute_effects(theta)
         params = np.concatenate([beta, theta])
         re_covs, re_corrs = {}, {}
@@ -449,20 +449,20 @@ class MLMM:
             C = re_covs[key]
             v = np.diag(np.sqrt(1/np.diag(C)))
             re_corrs[key] = v.dot(C).dot(v)
-        
+
         if analytic_se:
             Htheta = self.hessian(theta)
         elif use_grad:
             Htheta = so_gc_cd(self.gradient, theta)
         else:
             Htheta = so_fc_cd(self.loglike, theta)
-        
+
         self.theta, self.beta, self.u, self.params = theta, beta, u, params
         self.Hinv_beta = XtWX_inv
         self.Hinv_theta = np.linalg.pinv(Htheta/2.0)
         self.se_beta = np.sqrt(np.diag(XtWX_inv))
         self.se_theta = np.sqrt(np.diag(self.Hinv_theta))
-        self.se_params = np.concatenate([self.se_beta, self.se_theta])  
+        self.se_params = np.concatenate([self.se_beta, self.se_theta])
         self.optimizer = optimizer
         self.theta_chol = theta_chol
         if reml:
@@ -488,7 +488,7 @@ class MLMM:
                              self.BIC, self.CAIC])
         self.sumstats = pd.DataFrame(sumstats, index=['ll', 'llf', 'AIC', 'AICC',
                                                       'BIC', 'CAIC'], columns=['value'])
-    
+
     def predict(self, X=None, Z=None):
 
         if X is None:
@@ -497,13 +497,13 @@ class MLMM:
             Z = self.Z
         yhat = X.dot(self.beta)+Z.dot(self.u)
         return yhat
-    
+
     def fit(self, reml=True, use_grad=True, use_hess=False, approx_hess=False,
             analytic_se=False, opt_kws={}):
 
-        theta, theta_chol, optimizer = self._optimize(reml, use_grad, use_hess, 
+        theta, theta_chol, optimizer = self._optimize(reml, use_grad, use_hess,
                                                       approx_hess, opt_kws)
-        self._post_fit(theta, theta_chol, optimizer, reml, use_grad, 
+        self._post_fit(theta, theta_chol, optimizer, reml, use_grad,
                        analytic_se)
         param_names = []
         for i in range(self.n_yvars):
@@ -524,9 +524,8 @@ class MLMM:
         res['t'] = res['estimate'] / res['SE']
         res['p'] = sp.stats.t(self.X.shape[0]-self.X.shape[1]).sf(np.abs(res['t']))
         self.res = res
-    
-    
-    
-    
-    
-    
+
+
+
+
+
