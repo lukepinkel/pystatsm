@@ -11,18 +11,17 @@ import numpy as np
 import scipy as sp
 import scipy.stats
 import scipy.sparse as sps
-from sksparse.cholmod import cholesky# analysis:ignore
 from ..utilities.data_utils import _check_np, _check_shape, dummy, _check_shape_nb
-from ..utilities.linalg_operations import invech
-from .model_matrices import (construct_model_matrices, 
+from ..utilities.linalg_operations import invech, cholesky
+from .model_matrices import (construct_model_matrices,
                              make_gcov, make_theta, lndet_gmat)
 from ..utilities.output import get_param_table
 from ..pyglm.families import (Binomial, ExponentialFamily, Gamma, Gaussian,  # analysis:ignore
                        InverseGaussian, Poisson, NegativeBinomial)
 
 
-    
-        
+
+
 def gh_rules(n, wn=True):
     z, w =  sp.special.roots_hermitenorm(n)
     if wn:
@@ -34,7 +33,7 @@ def vech2vec(vh):
     A = invech(vh)
     v = A.reshape(-1, order='F')
     return v
-    
+
 def approx_hess(f, x, *args, eps=None):
     p = len(x)
     if eps is None:
@@ -48,17 +47,17 @@ def approx_hess(f, x, *args, eps=None):
             if i==j:
                 dn = -f(x+2*ei)+16*f(x+ei)-30*f(x)+16*f(x-ei)-f(x-2*ei)
                 nm = 12*eps**2
-                H[i, j] = dn/nm  
+                H[i, j] = dn/nm
             else:
                 dn = f(x+ei+ej)-f(x+ei-ej)-f(x-ei+ej)+f(x-ei-ej)
                 nm = 4*eps*eps
-                
+
             ei[i], ej[j] = 0.0, 0.0
     return H
-    
-                
-            
-    
+
+
+
+
 class GLMM_AGQ:
     def __init__(self, formula, data, family):
         if isinstance(family, ExponentialFamily)==False:
@@ -74,9 +73,9 @@ class GLMM_AGQ:
         self.Zs = sps.csc_matrix(Z)
         self.Zt = self.Zs.T
         group_var, = list(dims.keys())
-       
+
         n_vars = dims[group_var]['n_vars']
-        self.J = dummy(data[group_var]) #sp.linalg.khatri_rao(dummy(data[group_var]).T, 
+        self.J = dummy(data[group_var]) #sp.linalg.khatri_rao(dummy(data[group_var]).T,
                                         #np.ones((self.X.shape[0], n_vars)).T).T #dummy(data[group_var])
         self.n_indices = data.groupby(group_var).indices
         self.Xg, self.Zg, self.yg = {}, {}, {}
@@ -87,7 +86,7 @@ class GLMM_AGQ:
             self.Zg[i] = self.Z[ix, j][:, None]
             self.yg[i] = self.y[ix]
             self.u_indices[i] = np.arange(k, k+n_vars)
-            self.c_indices[i] = (np.arange(k, k+n_vars)[:, None].T, 
+            self.c_indices[i] = (np.arange(k, k+n_vars)[:, None].T,
                                  np.arange(k, k+n_vars)[:, None])
             k+=n_vars
         self.n_groups = len(self.Xg)
@@ -98,16 +97,16 @@ class GLMM_AGQ:
         self.params[-self.nt:] = theta
         self.bounds = [(None, None) for i in range(self.p)]+\
                  [(None, None) if int(x)==0 else (0, None) for x in theta]
-        
+
         self.D = np.eye(n_vars)
-        self.W = sps.csc_matrix((np.ones(self.n), (np.arange(self.n), 
+        self.W = sps.csc_matrix((np.ones(self.n), (np.arange(self.n),
                                                    np.arange(self.n))))
-        
+
         self.G = G
         self.dims = dims
         self.indices = indices
         self.levels = levels
-        
+
     def update_gmat(self, theta, inverse=False):
         G = self.G
         for key in self.levels:
@@ -119,7 +118,7 @@ class GLMM_AGQ:
                 theta_i = invech(theta_i).reshape(-1, order='F')
             G.data[self.indices['g'][key]] = np.tile(theta_i, ng)
         return G
-        
+
     def pirls(self, params):
         beta, theta = params[:self.p], params[self.p:]
         Psi_inv = self.update_gmat(theta, inverse=True)
@@ -149,7 +148,7 @@ class GLMM_AGQ:
         Q = cholesky(RtR.tocsc()).L()
         Qinv = sps.linalg.inv(Q)
         return dict(u=u, D=D, Xb=Xb, Qinv=Qinv, Q=Q)
-    
+
     def _dloglike(self, db, Xb, Qinv, D, u):
         db = np.zeros(Qinv.shape[0]) + db
         u_tilde = Qinv.dot(db) + u
@@ -162,36 +161,36 @@ class GLMM_AGQ:
         ll = np.exp(logf - Du**2 / 2)
         return ll
 
-    
+
     def loglike(self, params, nagq=20):
         pirls_dict = self.pirls(params)
         z, w, f = gh_rules(nagq, False)
-        args = (pirls_dict['Xb'], pirls_dict['Qinv'], pirls_dict['D'], 
+        args = (pirls_dict['Xb'], pirls_dict['Qinv'], pirls_dict['D'],
                 pirls_dict['u'])
         sq2 = np.sqrt(2)
-        ll_i = np.sum([self._dloglike(z[i], *args) * w[i] 
+        ll_i = np.sum([self._dloglike(z[i], *args) * w[i]
                      for i in range(len(w))], axis=0) * sq2
         ll_i = np.log(ll_i)
         lnd = np.linalg.slogdet(pirls_dict['D'].A)[1]\
               -np.linalg.slogdet(pirls_dict['Q'].A)[1]
         ll = -(np.sum(ll_i) + lnd)
         return ll
-    
+
     def fit(self, nagq=20):
-        self.optimizer = sp.optimize.minimize(self.loglike, self.params, 
-                                   bounds=self.bounds, 
+        self.optimizer = sp.optimize.minimize(self.loglike, self.params,
+                                   bounds=self.bounds,
                                    options=dict(disp=1), args=(nagq,),
                                    jac='3-point')
         self.params = self.optimizer.x
         self.hess_theta = approx_hess(self.loglike, self.optimizer.x)
         self.se_params = np.sqrt(np.diag(np.linalg.inv(self.hess_theta)))
-        self.res = get_param_table(self.params, self.se_params, 
+        self.res = get_param_table(self.params, self.se_params,
                                    self.X.shape[0]-len(self.params))
 
 
-    
-        
-    
+
+
+
 class GLMM_LAP:
     def __init__(self, formula, data, family):
         if isinstance(family, ExponentialFamily)==False:
@@ -207,9 +206,9 @@ class GLMM_LAP:
         self.Zs = sps.csc_matrix(Z)
         self.Zt = self.Zs.T
         group_var, = list(dims.keys())
-       
+
         n_vars = dims[group_var]['n_vars']
-        self.J = dummy(data[group_var]) 
+        self.J = dummy(data[group_var])
         self.n_indices = data.groupby(group_var).indices
         self.Xg, self.Zg, self.yg = {}, {}, {}
         self.u_indices, self.c_indices = {}, {}
@@ -219,7 +218,7 @@ class GLMM_LAP:
             self.Zg[i] = self.Z[ix, j][:, None]
             self.yg[i] = self.y[ix]
             self.u_indices[i] = np.arange(k, k+n_vars)
-            self.c_indices[i] = (np.arange(k, k+n_vars)[:, None].T, 
+            self.c_indices[i] = (np.arange(k, k+n_vars)[:, None].T,
                                  np.arange(k, k+n_vars)[:, None])
             k+=n_vars
         self.n_groups = len(self.Xg)
@@ -236,16 +235,16 @@ class GLMM_LAP:
         self.params[-self.nt:] = theta
         self.bounds = [(None, None) for i in range(self.p)]+\
                       [(None, None) if int(x)==0 else (0, None) for x in theta]
-        
+
         self.D = np.eye(n_vars)
-        self.W = sps.csc_matrix((np.ones(self.n), (np.arange(self.n), 
+        self.W = sps.csc_matrix((np.ones(self.n), (np.arange(self.n),
                                                    np.arange(self.n))))
-        
+
         self.G = G
         self.dims = dims
         self.indices = indices
         self.levels = levels
-        
+
     def update_gmat(self, theta, inverse=False):
         G = self.G
         for key in self.levels:
@@ -257,7 +256,7 @@ class GLMM_LAP:
                 theta_i = invech(theta_i).reshape(-1, order='F')
             G.data[self.indices['g'][key]] = np.tile(theta_i, ng)
         return G
-        
+
     def pirls(self, params):
         beta, theta = params[:self.p], params[self.p:]
         Ginv = self.update_gmat(theta, inverse=True)
@@ -286,7 +285,7 @@ class GLMM_LAP:
         RtR, r = ZtWZ + Ginv, Ztr - Ginv_u
         utGinv_u = Ginv_u.dot(u)
         return u, Xb, RtR, utGinv_u
-    
+
     def loglike(self, params):
         if self.freeR is False:
             params = np.r_[params, 1.0]
@@ -297,7 +296,7 @@ class GLMM_LAP:
         llf = 2.0 * self.f.loglike(self.y, eta=self.Zs.dot(u)+Xb)
         ll = (llf + utGinv_u + lnd)/2.0
         return ll
-    
+
     def fit(self, opt_kws=None):
         default_opt_kws = dict(bounds=self.bounds, jac='3-point',
                                method='trust-constr', options=dict(verbose=3))
@@ -307,14 +306,13 @@ class GLMM_LAP:
         self.params = self.optimizer.x
         self.hess_theta = approx_hess(self.loglike, self.optimizer.x)
         self.se_params = np.sqrt(np.diag(np.linalg.inv(self.hess_theta)))
-        self.res = get_param_table(self.params, self.se_params, 
+        self.res = get_param_table(self.params, self.se_params,
                                    self.X.shape[0]-len(self.params))
         self.ll = self.loglike(self.params)
-        
 
 
-    
-        
-       
-               
-               
+
+
+
+
+
