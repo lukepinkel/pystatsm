@@ -6,11 +6,126 @@ Created on Sat May 16 21:47:11 2020
 @author: lukepinkel
 """
 
-import numba 
-import numpy as np 
-import scipy as sp 
-from sksparse.cholmod import cholesky
+import numba
+import numpy as np
+import scipy as sp
+import sksparse.cholmod as _cholmod
 
+# scikit-sparse 0.5.0 renamed nearly everything in sksparse.cholmod. The shim
+# below keeps the v0.4.x call sites in pystatsm working against either version.
+try:
+    _legacy_cholesky = _cholmod.cholesky
+    _legacy_cholesky_AAt = _cholmod.cholesky_AAt
+    _legacy_analyze = _cholmod.analyze
+    _SKSPARSE_NEW_API = False
+except AttributeError:
+    _SKSPARSE_NEW_API = True
+    _cho_factor = _cholmod.cho_factor
+    _CholeskyFactor = _cholmod.CholeskyFactor
+
+
+def _to_csc(A):
+    if _SKSPARSE_NEW_API and not isinstance(A, sp.sparse.csc_array):
+        return sp.sparse.csc_array(A)
+    if not _SKSPARSE_NEW_API and not sp.sparse.isspmatrix_csc(A):
+        return A.tocsc()
+    return A
+
+
+class _FactorProxy:
+    """Wraps sksparse 0.5+ CholeskyFactor to expose the v0.4 method names used
+    throughout pystatsm: L, P, apply_P/Pt, solve_A/L/Lt, cholesky_inplace,
+    slogdet, inv."""
+
+    __slots__ = ("_f",)
+
+    def __init__(self, factor):
+        self._f = factor
+
+    def _ensure_ll(self):
+        if not self._f.is_ll:
+            self._f.change_factor(kind="LL")
+
+    def _ensure_ldl(self):
+        if self._f.is_ll:
+            self._f.change_factor(kind="LDL")
+
+    def L(self):
+        self._ensure_ll()
+        return self._f.get_factor(kind="LL", lower=True)
+
+    def P(self):
+        return self._f.get_perm()
+
+    def apply_P(self, b):
+        return b[self._f.perm]
+
+    def apply_Pt(self, b):
+        return b[np.argsort(self._f.perm)]
+
+    def solve_A(self, b):
+        return self._f.solve(b)
+
+    def solve_L(self, b, use_LDLt_decomposition=True):
+        if use_LDLt_decomposition:
+            self._ensure_ldl()
+        else:
+            self._ensure_ll()
+        return self._f.solve(b, system="L")
+
+    def solve_Lt(self, b, use_LDLt_decomposition=True):
+        if use_LDLt_decomposition:
+            self._ensure_ldl()
+        else:
+            self._ensure_ll()
+        return self._f.solve(b, system="Lt")
+
+    def cholesky_inplace(self, A):
+        self._f.factorize(_to_csc(A))
+        return self
+
+    def slogdet(self):
+        return self._f.slogdet()
+
+    def inv(self):
+        return self._f.inv()
+
+
+def cholesky(A, beta=0, mode="auto", ordering_method="default", use_long=None):
+    A = _to_csc(A)
+    if _SKSPARSE_NEW_API:
+        return _FactorProxy(_cho_factor(
+            A, beta=beta, lower=True, order=ordering_method,
+            supernodal_mode=None if mode == "auto" else mode))
+    kw = dict(beta=beta, mode=mode, ordering_method=ordering_method)
+    if use_long is not None:
+        kw["use_long"] = use_long
+    return _legacy_cholesky(A, **kw)
+
+
+def cholesky_AAt(A, beta=0, mode="auto", ordering_method="default", use_long=None):
+    A = _to_csc(A)
+    if _SKSPARSE_NEW_API:
+        return _FactorProxy(_cho_factor(
+            A, beta=beta, lower=True, order=ordering_method,
+            sym_kind="row",
+            supernodal_mode=None if mode == "auto" else mode))
+    kw = dict(beta=beta, mode=mode, ordering_method=ordering_method)
+    if use_long is not None:
+        kw["use_long"] = use_long
+    return _legacy_cholesky_AAt(A, **kw)
+
+
+def analyze(A, mode="auto", ordering_method="default", use_long=None):
+    A = _to_csc(A)
+    if _SKSPARSE_NEW_API:
+        return _FactorProxy(_CholeskyFactor(
+            A, lower=True, order=ordering_method,
+            supernodal_mode=None if mode == "auto" else mode))
+    kw = dict(mode=mode, ordering_method=ordering_method)
+    if use_long is not None:
+        kw["use_long"] = use_long
+    return _legacy_analyze(A, **kw)
 def wcrossp(X, w):
     Y =  (X * w[:, np.newaxis]).T.dot(X)
     return Y
@@ -30,7 +145,7 @@ def add_chol_row(A, L, i):
     s = np.dot(b.T, b)
     L[i, i] = np.sqrt(r-s)
     return L
-    
+
 
 @numba.jit(nopython=True)
 def chol_downdate(L, k):
@@ -175,7 +290,7 @@ def vdg(X):
     V = np.diag(vec(X))
     return V
 
-     
+
 def gb_diag(*arrs):
     shapes = np.array([arr.shape for arr in arrs])
     res = np.zeros(np.sum(shapes, axis=0))
@@ -206,7 +321,7 @@ def nwls(X, y, w):
     w_neg = np.zeros_like(w)
     w_neg[neg] = -w[neg]
     w_sqr = np.sqrt(np.abs(w))
-    
+
     Q, R = np.linalg.qr((X * w_sqr[:, None]))
     non_pos = (w <= 0)
     U, s, Vt = np.linalg.svd(Q * non_pos[:, None], full_matrices=False)
@@ -240,7 +355,7 @@ def cproject(A):
 def eighs(A):
     u, V = np.linalg.eigh(A)
     u, V = u[::-1], V[:, ::-1]
-    return u, V    
+    return u, V
 
 def inv_sqrt(arr):
     u, V  = eighs(arr)
@@ -400,7 +515,7 @@ def lhv_row_norms(y):
 
 
 class LHV(object):
-    
+
     def __init__(self, mat_size):
         self.mat_size = mat_size
         self.lhv_size = mat_size_to_lhv_size(mat_size)
@@ -408,21 +523,21 @@ class LHV(object):
         self.row_sort = np.argsort(self.row_inds)
         self.ind_parts = lhv_ind_parts(mat_size)
         self.row_norm_inds = [self.row_sort[a:b] for a, b in self.ind_parts]
-    
+
     def _fwd(self, x):
         row_norms = np.zeros_like(x)
         for ii in self.row_norm_inds:
             row_norms[ii] = np.sqrt(np.sum(x[ii]**2)+1)
         y = x / row_norms
         return y
-    
+
     def _rvs(self, y):
         diag = np.zeros_like(y)
         for ii in self.row_norm_inds:
             diag[ii] = np.sqrt(1-np.sum(y[ii]**2))
         x = y / diag
         return x
-    
+
     def _jac_fwd(self, x):
         dy_dx = np.zeros((x.shape[0],)*2)
         for ii in self.row_norm_inds:
@@ -432,7 +547,7 @@ class LHV(object):
             v2 = 1.0 / (s**3) * xii[:, None] * xii[:,None].T
             dy_dx[ii, ii[:, None]] = v1 - v2
         return dy_dx
-    
+
     def _hess_fwd(self, x):
         d2y_dx2 = np.zeros((x.shape[0],)*3)
         for ii in self.row_norm_inds:
@@ -449,7 +564,7 @@ class LHV(object):
                         t4 = 3.0 / (s5) * x[j] * x[k] * x[i]
                         d2y_dx2[i, j, k] = t1+t2+t3+t4
         return d2y_dx2
-                        
+
     def _jac_rvs(self, y):
         dx_dy = np.zeros((y.shape[0],)*2)
         for ii in self.row_norm_inds:
@@ -459,7 +574,7 @@ class LHV(object):
             v2 = 1.0 / (s**3) * yii[:, None] * yii[:,None].T
             dx_dy[ii, ii[:, None]] = v1 + v2
         return dx_dy
-    
+
     def _hess_rvs(self, y):
         d2x_dy2 = np.zeros((y.shape[0],)*3)
         for ii in self.row_norm_inds:
@@ -476,7 +591,7 @@ class LHV(object):
                         t4 = 3.0 / s5 * y[i] * y[j] * y[k]
                         d2x_dy2[i, j, k] = t1 + t2 + t3 + t4
         return d2x_dy2
-    
+
 
 def dmat_exp(A):
     n = A.shape[0]
@@ -488,13 +603,13 @@ def dmat_exp(A):
         if i!=j:
             arr[k] = (eu[i] - eu[j]) / (u[i] - u[j])
         else:
-            arr[k] = eu[i]        
+            arr[k] = eu[i]
     W = np.kron(V, V)
     J = (W * arr).dot(W.T)
     return J
 
 
-  
+
 def _sparse_post_mult(A, S):
     prod = S.T.dot(A.T)
     prod = prod.T
