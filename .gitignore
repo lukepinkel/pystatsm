@@ -136,3 +136,4 @@ pystatsm/utilities/csc_matmul_wrapper.c
 pystatsm/utilities/cython_wrappers.c
 .idea/workspace.xml
 pystatsm/utilities/cython_wrappers.c
+pystatsm/pyfa2/free_bobby_shmurda.py
