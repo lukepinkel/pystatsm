@@ -9,19 +9,25 @@ Created on Sat May 16 21:47:11 2020
 import numba
 import numpy as np
 import scipy as sp
-import sksparse.cholmod as _cholmod
+try:
+    import sksparse.cholmod as _cholmod
+except ImportError:  # sandbox: sksparse optional, only used elsewhere
+    _cholmod = None
 
 # scikit-sparse 0.5.0 renamed nearly everything in sksparse.cholmod. The shim
 # below keeps the v0.4.x call sites in pystatsm working against either version.
-try:
-    _legacy_cholesky = _cholmod.cholesky
-    _legacy_cholesky_AAt = _cholmod.cholesky_AAt
-    _legacy_analyze = _cholmod.analyze
+if _cholmod is not None:
+    try:
+        _legacy_cholesky = _cholmod.cholesky
+        _legacy_cholesky_AAt = _cholmod.cholesky_AAt
+        _legacy_analyze = _cholmod.analyze
+        _SKSPARSE_NEW_API = False
+    except AttributeError:
+        _SKSPARSE_NEW_API = True
+        _cho_factor = _cholmod.cho_factor
+        _CholeskyFactor = _cholmod.CholeskyFactor
+else:
     _SKSPARSE_NEW_API = False
-except AttributeError:
-    _SKSPARSE_NEW_API = True
-    _cho_factor = _cholmod.cho_factor
-    _CholeskyFactor = _cholmod.CholeskyFactor
 
 
 def _to_csc(A):
@@ -435,6 +441,20 @@ def _vecl(x):
     ix, jx = np.triu_indices(m, k=1)
     res = x[...,jx, ix]
     return res
+
+
+def _vec_tril_mask(m, k=-1):
+    M = np.zeros((m, m), dtype=bool)
+    M[np.tril_indices(m, k=k)] = True
+    return M.reshape(-1, order='F')
+
+
+def _vec_ndg_mask(m):
+    return ~np.eye(m, dtype=bool).reshape(-1, order='F')
+
+
+def _vec_ndg(C):
+    return C.reshape(-1, order='F')[_vec_ndg_mask(C.shape[-1])]
 
 def _invecl(x):
     old_shape = x.shape
