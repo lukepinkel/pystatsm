@@ -1,4 +1,5 @@
 import numpy as np
+from ..utilities.linalg_operations import _vec, _vecl, _vech
 
 
 def _gcf_constants(method, p, m):
@@ -25,10 +26,8 @@ class GCFCriterion:
         r = np.sum(B, axis=1, keepdims=True)
         c = np.sum(B, axis=0, keepdims=True)
         s = np.sum(c)
-        return 0.25 * (self.k1 * s * s
-                       + self.k2 * np.sum(r * r)
-                       + self.k3 * np.sum(c * c)
-                       + self.k4 * np.sum(B * B))
+        s, c, r = np.sum(s*s), np.sum(c*c), np.sum(r*r)
+        return 0.25 * (self.k1 * s + self.k2 * r + self.k3 * c + self.k4 * np.sum(B * B))
 
     def dQ(self, L):
         B = L * L
@@ -40,26 +39,26 @@ class GCFCriterion:
 
     def d2Q_apply(self, L, Y):
         p, m = self.p, self.m
-        Y2d = Y if Y.ndim == 2 else Y[:, None]
+        Y2d = Y if Y.ndim == 2 else Y.reshape(-1, 1)
         k = Y2d.shape[1]
         B = L * L
         r = np.sum(B, axis=1, keepdims=True)
         c = np.sum(B, axis=0, keepdims=True)
         s = np.sum(c)
         W = self.k1 * s + self.k2 * r + self.k3 * c + self.k4 * B
-        vL = L.reshape(-1, order='F')[:, None]
-        vW = W.reshape(-1, order='F')[:, None]
+        vL = L.reshape(-1, 1, order='F')
+        vW = W.reshape(-1, 1, order='F')
         Y1 = vL * Y2d
         Y3 = Y1.reshape(p, m, k, order='F')
         RY = np.zeros_like(Y1)
         if self.k1 != 0.0:
             RY += self.k1 * Y1.sum(axis=0, keepdims=True)
         if self.k2 != 0.0:
-            sp_ = Y3.sum(axis=1)
-            RY += self.k2 * np.broadcast_to(sp_[:, None, :], (p, m, k)).reshape(p * m, k, order='F')
+            sp_ = Y3.sum(axis=1).reshape(p, 1, k)
+            RY += self.k2 * np.broadcast_to(sp_, (p, m, k)).reshape(p * m, k, order='F')
         if self.k3 != 0.0:
-            sm_ = Y3.sum(axis=0)
-            RY += self.k3 * np.broadcast_to(sm_[None, :, :], (p, m, k)).reshape(p * m, k, order='F')
+            sm_ = Y3.sum(axis=0).reshape(1, m, k)
+            RY += self.k3 * np.broadcast_to(sm_, (p, m, k)).reshape(p * m, k, order='F')
         out = vL * (2.0 * RY + 2.0 * self.k4 * Y1) + vW * Y2d
         return out if Y.ndim == 2 else out[:, 0]
 
@@ -82,8 +81,8 @@ class TargetCriterion:
         return self.W * (L - self.H)
 
     def d2Q_apply(self, L, Y):
-        vW = self.W.reshape(-1, order='F')[:, None] if Y.ndim == 2 else self.W.reshape(-1, order='F')
+        vW = self.W.reshape(-1, 1, order='F') if Y.ndim == 2 else _vec(self.W)
         return vW * Y
 
     def d2Q(self, L):
-        return np.diag(self.W.reshape(-1, order='F'))
+        return np.diag(_vec(self.W))
