@@ -137,3 +137,5 @@ pystatsm/utilities/cython_wrappers.c
 .idea/workspace.xml
 pystatsm/utilities/cython_wrappers.c
 pystatsm/pyfa2/free_bobby_shmurda.py
+pystatsm/utilities/cython_wrappers.c
+pystatsm/pyfa2/tests.py
