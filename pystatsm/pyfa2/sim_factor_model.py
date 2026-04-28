@@ -1,5 +1,6 @@
 import numpy as np
 import tqdm
+from ..utilities.linalg_operations import _invec
 from .simulation import (FactorModel, generate_loadings,
                          generate_factor_corr, generate_uniquenesses)
 from .likelihood import MLEstimator
@@ -13,7 +14,7 @@ from .alignment import align
 def unpack_se(se, free_mask, layout, phi_free):
     se_full = np.zeros(layout.nt)
     se_full[free_mask] = se
-    L_se = se_full[layout.ixl].reshape(layout.p, layout.m, order='F')
+    L_se = _invec(se_full[layout.ixl],layout.p, layout.m)
     Phi_se = np.zeros((layout.m, layout.m))
     if phi_free:
         Phi_se[layout._row_i, layout._col_j] = se_full[layout.ixs]
@@ -31,7 +32,9 @@ def alignment_matrix(layout, free_mask, perm, signs):
         e[free_idx[j]] = 1.0
         L, Phi, psi = layout.unpack(e)
         L_a = L[:, perm] * signs
-        Phi_a = signs[:, None] * Phi[np.ix_(perm, perm)] * signs[None, :]
+        s_col = signs.reshape(-1, 1)
+        s_row = signs.reshape(1, -1)
+        Phi_a = s_col * Phi[np.ix_(perm, perm)] * s_row
         M[:, j] = layout.pack(L_a, Phi_a, psi)[free_mask]
     return M
 
@@ -78,11 +81,13 @@ def run(p, m, n_obs, n_rep, rotation_kind='ortho', seed=0):
         # align: determine perm/signs from L, then transform both theta and V
         perm, signs = align(L_fit, L_true)
         L_a = L_fit[:, perm] * signs
-        Phi_a = signs[:, None] * Phi_fit[np.ix_(perm, perm)] * signs[None, :]
+        s_col = signs.reshape(-1, 1)
+        s_row = signs.reshape(1, -1)
+        Phi_a = s_col * Phi_fit[np.ix_(perm, perm)] * s_row
         theta_a = est.layout.pack(L_a, Phi_a, psi)
         M = alignment_matrix(est.layout, free_mask, perm, signs)
         thetas[r] = theta_a[free_mask]
-        Vs[r] = M @ V @ M.T
+        Vs[r] = np.matmul(np.matmul(M, V, M.T))
         L_ests[r], Phi_ests[r], psi_ests[r] = L_a, Phi_a, psi
 
     # ---- theta-level diagnostics --------------------------------------------
