@@ -36,9 +36,10 @@ def se_from_cov(V):
 
 
 def empirical_cov_vech_S(X):
-    n = X.shape[0]
+    # Skip the (n, p, p) outer: vech(x x')[(jx, ix)] = x[jx] * x[ix].
+    n, p = X.shape
+    ix, jx = np.triu_indices(p, k=0)
     Xc = X - X.mean(axis=0, keepdims=True)
-    outer = np.einsum('ij,ik->ijk', Xc, Xc)
-    vechs = _vech(outer)
+    vechs = Xc[:, jx] * Xc[:, ix]
     centered = vechs - vechs.mean(axis=0, keepdims=True)
     return np.matmul(centered.T, centered) / (n * (n - 1))
