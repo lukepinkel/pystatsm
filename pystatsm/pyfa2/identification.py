@@ -72,7 +72,7 @@ class CanonicalIdentification:
 
     def constraint(self, theta):
         L, _, psi = self.layout.unpack(theta)
-        LD = L / psi[:, None]
+        LD = L / psi.reshape(-1, 1)
         M = np.matmul(LD.T, L)
         return M[self._row_i, self._col_j]
 
@@ -81,7 +81,8 @@ class CanonicalIdentification:
         nl, ns = self.layout.nl, self.layout.ns
         row_i, col_j, n_c = self._row_i, self._col_j, self.n_c
         p, m = self.p, self.m
-        LD = L / psi[:, None]
+        psi_col = psi.reshape(-1, 1)
+        LD = L / psi_col
         J = np.zeros((n_c, p, m))
         ks = np.arange(n_c)
         J[ks, :, row_i] = LD[:, col_j].T
@@ -89,5 +90,5 @@ class CanonicalIdentification:
         dCdL = J.transpose(0, 2, 1).reshape(n_c, nl)
         dCdPhi = np.zeros((n_c, ns))
         L_prod = L[:, row_i] * L[:, col_j]
-        dCdPsi = -(L_prod / psi[:, None] ** 2).T
+        dCdPsi = -(L_prod / psi_col ** 2).T
         return np.concatenate([dCdL, dCdPhi, dCdPsi], axis=1)
