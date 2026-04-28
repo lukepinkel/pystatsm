@@ -1,5 +1,6 @@
 import numpy as np
 from ..utilities.indexing_utils import tril_indices
+from ..utilities.linalg_operations import _vec, _invec
 
 
 class ParamLayout:
@@ -16,13 +17,13 @@ class ParamLayout:
 
     def pack(self, L, Phi, Psi):
         theta = np.empty(self.nt)
-        theta[self.ixl] = L.reshape(-1, order='F')
+        theta[self.ixl] = _vec(L)
         theta[self.ixs] = Phi[self._row_i, self._col_j]
         theta[self.ixr] = np.diag(Psi) if np.ndim(Psi) == 2 else np.asarray(Psi)
         return theta
 
     def unpack(self, theta):
-        L = theta[self.ixl].reshape(self.p, self.m, order='F')
+        L = _invec(theta[self.ixl],self.p, self.m)
         Phi = np.eye(self.m)
         Phi[self._row_i, self._col_j] = theta[self.ixs]
         Phi[self._col_j, self._row_i] = theta[self.ixs]
