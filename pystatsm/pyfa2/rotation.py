@@ -2,7 +2,7 @@ import numpy as np
 import scipy as sp
 from . import cayley as _cayley
 
-from ..utilities.linalg_operations import _vecl, _vec_ndg_mask, _vec_tril_mask, _vec_ndg
+from ..utilities.linalg_operations import _vecl, _vec_ndg_mask, _vec_tril_mask, _vec_ndg, _vec, _invec
 from ..utilities.indexing_utils import tril_indices
 
 class OrthoRotation:
@@ -70,10 +70,10 @@ class OrthoRotation:
         dCdL = np.empty((n_c, p * m))
         for k in range(n_c):
             i, j = row_i[k], col_j[k]
-            T = Y[:, 2 * k].reshape(p, m, order='F') - Y[:, 2 * k + 1].reshape(p, m, order='F')
+            T = _invec(Y[:, 2 * k], p, m) - _invec(Y[:, 2 * k + 1], p, m)
             T[:, i] += G[:, j]
             T[:, j] -= G[:, i]
-            dCdL[k, :] = T.reshape(-1, order='F')
+            dCdL[k, :] = _vec(T)
         dCdPhi = np.zeros((n_c, m * (m - 1) // 2))
         return dCdL, dCdPhi
 
@@ -130,13 +130,13 @@ class ObliqueRotation:
         n_c = len(ij)
         U = np.empty((p * m, n_c))
         for k, (i, j) in enumerate(ij):
-            U[:, k] = np.outer(L[:, i], V[:, j]).reshape(-1, order='F')
+            U[:, k] = _vec(np.outer(L[:, i], V[:, j]))
         Y = crit.d2Q_apply(L, U)
         dCdL = np.empty((n_c, p * m))
         for k, (i, j) in enumerate(ij):
-            T = Y[:, k].reshape(p, m, order='F')
+            T = _invec(Y[:, k],p, m)
             T[:, i] += GV[:, j]
-            dCdL[k, :] = T.reshape(-1, order='F')
+            dCdL[k, :] = _vec(T)
         dCdPhi = self._dM_dPhi_stril(L, G, V)[self._odiag_mask]
         return dCdL, dCdPhi
 
@@ -147,5 +147,5 @@ class ObliqueRotation:
         cols = np.empty((m * m, ri.size))
         for k, (x, y) in enumerate(zip(ri, ci)):
             J = -np.outer(M[:, x], V[y, :]) - np.outer(M[:, y], V[x, :])
-            cols[:, k] = J.reshape(-1, order='F')
+            cols[:, k] = _vec(J)
         return cols
