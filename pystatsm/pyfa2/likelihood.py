@@ -1,7 +1,45 @@
 import numpy as np
 import scipy as sp
+from functools import cached_property
 from .layout import ParamLayout
 from ..utilities.linalg_operations import _vec, _vecl, _vech
+
+
+class _Workspace:
+    """Lazy cache of derived quantities at a fixed theta. Lifetime is the
+    caller's scope; nothing here is shared across thetas. Only what gets
+    accessed is materialized."""
+
+    def __init__(self, est, theta):
+        self.est = est
+        self.theta = theta
+
+    @cached_property
+    def parts(self):    return self.est._sigma_parts(self.theta)
+    @cached_property
+    def L(self):        return self.parts[0]
+    @cached_property
+    def Phi(self):      return self.parts[1]
+    @cached_property
+    def psi(self):      return self.parts[2]
+    @cached_property
+    def LPhi(self):     return self.parts[3]
+    @cached_property
+    def Sigma(self):    return self.parts[4]
+    @cached_property
+    def Sinv(self):     return np.linalg.inv(self.Sigma)
+    @cached_property
+    def dsigma(self):   return self.est._dsigma_inner(self)   # (nt, p, p)
+    @cached_property
+    def M(self):
+        # Sinv @ dSigma_k @ Sinv, batched. (p, p) broadcasts against (nt, p, p).
+        return np.matmul(np.matmul(self.Sinv, self.dsigma), self.Sinv)
+
+    def F(self):                            return self.est._F_inner(self)
+    def grad(self):                         return self.est._grad_inner(self)
+    def hessian(self):                      return self.est._hessian_inner(self)
+    def score_jacobian(self):               return self.est._score_jacobian_inner(self)
+    def meat(self, V_S=None, n_obs=None):   return self.est._meat_inner(self, V_S, n_obs)
 
 
 class MLEstimator:
@@ -14,17 +52,20 @@ class MLEstimator:
         self.layout = ParamLayout(self.p, m)
         self._Svals, self._Svecs = np.linalg.eigh(self.S)
 
+    def workspace(self, theta):
+        return _Workspace(self, theta)
+
+    # ---- concentrated-psi path ---------------------------------------------
+
     def loglike_psi(self, psi):
         s = 1.0 / np.sqrt(psi[:, None])
         u = np.linalg.eigvalsh(s.T * self.S * s)[:self.r]
-        f = np.sum(u - np.log(u) - 1)
-        return f
+        return np.sum(u - np.log(u) - 1)
 
     def grad_psi(self, psi):
         s = 1.0 / np.sqrt(psi[:, None])
         u, V = np.linalg.eigh(s.T * self.S * s)
-        g = ((1 - u[:self.r]) * V[:, :self.r] ** 2).sum(axis=1) / psi
-        return g
+        return ((1 - u[:self.r]) * V[:, :self.r] ** 2).sum(axis=1) / psi
 
     def hess_psi(self, psi):
         p, r = self.p, self.r
@@ -48,8 +89,7 @@ class MLEstimator:
         s = 1.0 / np.sqrt(psi[:, None])
         u, V = np.linalg.eigh(s.T * self.S * s)
         w = np.sqrt(u[-self.m:] - 1)
-        A = np.sqrt(psi[:, None]) * V[:, -self.m:] * w
-        return A
+        return np.sqrt(psi[:, None]) * V[:, -self.m:] * w
 
     def _psi_init(self):
         L0 = self._Svecs[:, -self.m:] * np.sqrt(self._Svals[-self.m:])
@@ -70,7 +110,7 @@ class MLEstimator:
         psi = np.exp(opt.x)
         return {'psi': psi, 'Lambda': self.loadings_from_psi(psi), 'opt': opt}
 
-    # ---- full-theta path ---------------------------------------------------
+    # ---- full-theta path: thin wrappers around _Workspace ------------------
 
     def _sigma_parts(self, theta):
         L, Phi, psi = self.layout.unpack(theta)
@@ -79,21 +119,26 @@ class MLEstimator:
         Sigma[np.diag_indices(self.p)] += psi
         return L, Phi, psi, LPhi, Sigma
 
-    def sigma(self, theta):
-        return self._sigma_parts(theta)[4]
+    def sigma(self, theta):                 return self.workspace(theta).Sigma
+    def F(self, theta):                     return self.workspace(theta).F()
+    def grad(self, theta):                  return self.workspace(theta).grad()
+    def hessian(self, theta):               return self.workspace(theta).hessian()
+    def dsigma(self, theta):                return self.workspace(theta).dsigma
+    def score_jacobian(self, theta):        return self.workspace(theta).score_jacobian()
+    def meat(self, theta, V_S=None, n_obs=None):
+        return self.workspace(theta).meat(V_S, n_obs)
 
-    def F(self, theta):
-        Sigma = self.sigma(theta)
-        _, lnd = np.linalg.slogdet(Sigma)
-        tr = np.trace(np.linalg.solve(Sigma, self.S))
+    # ---- _*_inner helpers consume a workspace ------------------------------
+
+    def _F_inner(self, ws):
+        _, lnd = np.linalg.slogdet(ws.Sigma)
+        tr = np.trace(np.linalg.solve(ws.Sigma, self.S))
         return lnd + tr
 
-    def grad(self, theta):
-        L, Phi, psi, LPhi, Sigma = self._sigma_parts(theta)
-        V = np.linalg.inv(Sigma)
-        VRV = np.matmul(np.matmul(V, Sigma - self.S), V)
-        gL = 2 * _vec(np.matmul(VRV, LPhi))
-        gPhi = 2 * _vecl(np.matmul(np.matmul(L.T, VRV), L))
+    def _grad_inner(self, ws):
+        VRV = np.matmul(np.matmul(ws.Sinv, ws.Sigma - self.S), ws.Sinv)
+        gL = 2 * _vec(np.matmul(VRV, ws.LPhi))
+        gPhi = 2 * _vecl(np.matmul(np.matmul(ws.L.T, VRV), ws.L))
         gPsi = np.diag(VRV)
         g = np.empty(self.layout.nt)
         g[self.layout.ixl] = gL
@@ -101,82 +146,75 @@ class MLEstimator:
         g[self.layout.ixr] = gPsi
         return g
 
-    def dsigma(self, theta):
-        L, Phi, psi, LPhi, Sigma = self._sigma_parts(theta)
-        p, m = self.p, self.m
-        ixl, ixs, ixr = self.layout.ixl, self.layout.ixs, self.layout.ixr
+    def _dsigma_inner(self, ws):
+        # (nt, p, p) layout: G3[k] = dSigma/dtheta_k. Building directly in this
+        # layout makes the (nt, p^2) reshape later a free view.
+        p, m, nt = self.p, self.m, self.layout.nt
+        ixs, ixr = self.layout.ixs, self.layout.ixr
         row_i, col_j = self.layout._row_i, self.layout._col_j
-        G3 = np.zeros((p, p, self.layout.nt))
-
+        L, LPhi = ws.L, ws.LPhi
+        G3 = np.zeros((nt, p, p))
         I_p = np.eye(p)
         for i in range(m):
-            G3[:, :, p * i:p * (i + 1)] = (np.einsum('ba,c->bca', I_p, LPhi[:, i])
-                                           + np.einsum('ca,b->bca', I_p, LPhi[:, i]))
-        G3[:, :, ixs] = (np.einsum('bk,ck->bck', L[:, row_i], L[:, col_j])
-                        + np.einsum('bk,ck->bck', L[:, col_j], L[:, row_i]))
+            # k = p*i + a, a in [0, p): G3[k, b, c] = δ_{b=a} LPhi[c, i] + δ_{c=a} LPhi[b, i].
+            G3[p * i:p * (i + 1)] = (np.einsum('ab,c->abc', I_p, LPhi[:, i])
+                                     + np.einsum('ac,b->abc', I_p, LPhi[:, i]))
+        # Phi block: G3[k_phi, b, c] = L[b, i] L[c, j] + L[b, j] L[c, i].
+        G3[ixs] = (np.einsum('bk,ck->kbc', L[:, row_i], L[:, col_j])
+                   + np.einsum('bk,ck->kbc', L[:, col_j], L[:, row_i]))
+        # Psi block: G3[k_psi, a, a] = 1.
         a_idx = np.arange(p)
-        G3[a_idx, a_idx, ixr] = 1.0
+        G3[ixr, a_idx, a_idx] = 1.0
         return G3
 
-    def hessian(self, theta):
-        L, Phi, psi, LPhi, Sigma = self._sigma_parts(theta)
+    def _hessian_inner(self, ws):
+        # H = 2(H1 + H2) - H3 with W1 = kron(V, V), W2 = kron(V, V Sdiff V).
+        # Algebraic refactor: W2G_k = V Sdiff V G_k V = V Sdiff (V G_k V) = V Sdiff W1G_k,
+        # so once W1G is in hand W2G is one batched matmul. Then 2(H1+H2) = G^T (W1+2W2) G
+        # collapses into a single (nt, p^2) x (p^2, nt) inner product on (W1G + 2 W2G).
         p, m, nt = self.p, self.m, self.layout.nt
         ixl, ixs = self.layout.ixl, self.layout.ixs
+        nl, ns = self.layout.nl, self.layout.ns
         row_i, col_j = self.layout._row_i, self.layout._col_j
 
-        V = np.linalg.inv(Sigma)
-        Sdiff = self.S - Sigma
-        VSdiffV = np.matmul(np.matmul(V, Sdiff), V)
+        Sdiff = self.S - ws.Sigma
+        VSdiff = np.matmul(ws.Sinv, Sdiff)
+        W1G = ws.M
+        W2G = np.matmul(VSdiff, W1G)
+        W_comb = W1G + 2.0 * W2G
 
-        G3 = self.dsigma(theta)
-        G3T = np.transpose(G3, (2, 0, 1))
+        G_flat = ws.dsigma.reshape(nt, -1)
+        W_flat = W_comb.reshape(nt, -1)
+        H_main = np.matmul(G_flat, W_flat.T)
 
-        W1G = np.matmul(np.matmul(V, G3T), V)
-        W2G = np.matmul(np.matmul(VSdiffV, G3T), V)
-
-        G_flat = G3T.reshape(nt, -1)
-        W1G_flat = W1G.reshape(nt, -1)
-        W2G_flat = W2G.reshape(nt, -1)
-        H1 = 0.5 * np.matmul(G_flat, W1G_flat.T)
-        H2 = np.matmul(G_flat, W2G_flat.T)
-
-        Y = VSdiffV
-        nl, ns = self.layout.nl, self.layout.ns
-
-        H3_LL = np.kron(Phi, 2.0 * Y)
-
-        YL = np.matmul(Y, L)
+        # H3 block: only LL and LPhi nonzero. Y = V Sdiff V; D_T = 2 Y.
+        Y = np.matmul(VSdiff, ws.Sinv)
+        H3_LL = np.kron(ws.Phi, 2.0 * Y)
+        YL = np.matmul(Y, ws.L)
         H3_LPhi_3d = np.zeros((p, m, ns))
         ks = np.arange(ns)
         H3_LPhi_3d[:, row_i, ks] = 2.0 * YL[:, col_j]
         H3_LPhi_3d[:, col_j, ks] = 2.0 * YL[:, row_i]
         H3_LPhi = H3_LPhi_3d.reshape(nl, ns, order='F')
 
-        H3 = np.zeros((nt, nt))
+        H = H_main.copy()
         ixl_col = ixl[:, None]
         ixs_col = ixs[:, None]
-        H3[ixl_col, ixl] = H3_LL
-        H3[ixl_col, ixs] = H3_LPhi
-        H3[ixs_col, ixl] = H3_LPhi.T
+        H[ixl_col, ixl] -= H3_LL
+        H[ixl_col, ixs] -= H3_LPhi
+        H[ixs_col, ixl] -= H3_LPhi.T
+        return H
 
-        return 2.0 * (H1 + H2) - H3
+    def _score_jacobian_inner(self, ws):
+        factor = 2.0 - np.eye(self.p)
+        return _vech(-ws.M * factor)
 
-    def score_jacobian(self, theta):
-        L, Phi, psi, LPhi, Sigma = self._sigma_parts(theta)
-        V = np.linalg.inv(Sigma)
-        G3T = np.transpose(self.dsigma(theta), (2, 0, 1))
-        M = np.matmul(np.matmul(V, G3T), V)
-        factor = 2.0 - np.eye(self.p)  # 2 off-diag, 1 on diag
-        return _vech(-M * factor)
-
-    def meat(self, theta, V_S=None, n_obs=None):
+    def _meat_inner(self, ws, V_S, n_obs):
         if V_S is None:
-            L, Phi, psi, LPhi, Sigma = self._sigma_parts(theta)
-            V = np.linalg.inv(Sigma)
-            G3T = np.transpose(self.dsigma(theta), (2, 0, 1))
-            W1G = np.matmul(np.matmul(V, G3T), V)
-            G_flat = G3T.reshape(self.layout.nt, -1)
-            W1G_flat = W1G.reshape(self.layout.nt, -1)
+            if n_obs is None:
+                raise ValueError("supply V_S or n_obs (for analytical Gaussian)")
+            G_flat = ws.dsigma.reshape(self.layout.nt, -1)
+            W1G_flat = ws.M.reshape(self.layout.nt, -1)
             return (2.0 / n_obs) * np.matmul(G_flat, W1G_flat.T)
-        B = self.score_jacobian(theta)
+        B = self._score_jacobian_inner(ws)
         return np.matmul(np.matmul(B, V_S), B.T)
