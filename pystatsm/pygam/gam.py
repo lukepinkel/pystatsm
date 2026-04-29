@@ -9,6 +9,7 @@ import patsy
 import numpy as np
 import scipy as sp
 import scipy.stats
+import scipy.linalg
 import pandas as pd
 import scipy.interpolate
 import matplotlib.pyplot as plt
@@ -101,19 +102,25 @@ class GAM:
         ----------
         eta: array of shape (n_obs, )
             Linear predictor X*beta
-        
+
         S: array of shape (nx, nx)
             Penalty matrix
-                    
+
         Returns
         -------
         beta_new: array of shape (nx, )
             Solution to the penalized least squares equation
-        
+
         """
         z, w = self.get_wz(eta)
         Xw = self.X * w[:, None]
-        beta_new = np.linalg.solve(Xw.T.dot(self.X)+S, Xw.T.dot(z))
+        XtWX = Xw.T.dot(self.X)
+        rhs = Xw.T.dot(z)
+        try:
+            c, low = sp.linalg.cho_factor(XtWX + S, lower=True, check_finite=False)
+            beta_new = sp.linalg.cho_solve((c, low), rhs, check_finite=False)
+        except np.linalg.LinAlgError:
+            beta_new = np.linalg.solve(XtWX + S, rhs)
         return beta_new
         
     def pirls(self, lam, n_iters=200, tol=1e-12):
@@ -403,7 +410,7 @@ class GAM:
         theta: array of shape (ns+1,)
             Paramete vector. First ns elements are log smoothing parameters
             and the last is scale
-        
+
         Returns
         -------
         H: array of shape (ns+1, ns+1)
@@ -413,37 +420,36 @@ class GAM:
         lam, phi = np.exp(theta[:-1]), np.exp(theta[-1])
         X, S = self.X, self.get_penalty_mat(lam)
         beta, eta, mu, _, _, _ = self.pirls(lam)
-        D2, Dp2 = self.hess_dev_beta(beta, S)
+        _, Dp2 = self.hess_dev_beta(beta, S)
         A = np.linalg.inv(Dp2)
         b1, b2 = self.grad_beta_rho(beta, lam), self.hess_beta_rho(beta, lam)
         dw_deta, d2w_deta2 = self.f.dw_deta(self.y, mu), self.f.d2w_deta2(self.y, mu)
-        D2r =  b1.T.dot(Dp2).dot(b1)
+        D2r = b1.T.dot(Dp2).dot(b1)
+        eta1 = X.dot(b1)
+        H1 = [wcrossp(X, dw_deta * eta1[:, k]) for k in range(self.ns)]
+        AM = [A.dot(H1[k] + lam[k] * self.S[k]) for k in range(self.ns)]
         H = np.zeros((self.ns+1, self.ns+1))
         for i in range(self.ns):
-            Si, ai , b1i = self.S[i], lam[i], b1[:, i]
-            eta1i = X.dot(b1i)
-            w1i = dw_deta * eta1i
-            H1i = wcrossp(X, w1i)
+            Si, ai = self.S[i], lam[i]
+            bSib = beta.dot(Si).dot(beta)
             for j in range(i, self.ns):
-                 Sj, aj, b1j, eta2 = self.S[j], lam[j], b1[:, j], X.dot(b2[i, j])
-                 eta1j = self.X.dot(b1j)
-                 w1j = dw_deta * eta1j
-                 w2 = eta1j * eta1i * d2w_deta2 + dw_deta * eta2
-                 H1j = wcrossp(X, w1j)
-                 H2 = wcrossp(X, w2)
-                 d = (i==j)
-                 ldh2 = -(np.trace(A.dot(H1i+Si*ai).dot(A).dot(H1j+aj*Sj))\
-                          -np.trace(A.dot(H2+d*ai*Si)))
-                 t1 = d * ai / (2.0 * phi) * beta.T.dot(Si).dot(beta)
-                 t2 = -D2r[i, j] / (phi)
-                 H[i, j] = H[j, i] = t1 + t2 + ldh2/2
-                 if d:
-                     H[-1, j] = H[j, -1] = -np.dot(beta.T, Si.dot(beta)) * ai / (2*phi)
-    
+                eta2 = X.dot(b2[i, j])
+                w2 = eta1[:, j] * eta1[:, i] * d2w_deta2 + dw_deta * eta2
+                H2 = wcrossp(X, w2)
+                d = (i==j)
+                tr1 = np.einsum('ij,ji->', AM[i], AM[j])
+                tr2 = np.einsum('ij,ji->', A, H2 + d*ai*Si)
+                ldh2 = -(tr1 - tr2)
+                t1 = d * ai * bSib / (2.0 * phi)
+                t2 = -D2r[i, j] / phi
+                H[i, j] = H[j, i] = t1 + t2 + ldh2/2.0
+                if d:
+                    H[-1, j] = H[j, -1] = -bSib * ai / (2.0*phi)
+
         Dp = self.f.deviance(y=self.y, mu=mu).sum() + beta.T.dot(S).dot(beta)
         ls1, ls2 = self.f.dllscale(phi, self.y), self.f.d2llscale(phi, self.y)
-        
-        H[-1, -1] = Dp / (2.0 * phi) + ls1*phi  + ls2*phi**2 
+
+        H[-1, -1] = Dp / (2.0 * phi) + ls1*phi + ls2*phi**2
         return H
     
     def get_smooth_comps(self, smooth_names=None, data=None, beta=None, ci=90):
