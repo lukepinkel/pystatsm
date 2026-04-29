@@ -34,4 +34,5 @@ def rot_to_vec(Q):
 
 
 def constraint_factor(theta, m):
+    S = vec_to_skew(theta, m)
     return sp.linalg.lu_factor(np.eye(m) + S)
