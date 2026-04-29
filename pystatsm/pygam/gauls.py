@@ -917,87 +917,71 @@ class GauLS:
 
     
     def plot_smooth_quantiles(self, m_comp=None, s_comp=None, quantiles=None,
-                              mean=True, figax=None, m_offset=0.0, s_offset=0.0,
+                              mean=True, figax=None, m_offset=None, s_offset=None,
                               fill_kws=None, line_kws=None,
-                              scatter_partial=False,
-                              scatter_kws={}):
+                              scatter_partial=False, scatter_kws=None,
+                              style='band'):
         """
-        Parameters
-        ----------
-        m_comp: str
-            Name of mean smooth component
-            
-        s_comp: str
-            Name of scale smooth component
-            
-        quantiles: array, list, optional
-            Quantiles to plot
-        
-        mean: bool
-            Whether or not to plot mean value
-            
-        figax: tuple
-            Tuple of existing  matplotlib figure and axes
-        
-        m_offset : float, int
-            Offset for mean
-        
-        s_offset: float, int
-            Offset for scale(e.g. for a smooth by a categorical variable,
-            an intercept would need to go here for the scale to make sense)
- 
-        
-        Returns
-        -------
-        fig: matplotlib object
-            Figure object
-            
-        ax: matplotlib object
-            Axis object
-
+        m_comp, s_comp: smooth component names. s_comp defaults to m_comp.
+        style: 'band' draws symmetric fill bands for each q<0.5;
+               'lines' draws a curve at each requested quantile.
+        m_offset, s_offset: linear-predictor offsets. If None, the parametric
+            intercepts (when present) are added automatically.
         """
+        if s_comp is None:
+            s_comp = m_comp
         if quantiles is None:
-            quantiles = [0.05, 0.10, 0.20, 0.30, 0.40]
+            quantiles = [0.05, 0.10, 0.20, 0.30, 0.40] if style == 'band' \
+                        else [0.05, 0.25, 0.50, 0.75, 0.95]
         if figax is None:
             fig, ax = plt.subplots()
         else:
             fig, ax = figax
-        
-        quantiles = np.sort(np.asarray(quantiles))
-        quantiles = quantiles[quantiles<0.5]
-        
-        fill_kws = {} if fill_kws is None else fill_kws
-        line_kws = {} if line_kws is None else line_kws
-        
-        fill_kws = {**{"alpha":0.2, "zorder":1, "color":"b"}, **fill_kws}
-        line_kws = {**{"color":"#ff7f0e"}, **line_kws}
-        
-        
-        methods = {"cr":crspline_basis, "cc":ccspline_basis,"bs":bspline_basis} 
+        fill_kws = {**{"alpha":0.2, "zorder":1, "color":"b"}, **(fill_kws or {})}
+        line_kws = {**{"color":"#ff7f0e"}, **(line_kws or {})}
+        scatter_kws = {} if scatter_kws is None else dict(scatter_kws)
+
+        methods = {"cr":crspline_basis, "cc":ccspline_basis, "bs":bspline_basis}
         m, s = self.m.smooths[m_comp], self.s.smooths[s_comp]
-        mk = m['knots']  
-        x = np.linspace(mk.min(), mk.max(), 200)
-        Xm = methods[m['kind']](x, mk, **m['fkws'])
-        Xs = methods[s['kind']](x, mk, **s['fkws'])
+        x = np.linspace(m['knots'].min(), m['knots'].max(), 200)
+        Xm = methods[m['kind']](x, m['knots'], **m['fkws'])
+        Xs = methods[s['kind']](x, s['knots'], **s['fkws'])
         Xm, _ = absorb_constraints(m['q'], X=Xm)
         Xs, _ = absorb_constraints(s['q'], X=Xs)
-        mu = self.m.link.inv_link(m_offset+Xm.dot(self.beta[m['ix']]))
-        tau = 1.0 / self.s.link.inv_link(s_offset+Xs.dot(self.beta[self.ixs][s['ix']]))
-        for q in quantiles:
-            c = sp.special.ndtri(q)
-            ax.fill_between(x, mu+c*tau, mu-c*tau, **fill_kws)
+
+        if m_offset is None:
+            m_offset = self.res.loc["m(Intercept)", "param"] \
+                if "Intercept" in self.m.x_varnames else 0.0
+        if s_offset is None:
+            s_offset = self.res.loc["s(Intercept)", "param"] \
+                if "Intercept" in self.s.x_varnames else 0.0
+
+        mu  = self.m.link.inv_link(m_offset + Xm.dot(self.beta[m['ix']]))
+        tau = 1.0 / self.s.link.inv_link(s_offset + Xs.dot(self.beta[self.ixs][s['ix']]))
+
+        quantiles = np.sort(np.asarray(quantiles, dtype=float))
+        if style == 'band':
+            for q in quantiles[quantiles < 0.5]:
+                c = sp.special.ndtri(q)
+                ax.fill_between(x, mu + c*tau, mu - c*tau, **fill_kws)
+        elif style == 'lines':
+            for q in quantiles:
+                c = sp.special.ndtri(q)
+                ax.plot(x, mu + c*tau, **line_kws)
+        else:
+            raise ValueError(f"unknown style: {style!r}")
         if mean:
             ax.plot(x, mu, **line_kws)
         ax.set_xlim(x.min(), x.max())
-        
+
         if scatter_partial:
-            default_kws = {"s":5, "alpha":0.6, "ec":"none"}
-            for key, val in default_kws.items():
-                if key not in scatter_kws.keys():
-                    scatter_kws[key] = val
-            ax.scatter(self.m.data[m_comp], self.y-self.m.Xp.dot(self.beta[self.ixl]),
-                       **scatter_kws)
-        
+            for key, val in {"s":5, "alpha":0.6, "ec":"none"}.items():
+                scatter_kws.setdefault(key, val)
+            # partial residuals on the same scale as the centile curves:
+            # subtract the parametric fit, then add back the offset already
+            # baked into the curves so y-points and curves are comparable.
+            yres = self.y - self.m.Xp.dot(self.beta[self.ixl]) + m_offset
+            ax.scatter(self.m.data[m_comp], yres, **scatter_kws)
         return fig, ax
     
     def optimize_penalty(self, opt_kws={}):
