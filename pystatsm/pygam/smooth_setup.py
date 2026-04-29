@@ -43,12 +43,16 @@ def parse_smooths(smoother_formula, data):
     return smooths
 
 def get_parametric_formula(formula):
-    tmp = re.findall("s[(].*?[)]", formula)
-    frm = formula[:-1]+formula[-1:]
-    for x in tmp:
+    frm = re.sub(r"\s+", "", formula)
+    for x in re.findall(r"s\([^()]*\)", frm):
         frm = frm.replace(x, "")
-    frm = re.sub("(\+|\-)(\+|\-)+", replace_duplicate_operators, frm)
-    frm = re.sub("\+$", "", frm)
+    frm = re.sub(r"[+\-]{2,}", lambda m: m.group()[-1], frm)
+    frm = re.sub(r"~[+\-]+", "~", frm)
+    frm = re.sub(r"[+\-]+$", "", frm)
+    if frm.endswith("~") or "~" not in frm:
+        frm = frm + "1" if frm.endswith("~") else frm
+    if "~" in frm and frm.split("~", 1)[1] == "":
+        frm = frm + "1"
     return frm
 
 def replace_duplicate_operators(match):
