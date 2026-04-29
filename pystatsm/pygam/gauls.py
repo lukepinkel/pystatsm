@@ -99,30 +99,22 @@ class PredictorTerm:
 class GauLS:
     
     def __init__(self, m_formula, s_formula, data, m_link=IdentityLink,
-                 s_link=LogbLink):
+                 s_link=LogbLink, weights=None):
         """
-        parameters
-        ----------
-        
-        m_formula: str
-            Formula for mean component
-        
-        s_formula: str
-            Formula for scale component
-        
-        data: dataframe
-            Model data
-        
-        m_link: Link, optional
-            Mean component link.  Default IdentityLink
-        
-        
-        s_link: Link, optional
-            Scale component link. Defaults to LogbLink
-        
+        weights: array of shape (n,), column name in data, or None.
+            Per-row sample weights applied to the loglikelihood and its
+            derivatives. None (default) is equivalent to uniform weights.
         """
         self.m = PredictorTerm(m_formula, data, m_link)
         self.s = PredictorTerm(s_formula, data, s_link)
+        if weights is None:
+            self.w = None
+        elif isinstance(weights, str):
+            self.w = np.asarray(data[weights].values, dtype=float)
+        else:
+            self.w = np.asarray(weights, dtype=float)
+        if self.w is not None and self.w.shape[0] != self.m.y.shape[0]:
+            raise ValueError(f"weights length {self.w.shape[0]} != n {self.m.y.shape[0]}")
         self.ns_m = len(self.m.theta)
         self.ns_s = len(self.s.theta)
         self.y = self.m.y
@@ -179,6 +171,8 @@ class GauLS:
         r = self.y - mu
         r2, t2 = r**2, tau**2
         ll_elementwise = -0.5 * r2 * t2 - 0.5 * np.log(2.0*np.pi) + np.log(tau)
+        if self.w is not None:
+            ll_elementwise = self.w * ll_elementwise
         ll = -np.sum(ll_elementwise)
         return ll
     
@@ -302,6 +296,12 @@ class GauLS:
             L4 = np.vstack((dmmmm, dmmms, dmmss, dmsss, dssss)).T
         else:
             L4 = None
+        if self.w is not None:
+            w = self.w[:, None]
+            L1 = L1 * w
+            if L2 is not None: L2 = L2 * w
+            if L3 is not None: L3 = L3 * w
+            if L4 is not None: L4 = L4 * w
         return L1, L2, L3, L4
     
     def grad_ll_beta(self, beta):
