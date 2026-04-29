@@ -4,22 +4,24 @@ from .layout import ParamLayout
 from ..utilities.indexing_utils import tril_indices
 
 
-_SOLVERS = {'gpa': solvers.gpa, 'cayley': solvers.cayley_solve}
+_SOLVERS = {'gpa': solvers.GPA, 'cayley': solvers.CayleySolver}
 
 
 class RotationIdentification:
 
     def __init__(self, rot, crit, solver='gpa', **solver_kw):
+        if solver not in _SOLVERS:
+            raise ValueError(f"unknown solver {solver!r}; expected one of {sorted(_SOLVERS)}")
         self.rot = rot
         self.crit = crit
         self.solver = solver
         self.solver_kw = solver_kw
-        self._solve = _SOLVERS[solver]
+        self._solver = _SOLVERS[solver](crit, rot, **solver_kw)
         self.p, self.m = crit.p, crit.m
         self.layout = ParamLayout(self.p, self.m)
 
     def fit(self, A, T0=None):
-        T, info = self._solve(self.crit, self.rot, A, T0=T0, **self.solver_kw)
+        T, info = self._solver.solve(A, T0=T0)
         L = self.rot.rotated_loadings(A, T)
         Phi = self.rot.implied_corr(T)
         return {'L': L, 'Phi': Phi, 'T': T, 'info': info}
