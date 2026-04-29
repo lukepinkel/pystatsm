@@ -365,39 +365,45 @@ class Polychor(object):
         param = self.tanh_transform.rvs(opt_res.x)
         return opt_res, param
 
-    def _fit_qml_newton(self, i1, i2, r0=None, tol=1e-8, max_iter=50, r_max=0.999):
-        # Hand-rolled Newton on the 1D score function for r. At each step we
-        # build a fresh _PairWorkspace at the current r so prob, dp_dr, and
-        # d2p_dr2 are computed once and reused across loglike/score/hessian.
-        # Backtracking line search (Armijo) handles non-positive Hessians and
-        # bound violations near r = +/- 1.
+    def _fit_qml_newton(self, i1, i2, r0=None, tol=1e-8, max_iter=50, r_clip=0.9999):
+        # Hand-rolled Newton on the 1D score in y = arctanh(r) coordinates.
+        # The tanh parameterization keeps r in (-1, 1) by construction and
+        # stretches the boundary so Newton remains well-conditioned even when
+        # the MLE is near +/- 1. Chain rule:
+        #   g_y = g_r (1 - r^2)
+        #   H_y = H_r (1 - r^2)^2 - 2 g_r r (1 - r^2)
+        # At each step we build a fresh _PairWorkspace at the current r so
+        # prob, dp_dr, and d2p_dr2 are computed once per iteration.
         if r0 is None:
             r0 = self.params[self.II_ind[i1, i2]][-1]
-        r = float(np.clip(r0, -r_max, r_max))
+        r = float(np.clip(r0, -r_clip, r_clip))
+        y = np.arctanh(r)
         ws = _PairWorkspace(self, i1, i2, r)
         ll0 = ws.loglike()
         for it in range(max_iter):
-            g = ws.score()
-            if abs(g) < tol:
+            g_r = ws.score()
+            H_r = ws.hessian()
+            one_minus_r2 = 1.0 - r * r
+            g_y = g_r * one_minus_r2
+            H_y = H_r * one_minus_r2 ** 2 - 2.0 * g_r * r * one_minus_r2
+            if abs(g_y) < tol:
                 break
-            H = ws.hessian()
-            if not np.isfinite(H) or H <= 1e-12:
-                H = max(abs(g), 1e-6)  # gradient-descent fallback
-            step = -g / H
+            if not np.isfinite(H_y) or H_y <= 1e-12:
+                H_y = max(abs(g_y), 1e-6)
+            step = -g_y / H_y
             alpha = 1.0
             for _ in range(20):
-                r_new = float(np.clip(r + alpha * step, -r_max, r_max))
-                if r_new == r:
-                    break
+                y_new = y + alpha * step
+                r_new = float(np.tanh(y_new))
                 ws_new = _PairWorkspace(self, i1, i2, r_new)
                 ll_new = ws_new.loglike()
                 if ll_new < ll0:
-                    r, ws, ll0 = r_new, ws_new, ll_new
+                    y, r, ws, ll0 = y_new, r_new, ws_new, ll_new
                     break
                 alpha *= 0.5
             else:
-                break  # backtrack exhausted — at a stationary point
-        return r, {'iters': it + 1, 'final_g': float(g), 'success': abs(g) < tol,
+                break  # backtrack exhausted — accept current point
+        return r, {'iters': it + 1, 'final_g': float(g_y), 'success': abs(g_y) < tol,
                    'loglike': float(ll0)}
 
     def _fit(self, i1, i2, method="twostep", opt_kws=None):
