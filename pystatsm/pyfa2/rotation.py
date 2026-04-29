@@ -28,8 +28,13 @@ class OrthoRotation:
         return Gp
 
     def constraint_retract(self, X):
+        # Polar projection onto SO(m): SVD gives U V in O(m); flip the last
+        # singular vector if det == -1 so we stay in the connected component.
         U, _, V = np.linalg.svd(X, full_matrices=False)
         UV = np.matmul(U, V)
+        if np.linalg.det(UV) < 0:
+            V[-1] = -V[-1]
+            UV = np.matmul(U, V)
         return UV
 
     @property
