@@ -421,7 +421,7 @@ class InverseGaussian(ExponentialFamily):
 
     def d2llscale(self, phi, y):
         ls2 = -len(y) / (2.0 * phi**2)
-        return -ls2
+        return ls2
 
     def rvs(self, mu, phi=1.0, rng=None, seed=None):
         rng = np.random.default_rng(seed) if rng is None else rng
