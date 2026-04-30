@@ -81,7 +81,9 @@ def _whiten(X, keep_mean=False):
 
 def _svd_cov_transform(S):
     U, d, _ = np.linalg.svd(S, full_matrices=False)
-    L = U * np.sqrt(d[:, np.newaxis])
+    # L = U @ diag(sqrt(d)); columns of U scaled by sqrt(d).
+    # The prior broadcast (d[:, None]) scaled ROWS, giving L @ L.T = diag(d).
+    L = U * np.sqrt(d)
     return L
 
 def _exact_cov(X, mean=None, cov=None, keep_mean=False):
