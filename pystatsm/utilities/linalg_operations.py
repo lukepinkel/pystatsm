@@ -16,6 +16,7 @@ except ImportError:  # sandbox: sksparse optional, only used elsewhere
 
 # scikit-sparse 0.5.0 renamed nearly everything in sksparse.cholmod. The shim
 # below keeps the v0.4.x call sites in pystatsm working against either version.
+_SKSPARSE_AVAILABLE = _cholmod is not None
 if _cholmod is not None:
     try:
         _legacy_cholesky = _cholmod.cholesky
@@ -97,8 +98,79 @@ class _FactorProxy:
         return self._f.inv()
 
 
+class _DenseCholFactor:
+    """Pure-scipy fallback when scikit-sparse / CHOLMOD is not installed.
+    Implements the subset of CholeskyFactor's API that pystatsm uses
+    (P, L, apply_P/Pt, solve_A/L/Lt, cholesky_inplace, slogdet, inv) on top
+    of dense numpy.linalg.cholesky. Permutation is identity, so apply_P/Pt
+    are no-ops. Only viable for problems small enough to fit dense."""
+
+    __slots__ = ("_n", "_L", "_beta", "_AAt", "_logdet")
+
+    def __init__(self, A=None, beta=0.0, AAt=False):
+        self._beta = float(beta)
+        self._AAt = bool(AAt)
+        self._n = None if A is None else A.shape[0]
+        self._L = None
+        self._logdet = None
+        if A is not None:
+            self.cholesky_inplace(A)
+
+    def cholesky_inplace(self, A):
+        M = A.toarray() if sp.sparse.issparse(A) else np.asarray(A, dtype=np.double)
+        if self._AAt:
+            M = M.dot(M.T)
+        if self._beta != 0.0:
+            ii = np.arange(M.shape[0])
+            M = M.copy()
+            M[ii, ii] = M[ii, ii] + self._beta
+        self._n = M.shape[0]
+        self._L = np.linalg.cholesky(M)
+        self._logdet = 2.0 * float(np.sum(np.log(np.diag(self._L))))
+        return self
+
+    def L(self):
+        return sp.sparse.csc_matrix(self._L)
+
+    def P(self):
+        return np.arange(self._n, dtype=np.int64)
+
+    def apply_P(self, b):
+        return b
+
+    def apply_Pt(self, b):
+        return b
+
+    def _solve_tri(self, lhs, b, lower):
+        is_sparse = sp.sparse.issparse(b)
+        rhs = b.toarray() if is_sparse else np.asarray(b)
+        x = sp.linalg.solve_triangular(lhs, rhs, lower=lower, check_finite=False)
+        return sp.sparse.csc_matrix(x) if is_sparse else x
+
+    def solve_L(self, b, use_LDLt_decomposition=True):
+        return self._solve_tri(self._L, b, lower=True)
+
+    def solve_Lt(self, b, use_LDLt_decomposition=True):
+        return self._solve_tri(self._L.T, b, lower=False)
+
+    def solve_A(self, b):
+        is_sparse = sp.sparse.issparse(b)
+        rhs = b.toarray() if is_sparse else np.asarray(b)
+        x = sp.linalg.cho_solve((self._L, True), rhs, check_finite=False)
+        return sp.sparse.csc_matrix(x) if is_sparse else x
+
+    def slogdet(self):
+        return 1.0, self._logdet
+
+    def inv(self):
+        rhs = np.eye(self._n)
+        return sp.sparse.csc_matrix(sp.linalg.cho_solve((self._L, True), rhs, check_finite=False))
+
+
 def cholesky(A, beta=0, mode="auto", ordering_method="default", use_long=None):
     A = _to_csc(A)
+    if not _SKSPARSE_AVAILABLE:
+        return _DenseCholFactor(A, beta=beta)
     if _SKSPARSE_NEW_API:
         return _FactorProxy(_cho_factor(
             A, beta=beta, lower=True, order=ordering_method,
@@ -111,6 +183,8 @@ def cholesky(A, beta=0, mode="auto", ordering_method="default", use_long=None):
 
 def cholesky_AAt(A, beta=0, mode="auto", ordering_method="default", use_long=None):
     A = _to_csc(A)
+    if not _SKSPARSE_AVAILABLE:
+        return _DenseCholFactor(A, beta=beta, AAt=True)
     if _SKSPARSE_NEW_API:
         return _FactorProxy(_cho_factor(
             A, beta=beta, lower=True, order=ordering_method,
@@ -124,6 +198,11 @@ def cholesky_AAt(A, beta=0, mode="auto", ordering_method="default", use_long=Non
 
 def analyze(A, mode="auto", ordering_method="default", use_long=None):
     A = _to_csc(A)
+    if not _SKSPARSE_AVAILABLE:
+        # symbolic-only: remember shape; numeric L set later by cholesky_inplace
+        f = _DenseCholFactor(beta=0.0)
+        f._n = A.shape[0]
+        return f
     if _SKSPARSE_NEW_API:
         return _FactorProxy(_CholeskyFactor(
             A, lower=True, order=ordering_method,
