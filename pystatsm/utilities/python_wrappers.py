@@ -14,6 +14,7 @@ from .cython_wrappers import (coo_to_csc_wrapper,
                               cs_matmul_inplace_wrapper,
                               cs_dot_wrapper,
                               cs_pattern_trace_wrapper,
+                              cs_block_diag_self_dot_wrapper,
                               naive_matmul_inplace_wrapper,
                               naive_matmul_inplace2_wrapper,
                               repeat_1d_wrapper,
@@ -302,7 +303,20 @@ def sparse_pattern_trace(B, C, out=0.0):
     out = cs_pattern_trace_wrapper(B.indptr, B.indices, B.data, B.shape[0], B.shape[1], B.nnz,
                                    C.indptr, C.indices, C.data, C.shape[0], C.shape[1], C.nnz,
                                    out)
-    
+
+    return out
+
+
+def block_diag_self_dot(L_csr, ng, nv, out=None):
+    """For a CSR L of shape (ng*nv, n_cols), return the (nv, nv) summary
+    out[a, b] = sum_j sum_p L[j*nv+a, p] * L[j*nv+b, p]."""
+    if out is None:
+        out = np.zeros((nv, nv), dtype=np.double)
+    cs_block_diag_self_dot_wrapper(L_csr.indptr.astype(np.int32, copy=False),
+                                   L_csr.indices.astype(np.int32, copy=False),
+                                   L_csr.data.astype(np.double, copy=False),
+                                   L_csr.shape[0], L_csr.shape[1], ng, nv,
+                                   out.reshape(-1))
     return out
 
 def sparse_dense_kron_inplace(A, B, C):
