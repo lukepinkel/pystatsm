@@ -25,6 +25,7 @@ ext_modules = [
                  "pystatsm/utilities/src/cs_kron_sd.c",
                  "pystatsm/utilities/src/cs_dot.c",
                  "pystatsm/utilities/src/cs_pattern_trace.c",
+                 "pystatsm/utilities/src/cs_block_diag_self_dot.c",
                  "pystatsm/utilities/src/cs_kron_id_sp.c",
                  "pystatsm/utilities/src/cs_matmul_inplace.c",
                  "pystatsm/utilities/src/cs_matmul_inplace_complex.c",
