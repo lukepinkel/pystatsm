@@ -14,6 +14,7 @@ from abc import ABCMeta, abstractmethod
 
 from ..utilities.python_wrappers import (sparse_dot,
                                          sparse_pattern_trace,
+                                         block_diag_self_dot,
                                          coo_to_csc,
                                          sparse_dense_kron,
                                          sparse_dense_kron_inplace,
@@ -173,6 +174,32 @@ class BaseProductCovariance(object):
         for i in range(self.unstructured_cov.n_pars):
             self.G_derivs.append(self.dcov_dparams(None, i))
 
+    def precompute_grad_caches(self, ZtRZ, sl):
+        """Hook for one-time, structure-aware caches that need ZtRZ's pattern.
+        Default does nothing; subclasses override when they can amortize work."""
+        pass
+
+    def accumulate_gradient(self, par_offset, sl, ZtRZ, L_zz, T_zx, v_y,
+                            T_xx_inv, reml, grad):
+        """Compute grad[par_offset : par_offset + n_pars] for this term.
+        Default: per-parameter contraction using self.G_derivs. Subclasses
+        override for structure-aware fast paths (e.g. block-diagonal)."""
+        L_zz_blk_t = L_zz[sl].T.tocsc()
+        ZtRZ_blk = ZtRZ[sl, sl]
+        T_zx_blk = T_zx[sl]
+        v_y_blk = v_y[sl]
+        T2B = _vec(np.asarray(T_xx_inv))
+        for j in range(self.unstructured_cov.n_pars):
+            dGj = self.G_derivs[j]
+            T1 = ZtRZ_blk.dot(dGj).diagonal().sum() - sparse_pattern_trace(L_zz_blk_t, dGj)
+            T3 = -float(np.asarray(dGj.dot(v_y_blk).T.dot(v_y_blk)).flatten()[0])
+            if reml:
+                T2A = _vec(np.asarray(T_zx_blk.T.dot(dGj.dot(T_zx_blk))))
+                T2 = -np.dot(T2A, T2B)
+            else:
+                T2 = 0.0
+            grad[par_offset + j] = T1 + T2 + T3
+
 
 
 
@@ -225,6 +252,74 @@ class KronIG(BaseProductCovariance):
 
         return dGi
 
+    def precompute_grad_caches(self, ZtRZ, sl):
+        """Walk ZtRZ's CSC pattern over [sl, sl] once and record where in
+        ZtRZ.data each (level j, intra-row a, intra-col b) entry lives. Under
+        scalar residual ZtRZ.data layout is fixed (just rescaled per gradient
+        call), so this index map stays valid for the life of the model."""
+        ng, nv = self.n_lv, self.n_rv
+        idx = np.full((ng, nv, nv), -1, dtype=np.int64)
+        offset = sl.start
+        indptr = ZtRZ.indptr
+        indices = ZtRZ.indices
+        for c_local in range(ng * nv):
+            c_global = offset + c_local
+            j_col, b = divmod(c_local, nv)
+            for k in range(indptr[c_global], indptr[c_global + 1]):
+                r_local = int(indices[k]) - offset
+                if 0 <= r_local < ng * nv:
+                    j_row, a = divmod(r_local, nv)
+                    if j_row == j_col:
+                        idx[j_col, a, b] = k
+        self._zr_index_map = idx
+
+    def accumulate_gradient(self, par_offset, sl, ZtRZ, L_zz, T_zx, v_y,
+                            T_xx_inv, reml, grad):
+        """Block-diagonal G structure: every dG_i in the term has the same
+        per-level (a, b) pattern, so all n_pars gradients are reads off a
+        single nv x nv summary M_sum. Built without densifying L_zz: the LL
+        contribution decomposes into nv*(nv+1)/2 sparse row-vector dot products
+        via Hadamard sums on stride-sliced row blocks of L_zz."""
+        ng, nv = self.n_lv, self.n_rv
+
+        # ZtRZ block-diagonal sum: precomputed indices into ZtRZ.data.
+        if getattr(self, '_zr_index_map', None) is not None:
+            ZtRZ_sum = ZtRZ.data[self._zr_index_map].sum(axis=0)
+        else:
+            zz = ZtRZ[sl, sl]
+            zz.sort_indices()
+            ZtRZ_sum = zz.data.reshape(ng, nv, nv).sum(axis=0).T
+
+        # LL summary: stride-pair sparse row dot products via the C kernel
+        # cs_block_diag_self_dot. Stays in CSR; no densification, no scipy
+        # per-call Python overhead per (a,b) pair.
+        L_blk = L_zz[sl]
+        if not (sp.sparse.isspmatrix_csr(L_blk) or
+                isinstance(L_blk, sp.sparse.csr_array)):
+            L_blk = L_blk.tocsr()
+        LL_sum = block_diag_self_dot(L_blk, ng, nv)
+
+        # T_zx and v_y blocks have only n_fixef and 1 columns: cheap to densify.
+        # np.asarray() drops np.matrix (returned by csc_matrix.toarray()) so
+        # we get a real ndarray that can be reshaped to 3-D.
+        T_blk = np.asarray(T_zx[sl].toarray() if sp.sparse.issparse(T_zx)
+                           else T_zx[sl])
+        T3 = T_blk.reshape(ng, nv, -1)
+        v_blk = np.asarray(v_y[sl].toarray() if sp.sparse.issparse(v_y)
+                           else v_y[sl]).reshape(ng, nv)
+        bb_sum = v_blk.T.dot(v_blk)
+
+        M_sum = ZtRZ_sum - LL_sum - bb_sum
+        if reml:
+            M_sum = M_sum - np.einsum('jap,pq,jbq->ab', T3, T_xx_inv, T3,
+                                      optimize=True)
+
+        ucov = self.unstructured_cov
+        ri, ci = ucov.r_inds, ucov.c_inds
+        for j in range(ucov.n_pars):
+            a, b = ri[j], ci[j]
+            grad[par_offset + j] = M_sum[a, b] * (1.0 if a == b else 2.0)
+
 
 #TODO: class KronGI(BaseProductCovariance):
 
@@ -255,7 +350,7 @@ class KronAG(BaseProductCovariance):
 
     def get_logdet(self, params, out=0.0):
         G0 = invech(params)
-        out += self.n_levels * np.linalg.slogdet(G0)[1] + self.lda_const
+        out += self.n_lv * np.linalg.slogdet(G0)[1] + self.lda_const
         return out
 
     def dcov_dparams(self, params, i):
@@ -289,7 +384,7 @@ class KronGA(BaseProductCovariance):
 
     def get_logdet(self, params, out=0.0):
         G0 = invech(params)
-        out += self.n_levels * np.linalg.slogdet(G0)[1] + self.lda_const
+        out += self.n_lv * np.linalg.slogdet(G0)[1] + self.lda_const
         return out
 
     def dcov_dparams(self, params, i):
@@ -310,8 +405,6 @@ class RandomEffectTerm:
         elif sp.sparse.issparse(a_cov):
             a_inv = np.linalg.pinv(a_cov.toarray())#TODO: Fix this mess
             self.cov_structure = KronAG(self.n_revars, self.n_levels, a_cov, a_inv)
-
-
 
         self.G = self.cov_structure.G
         self.g_data = self.G.data
@@ -568,6 +661,18 @@ class MMEBlocked(BaseMME):
         self.sparse_threshold = sparse_threshold
         self._scalar_resid = isinstance(re_mod.tterms[-1], DiagResidualCovTerm)
         super().__init__(X, y, re_mod)
+        # Force ZtRZ into canonical (sorted-indices) CSC and walk that layout
+        # at precompute. update_crossprods runs once so ZtRZ takes its
+        # gradient-time form (= ZtZ * scale for scalar resid); sort_indices
+        # then guarantees the same layout regardless of whether scipy or
+        # sksparse 0.5+ canonicalizes during `*scalar`/sksparse calls.
+        # _update_crossprods_scalar / _nontrv mirror this sort so every
+        # subsequent gradient call sees the same indices ordering.
+        self.update_crossprods(self.re_mod.theta)
+        self.ZtRZ.sort_indices()
+        for k, term in enumerate(self.re_mod.gterms):
+            term.cov_structure.precompute_grad_caches(
+                self.ZtRZ, self.re_mod.ranef_sl[k])
 
     def _initialize_matrices(self):
         if self._scalar_resid:
@@ -611,7 +716,7 @@ class MMEBlocked(BaseMME):
 
          self.ZtR, self.ZtRdR, self.ZtR_dR_RZ = ZtR, ZtRdR, ZtR_dR_RZ
          self.ZtRZ, self.ZtZ = ZtRZ, ZtZ
-         self.ZtRXy, self.XtXy = ZtRXy, ZtXy
+         self.ZtRXy, self.ZtXy = ZtRXy, ZtXy
          self.XytRXy, self.XytXy = XytRXy, XytXy
 
     def _setup_cholesky(self):
@@ -630,6 +735,11 @@ class MMEBlocked(BaseMME):
         self.ZtRZ = self.ZtZ * scale
         self.ZtRXy = self.ZtXy * scale
         self.XytRXy = self.XytXy * scale
+        # Force canonical CSC so KronIG's _zr_index_map (built once at
+        # MMEBlocked init) keeps pointing at the right ZtRZ.data positions.
+        # No-op if already sorted (which it usually will be after the first
+        # call, since `*scalar` typically preserves order).
+        self.ZtRZ.sort_indices()
 
     def _update_crossprods_nontrv(self, theta):
         self._update_rcov(theta)
@@ -720,63 +830,31 @@ class MMEBlocked(BaseMME):
 
         L_zz = self.chol_fac.apply_Pt(self.chol_fac.solve_L(
             self.chol_fac.apply_P(sp.sparse.csc_matrix(ZtRZ)), False)).T
-
-        L_zxyt =  self .chol_fac.apply_Pt(self.chol_fac.solve_L(
+        L_zxyt = self.chol_fac.apply_Pt(self.chol_fac.solve_L(
             self.chol_fac.apply_P(sp.sparse.csc_matrix(ZtRXy)), False))
-        #L22 = np.linalg.cholesky(self.XytRXy - L_zxyt.T.dot(L_zxyt))
 
         L_zxt = L_zxyt[:, :-1]
         L_zyt = L_zxyt[:, -1]
         L_zx = L_zxt.T.tocsc()
         L_zy = L_zyt.T.tocsc()
 
-
-        #T_zz = ZtRZ - L_zz.dot(L_zz.T)
         T_zx = ZtRX - L_zz.dot(L_zx.T)
         T_xx = XtRX - L_zx.dot(L_zx.T)
         T_xx_inv = np.linalg.inv(T_xx)
         u_xy = XtRy - L_zx.dot(L_zy.T)
         u_zy = ZtRy - L_zz.dot(L_zy.T)
         v_y = u_zy - T_zx.dot(T_xx_inv.dot(u_xy))
-        T2B = _vec(np.asarray(T_xx_inv))
         grad = np.zeros_like(theta)
 
-        # Gradient for G parameters
-        for i in range(self.re_mod.n_gpar):
-            dGi = self.re_mod.G_derivs[i]
-            k = self.re_mod.theta_to_term[i]
-            sl = self.re_mod.ranef_sl[k]
-
-            T_zxi = T_zx[sl]
-
-            L_zzi = L_zz[sl]
-            L_zzit= L_zzi.T.tocsc()
-            ZtRZi = ZtRZ[sl,sl]
-
-            #trprd1 = sp.sparse.csc_array.dot(T_zz[sl, sl], dGi).diagonal()
-
-            T1 = ZtRZi.dot(dGi).diagonal().sum() - sparse_pattern_trace(L_zzit, dGi)
-            #L_zzi = L_zz[sl].T.tocsc()
-            #ZtRZi = ZtRZ[sl,sl]
-            #trprd2 = np.zeros(dGi.nnz)
-            #dGi_coo = dGi.tocoo()
-            #for c in range(dGi_coo.nnz):
-            #    j, k = dGi_coo.row[c], dGi_coo.col[c]
-            #    trprd2[c] = ZtRZi[j, k] - sparse_dot(L_zzi[:, j], L_zzi[:, k])
-
-            #assert(np.allclose(trprd1, trprd2))
-
-            #T1 = sp.sparse.csc_array.dot(T_zz[sl, sl], dGi).diagonal().sum()
-
-            T2A = T_zxi.T.dot(dGi.dot(T_zxi))
-            T2A =  _vec(np.asarray(T2A))
-            T2 = -np.dot(T2A, T2B)
-            if reml:
-                T3 = -np.asarray(np.dot(dGi.dot(v_y[sl]).T, v_y[sl])).flatten()[0]
-            else:
-                T3 = 0.0
-            grad[i] = T1 + T2 + T3
-        #scuffed
+        # G-parameter gradient: each term's covariance structure handles its
+        # own contribution. Default implementation in BaseProductCovariance is
+        # a per-parameter loop; KronIG (and any other structure-aware subclass)
+        # overrides to amortize per-parameter work across the term.
+        for k in range(self.re_mod.n_gterms):
+            term = self.re_mod.gterms[k]
+            term.cov_structure.accumulate_gradient(
+                self.re_mod.theta_sl[k].start, self.re_mod.ranef_sl[k],
+                ZtRZ, L_zz, T_zx, v_y, T_xx_inv, reml, grad)
 
         self._update_rcov(theta, inv=True)
         Rinv, X, Z, y = self.R, self.X, self.Z, self.y
@@ -788,19 +866,19 @@ class MMEBlocked(BaseMME):
         MZtRX = self.chol_fac.solve_A(sp.sparse.csc_matrix(ZtRX))
         T1A = Rinv.diagonal().sum()
         cs_matmul_inplace(self.Zt, Rinv, self.ZtR)
+        ZtRT = self.ZtR.T.tocsc()
+        XtR = Rinv.dot(X).T
 
         for i in range(self.re_mod.n_gpar, self.re_mod.n_par):
             dRi = self.re_mod.G_derivs[i]
             cs_matmul_inplace(self.ZtR, dRi, self.ZtRdR)
-            cs_matmul_inplace(self.ZtRdR, self.ZtR.T.tocsc(), self.ZtR_dR_RZ)
+            cs_matmul_inplace(self.ZtRdR, ZtRT, self.ZtR_dR_RZ)
             ZtR_dR_RZ = self.ZtR_dR_RZ
-            XtR = Rinv.dot(X).T
             T1B = (self.chol_fac.solve_A(
                     sp.sparse.csc_matrix(ZtR_dR_RZ)).diagonal()).sum()
 
-
-            T1 = T1A-T1B
-            T2 = np.dot((dRi.dot(Py)).T, Py)[0,0]
+            T1 = T1A - T1B
+            T2 = np.dot((dRi.dot(Py)).T, Py)[0, 0]
             if reml:
                 T3A = (dRi.dot(XtR.T)).T.dot(XtR.T)
                 T3B = -2.0 * sp.sparse.csc_array.dot(((self.ZtRdR).dot(XtR.T)).T, MZtRX)
@@ -845,6 +923,9 @@ class LMM2(object):
     def gradient_reparam(self, eta, reml=True):
         dl_dtheta = self.mme._gradient_reparam(eta, reml)
         dtheta_deta = self.mme.re_mod.reparam.jac_rvs(eta)
-        g = np.dot(dtheta_deta, dl_dtheta)
+        # Chain rule: (dL/deta)_j = sum_i (dL/dtheta)_i (dtheta_i/deta_j)
+        # jac_rvs[i,j] = dtheta_i/deta_j, so we need jac.T @ dL/dtheta,
+        # equivalently np.dot(dL/dtheta_as_row, jac).
+        g = np.dot(dl_dtheta, dtheta_deta)
         return g
 
