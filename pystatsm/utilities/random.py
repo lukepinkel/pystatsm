@@ -112,7 +112,7 @@ def r_invwishart(df, V):
 
 def r_invgamma(df, scale):
     return 1.0/np.random.gamma(df, scale=1/scale)
-    
+
 
 
 
@@ -120,7 +120,7 @@ def r_invgamma(df, scale):
 def norm_cdf(x):
     y = (1.0 + erf(x / SQRT2)) / 2.0
     return y
-    
+
 
 #Adapted from MCMCglmm
 @numba.jit(nopython=True)
@@ -150,9 +150,9 @@ def scalar_truncnorm(mu, sd, lb, ub):
     else:
         sl = (lb - mu) / sd
         su = (ub - mu) / sd
-    
+
         tr = norm_cdf(su) - norm_cdf(sl)
-        
+
         if tr>0.5:
             while sample==1:
                 z = np.random.normal(0.0, 1.0)
@@ -175,8 +175,8 @@ def scalar_truncnorm(mu, sd, lb, ub):
         return mu-z*sd
     else:
         return z*sd+mu
-            
-@numba.jit(nopython=True)      
+
+@numba.jit(nopython=True)
 def trnorm(mu, sd, lb, ub):
     n = len(mu)
     z = np.zeros((n, ), dtype=numba.float32)
@@ -193,17 +193,17 @@ def cauchy(loc, scale, size=None, rng=None):
      rng = np.random.default_rng() if rng is None else rng
      x = loc + rng.standard_cauchy(size=size) * scale
      return x
-    
+
 def multivariate_t(mean, cov, nu=1, size=None, rng=None):
     rng = np.random.default_rng() if rng is None else rng
     u = np.sqrt(nu / rng.chisquare(df=nu, size=size))[:, np.newaxis]
     Y = rng.multivariate_normal(mean=mean, cov=cov, size=size)
     X = mean + u * Y
     return X
-    
+
 def r_lkj_cholesky(eta=1.0, n=1, dim=1, rng=None, seed=None):
     rng = np.random.default_rng(seed) if rng is None else rng
-    
+
     eta = np.atleast_1d(eta)
     batch_shape = np.concatenate([[n], np.shape(eta)], axis=0).astype(np.int32)
     beta = eta + (dim - 2.) / 2.
@@ -230,10 +230,10 @@ def r_lkj_cholesky(eta=1.0, n=1, dim=1, rng=None, seed=None):
         mat_samples = clockwise_spiral_fill_triangular(normal_samples, upper=False)[..., 2:, :]
         remaining_rows = mat_samples / np.linalg.norm(mat_samples, ord=2, axis=-1, keepdims=True)
         samples = np.concatenate([samples, remaining_rows], axis=-2)
-    
+
     direction = samples
     raw_correlation = distance * direction
-    
+
     paddings_prepend = [[0, 0]] * len(batch_shape)
     diag = np.pad(np.sqrt(1. - norm), paddings_prepend + [[1, 0]], constant_values=1.)
     chol_result = np.pad(raw_correlation, paddings_prepend + [[1, 0], [0, 1]], constant_values=0.)
