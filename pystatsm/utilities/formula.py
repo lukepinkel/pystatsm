@@ -25,13 +25,14 @@ def replace_duplicate_operators(match):
 
 def parse_random_effects(formula):
     matches = re.findall("\([^)]+[|][^)]+\)", formula)
-    re_terms = [re.search("\(([^)]+)\|([^)]+)\)", x).groups() for x in matches]
+    re_terms = [tuple(s.strip() for s in re.search("\(([^)]+)\|([^)]+)\)", x).groups())
+                for x in matches]
     frm = formula
     for x in matches:
         frm = frm.replace(x, "")
     fe_form = re.sub("(\+|\-)(\+|\-)+", replace_duplicate_operators, frm)
     yvars, fe_form = re.split("[~]", fe_form)
-    fe_form = re.sub("\+$", "", fe_form)
+    fe_form = re.sub(r"[+\s]+$", "", fe_form).strip()
     y_vars = re.split(",", re.sub("\(|\)", "", yvars))
     y_vars = [x.strip() for x in y_vars]
     re_forms, re_groupings = list(zip(*re_terms))
