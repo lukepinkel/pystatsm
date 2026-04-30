@@ -219,6 +219,21 @@ def cs_pattern_trace_wrapper(np.ndarray[int, ndim=1, mode="c"] Bp not None,
     return trace
 
 
+cdef extern from "cs_block_diag_self_dot.h":
+    void cs_block_diag_self_dot(const int *Lp, const int *Li, const double *Lx,
+                                int n_rows, int n_cols,
+                                int ng, int nv,
+                                double *out)
+
+def cs_block_diag_self_dot_wrapper(np.ndarray[int, ndim=1, mode="c"] Lp not None,
+                                   np.ndarray[int, ndim=1, mode="c"] Li not None,
+                                   np.ndarray[double, ndim=1, mode="c"] Lx not None,
+                                   int n_rows, int n_cols,
+                                   int ng, int nv,
+                                   np.ndarray[double, ndim=1, mode="c"] out not None):
+    cs_block_diag_self_dot(&Lp[0], &Li[0], &Lx[0], n_rows, n_cols, ng, nv, &out[0])
+
+
 cdef extern from "repeat_1d.h":
     void repeat_1d(const double *arr, int n, int reps, double *out)
 
