@@ -10,7 +10,7 @@ from .rotation import OrthoRotation, ObliqueRotation
 from .inference import param_cov
 from .alignment import align
 
-
+#TODO:Convert this to proper class
 def unpack_se(se, free_mask, layout, phi_free):
     se_full = np.zeros(layout.nt)
     se_full[free_mask] = se
