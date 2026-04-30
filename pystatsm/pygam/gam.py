@@ -571,16 +571,21 @@ class GAM:
         beta, eta, mu, dev, _, _ = self.pirls(lambda_)
         _, w = self.get_wz(eta)
         X, Slambda = self.X, self.get_penalty_mat(lambda_)
+        # Convention (b): observed information per φ unit for the data part
+        # (Hphi) and full bread K = (X'WX + S)/φ. Vb is the inverse of K
+        # directly; the score (when used downstream) carries the matching 1/φ.
         Hbeta = wcrossp(X, w)
-        Vb = np.linalg.inv(Hbeta + Slambda) * scale
+        Hphi = Hbeta / scale
+        K = Hphi + Slambda / scale
+        Vb = np.linalg.inv(K)
         Vp = np.linalg.inv(self.hessian(theta))
         Jb = self.grad_beta_rho(beta, lambda_)
         C = Jb.dot(Vp[:-1, :-1]).dot(Jb.T)
         Vc = Vb + C
-        Vs = Vb.dot(Hbeta/scale).dot(Vb)
+        Vs = Vb.dot(Hphi).dot(Vb)
         Vf = Vs + C
-        F = Vb.dot(Hbeta / scale)
-        self.Slambda = Slambda
+        F = Vb.dot(Hphi)
+        self.Slambda, self.K = Slambda, K
         self.Vb, self.Vp, self.Vc, self.Vf, self.Vs = Vb, Vp, Vc, Vf, Vs
         self.opt, self.theta, self.scale = opt, theta, scale
         self.beta, self.eta, self.dev, self.mu = beta, eta, dev, mu
