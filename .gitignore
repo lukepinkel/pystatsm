@@ -139,3 +139,4 @@ pystatsm/utilities/cython_wrappers.c
 pystatsm/pyfa2/free_bobby_shmurda.py
 pystatsm/utilities/cython_wrappers.c
 pystatsm/pyfa2/tests.py
+pystatsm/utilities/cython_wrappers.c
