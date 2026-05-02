@@ -99,11 +99,16 @@ class PredictorTerm:
 class GauLS:
     
     def __init__(self, m_formula, s_formula, data, m_link=IdentityLink,
-                 s_link=LogbLink, weights=None):
+                 s_link=LogbLink, weights=None, weights_normalize=True):
         """
         weights: array of shape (n,), column name in data, or None.
-            Per-row sample weights applied to the loglikelihood and its
-            derivatives. None (default) is equivalent to uniform weights.
+            Per-row weights applied to the loglikelihood and its derivatives.
+        weights_normalize: bool, default True.
+            If True, rescale weights to mean 1 (analytic-weight convention) so
+            point estimates are unchanged, SEs reflect the actual sample size
+            n, and the smoothing-penalty balance is preserved. Set False to
+            keep raw weights (frequency-weight convention) -- only sensible
+            when the weights are integer counts.
         """
         self.m = PredictorTerm(m_formula, data, m_link)
         self.s = PredictorTerm(s_formula, data, s_link)
@@ -113,8 +118,13 @@ class GauLS:
             self.w = np.asarray(data[weights].values, dtype=float)
         else:
             self.w = np.asarray(weights, dtype=float)
-        if self.w is not None and self.w.shape[0] != self.m.y.shape[0]:
-            raise ValueError(f"weights length {self.w.shape[0]} != n {self.m.y.shape[0]}")
+        if self.w is not None:
+            if self.w.shape[0] != self.m.y.shape[0]:
+                raise ValueError(f"weights length {self.w.shape[0]} != n {self.m.y.shape[0]}")
+            if (self.w < 0).any():
+                raise ValueError("weights must be non-negative")
+            if weights_normalize:
+                self.w = self.w * (self.w.shape[0] / self.w.sum())
         self.ns_m = len(self.m.theta)
         self.ns_s = len(self.s.theta)
         self.y = self.m.y
