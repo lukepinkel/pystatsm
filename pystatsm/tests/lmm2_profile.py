@@ -1,13 +1,3 @@
-"""cProfile run of the gradient + a full fit on a realistic-shaped LMM2.
-
-Same shape as the model in lmm_test.py:
-    y ~ 1 + x1 + x2 + x3 + (1 + x3 + x4 | id1) + (1 + x5 | id2) + (1 | id3)
-with id1 crossed with id3, and id2 nested 5-per-parent inside id3.
-
-n_obs/levels are tunable at the bottom of the file. The profile is sorted
-by cumulative time then again by per-call time; the last block prints the
-20 hottest functions in the optimizer hot path.
-"""
 import cProfile
 import io
 import pstats
@@ -15,14 +5,14 @@ import time
 import numpy as np
 import scipy as sp
 
-from pystatsm.pylmm.sim_lmm2 import (
+from pystatsm.pystatsm.pylmm.sim_lmm2 import (
     SimSpec, CovariateSpec, MixedModelSim, fit_simulation,
     Grouping, Nested, build_groupings,
 )
-from pystatsm.utilities.random import r_lkj
+from pystatsm.pystatsm.utilities.random import r_lkj
 
 
-def make_realistic_sim(n_obs=6000, n_id1=1000, n_id3=150, id2_per_id3=5,
+def make_realistic_sim(n_obs=30000, n_id1=5000, n_id3=1000, id2_per_id3=10,
                       seed=123):
     rng = np.random.default_rng(seed)
     G_id1 = r_lkj(eta=1, dim=3, rng=rng).squeeze()
@@ -77,27 +67,31 @@ def profile_full_fit(sim):
     prof.disable()
     return prof
 
+mult=None
+M_sum=None
+n_obs=4500
+n_id1=1500
+n_id3=150
+id2_per_id3=5
+n_grad_calls=10
+n=50000;n_id1=1000;n_id3=50;id2_per_id3=10
 
-def main(n_obs=6000, n_id1=1000, n_id3=150, n_grad_calls=30):
-    print(f"Building sim: n_obs={n_obs}, n_id1={n_id1}, n_id3={n_id3}, "
-          f"id2 nested 5-per-parent.")
-    t0 = time.perf_counter()
-    sim = make_realistic_sim(n_obs=n_obs, n_id1=n_id1, n_id3=n_id3)
-    print(f"  built in {time.perf_counter() - t0:.2f}s; "
-          f"Z {sim.Z.shape}, n_pars {sim.theta_true.size}")
+t0 = time.perf_counter()
+sim = make_realistic_sim(n_obs=n_obs, n_id1=n_id1, n_id3=n_id3, id2_per_id3=id2_per_id3)
+print(f"  built in {time.perf_counter() - t0:.2f}s; "
+  f"Z {sim.Z.shape}, n_pars {sim.theta_true.size}")
 
-    t0 = time.perf_counter()
-    prof_grad = profile_gradient_calls(sim, n_calls=n_grad_calls)
-    print(f"\n{n_grad_calls} gradient calls: {time.perf_counter() - t0:.2f}s "
-          f"({(time.perf_counter() - t0) * 1000 / n_grad_calls:.1f} ms/call)")
-    _show(prof_grad, 'cumulative', n=15, label='gradient hot path (cumulative)')
-    _show(prof_grad, 'tottime',     n=15, label='gradient hot path (self-time)')
-
-    t0 = time.perf_counter()
-    prof_fit = profile_full_fit(sim)
-    print(f"\nfull fit: {time.perf_counter() - t0:.2f}s")
-    _show(prof_fit, 'cumulative', n=15, label='full fit (cumulative)')
+t0 = time.perf_counter()
+prof_grad = profile_gradient_calls(sim, n_calls=n_grad_calls)
+print(f"\n{n_grad_calls} gradient calls: {time.perf_counter() - t0:.2f}s "
+  f"({(time.perf_counter() - t0) * 1000 / n_grad_calls:.1f} ms/call)")
 
 
-if __name__ == '__main__':
-    main()
+_show(prof_grad, 'cumulative', n=300, label='gradient hot path (cumulative)')
+_show(prof_grad, 'tottime',     n=300, label='gradient hot path (self-time)')
+
+# t0 = time.perf_counter()
+# prof_fit = profile_full_fit(sim)
+# print(f"\nfull fit: {time.perf_counter() - t0:.2f}s")
+# _show(prof_fit, 'cumulative', n=15, label='full fit (cumulative)')
+
