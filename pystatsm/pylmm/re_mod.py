@@ -1861,7 +1861,7 @@ class LMM2(object):
                 _, uniq = np.unique(ys, return_index=True)
                 ys, xs = ys[uniq], xs[uniq]
                 try:
-                    f_inv = interp1d(ys, xs, kind='linear',
+                    rtef_inv = interp1d(ys, xs, kind='linear',
                                      bounds_error=False, fill_value=np.nan)
                     xq = f_inv(q)
                     valid = np.isfinite(xq)
