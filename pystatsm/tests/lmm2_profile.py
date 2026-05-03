@@ -69,26 +69,39 @@ def profile_full_fit(sim):
 
 mult=None
 M_sum=None
-n_obs=4500
-n_id1=1500
-n_id3=150
-id2_per_id3=5
-n_grad_calls=10
-n=50000;n_id1=1000;n_id3=50;id2_per_id3=10
+n_obs=60000
+for n_id1 in [1500, 3000]:
+    for n_id3 in [600]:
+        for id2_per_id3 in [5, 20]:
+            n_grad_calls=2
+            t0 = time.perf_counter()
+            sim = make_realistic_sim(n_obs=n_obs, n_id1=n_id1, n_id3=n_id3, id2_per_id3=id2_per_id3)
+            print(f"  built in {time.perf_counter() - t0:.2f}s; "
+              f"Z {sim.Z.shape}, n_pars {sim.theta_true.size}")
 
-t0 = time.perf_counter()
-sim = make_realistic_sim(n_obs=n_obs, n_id1=n_id1, n_id3=n_id3, id2_per_id3=id2_per_id3)
-print(f"  built in {time.perf_counter() - t0:.2f}s; "
-  f"Z {sim.Z.shape}, n_pars {sim.theta_true.size}")
+            model = sim.to_lmm(sim.draw()[0])
+            theta = sim.theta_true.copy()
+            model.gradient(theta, reml=True)
 
-t0 = time.perf_counter()
-prof_grad = profile_gradient_calls(sim, n_calls=n_grad_calls)
-print(f"\n{n_grad_calls} gradient calls: {time.perf_counter() - t0:.2f}s "
-  f"({(time.perf_counter() - t0) * 1000 / n_grad_calls:.1f} ms/call)")
+            t0 = time.perf_counter()
+            for _ in range(2): model.gradient(theta, reml=True)
+            dt = (time.perf_counter() - t0) / 2
+            print(f'gradient (ML): {dt*1000:.1f} ms/call')
+            #1500, 600, 5
+            #%timeit model.loglike(theta) 30.4 ms
+            #%timeit model.gradient(theta) 869 ms
 
 
-_show(prof_grad, 'cumulative', n=300, label='gradient hot path (cumulative)')
-_show(prof_grad, 'tottime',     n=300, label='gradient hot path (self-time)')
+            prof = cProfile.Profile()
+
+            t0 = time.perf_counter()
+            prof_grad = profile_gradient_calls(sim, n_calls=n_grad_calls)
+            print(f"\n{n_grad_calls} gradient calls: {time.perf_counter() - t0:.2f}s "
+              f"({(time.perf_counter() - t0) * 1000 / n_grad_calls:.1f} ms/call)")
+
+
+#_show(prof_grad, 'cumulative', n=300, label='gradient hot path (cumulative)')
+#_show(prof_grad, 'tottime',     n=300, label='gradient hot path (self-time)')
 
 # t0 = time.perf_counter()
 # prof_fit = profile_full_fit(sim)
