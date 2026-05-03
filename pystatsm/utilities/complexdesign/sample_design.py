@@ -4,7 +4,7 @@ import pandas as pd
 from dataclasses import dataclass
 
 
-@numba.jit(nopython=True, cache=True)
+@numba.jit(nopython=True)
 def _grouped_cov(X, n_str, n_grp, ind_str, ind_psu, n_psu_per_str, ssf):
     p = X.shape[1]
     psu_sum = np.zeros((n_grp, p))
