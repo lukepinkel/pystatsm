@@ -815,7 +815,7 @@ class MMEBlocked(BaseMME):
             return self._chol_dense(self.C)
 
     def _chol_sparse(self, C):
-        self.chol_fac.cholesky_inplace(sp.sparse.csc_matrix(C))
+        self.chol_fac.cholesky_inplace(C)
         L11 = self.chol_fac.L()
         L11 = L11[self._p,:][:,self._p]
         L11 = L11.toarray()
@@ -834,7 +834,7 @@ class MMEBlocked(BaseMME):
 
 
     def _chol_sparse_diag(self, C):
-        self.chol_fac.cholesky_inplace(sp.sparse.csc_matrix(C))
+        self.chol_fac.cholesky_inplace(C)
         L11 = self.chol_fac.L()
         L11_diag = L11[self._p, self._p]
         L21 = self.chol_fac.apply_Pt(
@@ -870,7 +870,7 @@ class MMEBlocked(BaseMME):
         self.update_crossprods(theta)
         Ginv = self.re_mod.update_gcov(theta, inv=True, G=self.G)
         C = cs_add_inplace(self.ZtRZ, Ginv, self.C)
-        self.chol_fac.cholesky_inplace(sp.sparse.csc_matrix(C))
+        self.chol_fac.cholesky_inplace(C)
 
         ZtRZ = self.ZtRZ
         ZtRXy = self.ZtRXy
@@ -880,21 +880,23 @@ class MMEBlocked(BaseMME):
         XtRy = self.XytRXy[:-1, [-1]]
 
         L_zz = self.chol_fac.apply_Pt(self.chol_fac.solve_L(
-            self.chol_fac.apply_P(sp.sparse.csc_matrix(ZtRZ)), False)).T
+            self.chol_fac.apply_P(ZtRZ), False)).T
         L_zxyt = self.chol_fac.apply_Pt(self.chol_fac.solve_L(
-            self.chol_fac.apply_P(sp.sparse.csc_matrix(ZtRXy)), False))
+            self.chol_fac.apply_P(ZtRXy), False))
 
+        # `L_zxt` / `L_zyt` are csc_array when ZtRXy is sparse and ndarray when
+        # ZtRXy is dense (the scalar-resid path with R = σ²I keeps it dense).
+        # The transpose is a free view in either case, so we drop the
+        # L_zx = L_zxt.T.tocsc() round-trip — that allocated a fresh csc_array
+        # per gradient call and crashed in the dense path.
         L_zxt = L_zxyt[:, :-1]
-        # List-index keeps 2D in scipy 1.15+ where csc_array[:, -1] now returns 1D coo_array.
-        L_zyt = L_zxyt[:, [-1]]
-        L_zx = L_zxt.T.tocsc()
-        L_zy = L_zyt.T.tocsc()
+        L_zyt = L_zxyt[:, [-1]]   # list-index keeps 2D in scipy 1.15+
 
-        T_zx = ZtRX - L_zz.dot(L_zx.T)
-        T_xx = XtRX - L_zx.dot(L_zx.T)
+        T_zx = ZtRX - L_zz.dot(L_zxt)            # was L_zz @ L_zx.T
+        T_xx = XtRX - L_zxt.T.dot(L_zxt)         # was L_zx @ L_zx.T
         T_xx_inv = np.linalg.inv(T_xx)
-        u_xy = XtRy - L_zx.dot(L_zy.T)
-        u_zy = ZtRy - L_zz.dot(L_zy.T)
+        u_xy = XtRy - L_zxt.T.dot(L_zyt)         # was L_zx @ L_zy.T
+        u_zy = ZtRy - L_zz.dot(L_zyt)            # was L_zz @ L_zy.T
         v_y = u_zy - T_zx.dot(T_xx_inv.dot(u_xy))
         grad = np.zeros_like(theta)
 
@@ -975,7 +977,7 @@ class MMEBlocked(BaseMME):
         self.update_crossprods(theta)
         Ginv = self.re_mod.update_gcov(theta, inv=True, G=self.G)
         C = cs_add_inplace(self.ZtRZ, Ginv, self.C)
-        self.chol_fac.cholesky_inplace(sp.sparse.csc_matrix(C))
+        self.chol_fac.cholesky_inplace(C)
 
         ZtRZ = self.ZtRZ
         ZtRXy = self.ZtRXy
@@ -985,27 +987,25 @@ class MMEBlocked(BaseMME):
         XtRy = self.XytRXy[:-1, [-1]]
 
         # Schur substitutions: solve_A on small dense RHS (n_ranef × n_fixef
-        # and n_ranef × 1) — cheap. Returns dense ndarray.
-        MZtRX = self.chol_fac.solve_A(np.asarray(ZtRX))
-        MZtRX = np.asarray(MZtRX.toarray() if sp.sparse.issparse(MZtRX) else MZtRX)
-        MZtRy = self.chol_fac.solve_A(np.asarray(ZtRy))
-        MZtRy = np.asarray(MZtRy.toarray() if sp.sparse.issparse(MZtRy) else MZtRy)
+        # and n_ranef × 1). Pass dense directly to avoid wrapping in csc.
+        MZtRX = self.chol_fac.solve_A(ZtRX)
+        MZtRy = self.chol_fac.solve_A(ZtRy)
 
-        T_zx = np.asarray(ZtRX) - np.asarray(ZtRZ.dot(MZtRX))
-        T_xx = np.asarray(XtRX) - np.asarray(ZtRX).T.dot(MZtRX)
+        T_zx = ZtRX - ZtRZ.dot(MZtRX)
+        T_xx = XtRX - ZtRX.T.dot(MZtRX)
         T_xx_inv = np.linalg.inv(T_xx)
-        u_xy = np.asarray(XtRy) - np.asarray(ZtRX).T.dot(MZtRy)
-        u_zy = np.asarray(ZtRy) - np.asarray(ZtRZ.dot(MZtRy))
+        u_xy = XtRy - ZtRX.T.dot(MZtRy)
+        u_zy = ZtRy - ZtRZ.dot(MZtRy)
         v_y = u_zy - T_zx.dot(T_xx_inv.dot(u_xy))
 
         grad = np.zeros_like(theta)
         for k in range(self.re_mod.n_gterms):
             term = self.re_mod.gterms[k]
             sl = self.re_mod.ranef_sl[k]
-            ZtRZ_k = ZtRZ[:, sl]
+            # ZtRZ[:, sl] is already csc_array (slicing csc_array). No wrap.
             Mk = self.chol_fac.apply_Pt(self.chol_fac.solve_L(
-                self.chol_fac.apply_P(sp.sparse.csc_matrix(ZtRZ_k)), False))
-            L_zz_k = Mk.T  # shape (n_ranef_k, n_ranef) — only this term's rows
+                self.chol_fac.apply_P(ZtRZ[:, sl]), False))
+            L_zz_k = Mk.T   # (n_ranef_k, n_ranef): only this term's row block
             term.cov_structure.accumulate_gradient(
                 self.re_mod.theta_sl[k].start, sl,
                 ZtRZ, None, T_zx, v_y, T_xx_inv, reml, grad,
@@ -1234,32 +1234,27 @@ class LMM2(object):
         self.mme.update_crossprods(theta)
         Ginv = self.mme.re_mod.update_gcov(theta, inv=True, G=self.mme.G)
         C = cs_add_inplace(self.mme.ZtRZ, Ginv, self.mme.C)
-        self.mme.chol_fac.cholesky_inplace(sp.sparse.csc_matrix(C))
+        self.mme.chol_fac.cholesky_inplace(C)
         return Ginv
 
     def compute_effects(self, theta=None):
         if theta is None:
             theta = getattr(self, 'theta', self.mme.re_mod.theta)
         self._factor_C(theta)
+        # ZtRXy is dense ndarray (scalar resid path), so all slices are dense;
+        # solve_A on dense returns dense — no sparse-vs-dense gymnastics needed.
         ZtRX = self.mme.ZtRXy[:, :-1]
         ZtRy = self.mme.ZtRXy[:, [-1]]
         XtRX = self.mme.XytRXy[:-1, :-1]
         XtRy = self.mme.XytRXy[:-1, [-1]]
         ZtRZ = self.mme.ZtRZ
-        #TODO: remove these if else nightmares. Again, upstream failure
-        M_X = self.mme.chol_fac.solve_A(sp.sparse.csc_matrix(ZtRX))
-        M_y = self.mme.chol_fac.solve_A(sp.sparse.csc_matrix(ZtRy))
-        if sp.sparse.issparse(M_X): M_X = np.asarray(M_X.toarray())
-        if sp.sparse.issparse(M_y): M_y = np.asarray(M_y.toarray())
-        ZtRX_arr = np.asarray(ZtRX.toarray() if sp.sparse.issparse(ZtRX) else ZtRX)
-        ZtRy_arr = np.asarray(ZtRy.toarray() if sp.sparse.issparse(ZtRy) else ZtRy)
-        XtRX_arr = np.asarray(XtRX.toarray() if sp.sparse.issparse(XtRX) else XtRX)
-        XtRy_arr = np.asarray(XtRy.toarray() if sp.sparse.issparse(XtRy) else XtRy)
-        T_xx = XtRX_arr - ZtRX_arr.T.dot(M_X)
+        M_X = self.mme.chol_fac.solve_A(ZtRX)
+        M_y = self.mme.chol_fac.solve_A(ZtRy)
+        T_xx = XtRX - ZtRX.T.dot(M_X)
         T_xx_inv = np.linalg.inv(T_xx)
-        u_xy = XtRy_arr - ZtRX_arr.T.dot(M_y)
-        u_zy = ZtRy_arr - np.asarray(ZtRZ.dot(M_y))
-        T_zx = ZtRX_arr - np.asarray(ZtRZ.dot(M_X))
+        u_xy = XtRy - ZtRX.T.dot(M_y)
+        u_zy = ZtRy - ZtRZ.dot(M_y)
+        T_zx = ZtRX - ZtRZ.dot(M_X)
         v_y = u_zy - T_zx.dot(T_xx_inv.dot(u_xy))
         beta = T_xx_inv.dot(u_xy).reshape(-1)
         G = self.mme.re_mod.update_gcov(theta, inv=False, G=self.mme.G)
@@ -1278,15 +1273,15 @@ class LMM2(object):
         self._factor_C(theta)
         self.mme._update_rcov(theta, inv=True)
         Rinv = self.mme.R
+        # Coerce A, B to dense once at the entry point so all downstream ops
+        # are ndarray and we don't need issparse guards on every line.
         A2 = A.toarray() if sp.sparse.issparse(A) else np.asarray(A)
         B2 = B.toarray() if sp.sparse.issparse(B) else np.asarray(B)
-        ZtRA = self.mme.Zt.dot(Rinv.dot(A2))
-        ZtRB = self.mme.Zt.dot(Rinv.dot(B2))
-        M_B = self.mme.chol_fac.solve_A(sp.sparse.csc_matrix(ZtRB))
-        if sp.sparse.issparse(M_B): M_B = np.asarray(M_B.toarray())
+        ZtRA = np.asarray(self.mme.Zt.dot(Rinv.dot(A2)))
+        ZtRB = np.asarray(self.mme.Zt.dot(Rinv.dot(B2)))
+        M_B = self.mme.chol_fac.solve_A(ZtRB)
         AtRB = A2.T.dot(Rinv.dot(B2))
-        ZtRA_arr = np.asarray(ZtRA.toarray() if sp.sparse.issparse(ZtRA) else ZtRA)
-        return np.asarray(AtRB) - ZtRA_arr.T.dot(M_B)
+        return np.asarray(AtRB) - ZtRA.T.dot(M_B)
 
     # ---- fit pipeline -------------------------------------------------------
 
@@ -1451,14 +1446,9 @@ class LMM2(object):
     def random_effects_se(self, theta=None, full=True):
         theta = self.theta if theta is None else theta
         self._factor_C(theta)
-        # M_X = C^{-1} ZtRX
+        # ZtRXy is dense ndarray; pass directly to solve_A.
         ZtRX = self.mme.ZtRXy[:, :-1]
-        #TODO: this shit agian
-        ZtRX_arr = np.asarray(ZtRX.toarray() if sp.sparse.issparse(ZtRX)
-                              else ZtRX)
-        M_X = self.mme.chol_fac.solve_A(sp.sparse.csc_matrix(ZtRX))
-        if sp.sparse.issparse(M_X): M_X = np.asarray(M_X.toarray())
-        else: M_X = np.asarray(M_X)
+        M_X = self.mme.chol_fac.solve_A(ZtRX)
         T_xx_inv = self.XtVinvX_inv
         # diag(M_X T_xx_inv M_X^T) = einsum('ik,kl,il->i', M_X, T_xx_inv, M_X)
         var_x = np.einsum('ik,kl,il->i', M_X, T_xx_inv, M_X, optimize=True)
@@ -1466,20 +1456,17 @@ class LMM2(object):
         if not full:
             return np.sqrt(np.clip(var_x, 0.0, None))
 
-        # diag(C^{-1}) via n_ranef single-column solves. For large problems
-        # this is the slow part; sksparse 0.5+ doesn't expose Takahashi-style
-        # selected inverse so we pay one solve per column.
+        # diag(C^{-1}) via n_ranef single-column solves on a dense buffer; we
+        # mutate `e` in place and pass the dense column to solve_A. The slow
+        # part here is the n_ranef solves themselves, not the wrapping.
         n_ranef = self.mme.Z.shape[1]
         diag_Cinv = np.zeros(n_ranef)
-        e = np.zeros(n_ranef)
+        e = np.zeros((n_ranef, 1))
         for i in range(n_ranef):
-            e[i] = 1.0
-            x = self.mme.chol_fac.solve_A(sp.sparse.csc_matrix(e.reshape(-1, 1)))
-            xi = (np.asarray(x.toarray()).reshape(-1)[i]
-                  if sp.sparse.issparse(x)
-                  else np.asarray(x).reshape(-1)[i])
-            diag_Cinv[i] = float(xi)
-            e[i] = 0.0
+            e[i, 0] = 1.0
+            x = self.mme.chol_fac.solve_A(e)
+            diag_Cinv[i] = float(np.asarray(x).reshape(-1)[i])
+            e[i, 0] = 0.0
         return np.sqrt(np.clip(diag_Cinv + var_x, 0.0, None))
 
     def variance_decomposition(self, theta=None):
