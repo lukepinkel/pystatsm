@@ -47,7 +47,18 @@ All models have been written in python 3.7 using
 - patsy 0.5.1
 - jax 0.1.72
 - pandas 1.2.1
-
+Tests pass with
+- cython=3.2.4
+- formulaic=1.2.1
+- matplotlib=3.10.9
+- numba=0.65.1
+- numpy=2.4.3
+- pandas=3.0.2
+- python=3.12.13
+- scikit-learn=1.8.0
+- scikit-sparse=0.5.0
+- scipy=1.17.1
+- suitesparse=7.10.1
 scikit-sparse is not supported on windows, but the workaround provided by https://github.com/EmJay276/scikit-sparse should allow for installation.
 
 
