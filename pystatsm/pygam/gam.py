@@ -283,6 +283,45 @@ class GAM:
         b2[diag, diag, :] += b1.T
         return b2
 
+    def dhess_beta_rho(self, beta, lam):
+        S = self.get_penalty_mat(lam)
+        b1 = self.grad_beta_rho(beta, lam)
+        b2 = self.hess_beta_rho(beta, lam)
+        A = self.hess_dev_beta(beta, S)[1]
+
+        mu = self.f.inv_link(self.X.dot(beta))
+        w1 = self.f.dw_deta(self.y, mu)
+        w2 = self.f.d2w_deta2(self.y, mu)
+
+        eta1 = self.X.dot(b1)
+        eta2 = np.einsum("np,ijp->nij", self.X, b2, optimize=True)
+
+        rhs = np.einsum("np,n,ni,nj,nk->pijk", self.X, w2, eta1, eta1, eta1,optimize=True)
+
+        B = np.einsum("np,n,nij,nk->pijk",self.X, w1, eta2, eta1,optimize=True)
+        rhs += B
+        rhs += B.transpose(0, 1, 3, 2)
+        rhs += B.transpose(0, 3, 1, 2)
+
+        P2 = np.einsum("i,ipq,jkq->pijk",lam, self.S, b2,optimize=True)
+        rhs += P2
+        rhs += P2.transpose(0, 2, 1, 3)
+        rhs += P2.transpose(0, 2, 3, 1)
+
+        P1 = np.einsum("i,ipq,qk->pik",lam, self.S, b1,optimize=True)
+        P0 = np.einsum("i,ipq,q->pi",lam, self.S, beta,optimize=True)
+
+        np.einsum("piik->pik", rhs)[:] += P1
+        np.einsum("piji->pij", rhs)[:] += P1
+        np.einsum("pijj->pji", rhs)[:] += P1
+        np.einsum("piii->pi", rhs)[:] += P0
+
+        c, low = sp.linalg.cho_factor(A, lower=True, check_finite=False)
+        b3 = -sp.linalg.cho_solve((c, low), rhs.reshape(self.nx, -1),check_finite=False)
+
+        b3 = b3.reshape(self.nx, self.ns, self.ns, self.ns).transpose(1, 2, 3, 0)
+        return b3
+
     def grad_dev_beta(self, beta, S):
         """
         Parameters
