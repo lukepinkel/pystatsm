@@ -163,31 +163,34 @@ class GAM:
 
         """
         S = self.get_penalty_mat(lam)
-        eta_prev = self.f.link(self.y)
-        dev_prev = 1e16 #self.f.deviance(self.y, mu=self.f.inv_link(eta)).sum()
+        # Warm-start eta finite for binomial/poisson; first PLS step is accepted
+        # unconditionally so halving has a real previous iterate to fall back to.
+        mu = (self.y + self.y.mean()) / 2.0
+        eta = self.f.link(mu)
+        beta = self.solve_pls(eta, S)
+        eta = self.X.dot(beta)
+        mu = self.f.inv_link(eta)
+        dev = self.f.deviance(self.y, mu=mu).sum() + beta.dot(S).dot(beta)
         convergence = False
-        beta_prev = np.zeros(self.X.shape[1])
         for i in range(n_iters):
+            beta_prev, eta_prev, dev_prev = beta, eta, dev
             beta = self.solve_pls(eta_prev, S)
             eta = self.X.dot(beta)
             mu = self.f.inv_link(eta)
-            dev = self.f.deviance(self.y, mu=mu).sum()+beta.T.dot(S).dot(beta)
-
-            if abs(dev - dev_prev) / (abs(dev_prev)+1e-6) < tol:
+            dev = self.f.deviance(self.y, mu=mu).sum() + beta.dot(S).dot(beta)
+            j = 0
+            while (j < 15) and (dev > dev_prev):
+                beta = (beta + beta_prev) / 2.0
+                eta = self.X.dot(beta)
+                mu = self.f.inv_link(eta)
+                dev = self.f.deviance(self.y, mu=mu).sum() + beta.dot(S).dot(beta)
+                j += 1
+            if dev > dev_prev:
+                beta, eta, mu, dev = beta_prev, eta_prev, self.f.inv_link(eta_prev), dev_prev
+                break
+            if abs(dev - dev_prev) / (abs(dev_prev) + 1e-6) < tol:
                 convergence = True
                 break
-            elif dev > dev_prev:
-                j = 0
-                while ((j < 15)&(dev > dev_prev)):
-                    beta = (beta + beta_prev) / 2.0
-                    eta = self.X.dot(beta)
-                    mu = self.f.inv_link(eta)
-                    dev = self.f.deviance(self.y, mu=mu).sum()+beta.T.dot(S).dot(beta)
-                    j+=1
-                if j==15:
-                    convergence = False
-                    break
-            beta_prev, eta_prev, dev_prev = beta, eta, dev
         return beta, eta, mu, dev, convergence, i
 
     def get_penalty_mat(self, lam):
@@ -275,10 +278,15 @@ class GAM:
         Tw = self.X * w1[:, None]
         Uij = eta1[:, :, None] * eta1[:, None, :]  # (n, ns, ns)
         Xfij = Tw.T.dot(Uij.reshape(self.n_obs, -1)).reshape(self.nx, self.ns, self.ns)
-        Sb = np.einsum('ikm,mj->kij', self.S, b1)  # (nx, ns, ns); Sb[:, i, j] = S_i b1_j
-        u = Xfij + lam[None, :, None] * Sb + lam[None, None, :] * Sb.transpose(0, 2, 1)
-        Ainv_u = np.linalg.solve(Dp2, u.reshape(self.nx, -1)).reshape(self.nx, self.ns, self.ns)
-        b2 = -Ainv_u.transpose(1, 2, 0)  # (ns, ns, nx)
+        # Sb[k, i, j] = λ_i (S_i b1[:, j])_k.  Symmetrize over (i, j) since b2 is.
+        Sb = np.einsum('i,ikm,mj->kij', lam, self.S, b1)
+        u = Xfij + Sb + Sb.swapaxes(1, 2)
+        # solve operates on the leading axis -> result is (nx, ns*ns); reshape
+        # and move nx to the end so callers can index b2[i, j, :].
+        Ainv_u = np.linalg.solve(Dp2, u.reshape(self.nx, -1))
+        b2 = -Ainv_u.reshape(self.nx, self.ns, self.ns).transpose(1, 2, 0)
+        # Diagonal correction: -Dp2^{-1} (δ_ij λ_i S_i β) = δ_ij b1[:, i]
+        # since Dp2 b1[:, i] = -λ_i S_i β by the PIRLS first-order condition.
         diag = np.arange(self.ns)
         b2[diag, diag, :] += b1.T
         return b2
@@ -288,39 +296,30 @@ class GAM:
         b1 = self.grad_beta_rho(beta, lam)
         b2 = self.hess_beta_rho(beta, lam)
         A = self.hess_dev_beta(beta, S)[1]
-
         mu = self.f.inv_link(self.X.dot(beta))
         w1 = self.f.dw_deta(self.y, mu)
         w2 = self.f.d2w_deta2(self.y, mu)
-
         eta1 = self.X.dot(b1)
         eta2 = np.einsum("np,ijp->nij", self.X, b2, optimize=True)
-
-        rhs = np.einsum("np,n,ni,nj,nk->pijk", self.X, w2, eta1, eta1, eta1,optimize=True)
-
-        B = np.einsum("np,n,nij,nk->pijk",self.X, w1, eta2, eta1,optimize=True)
-        rhs += B
-        rhs += B.transpose(0, 1, 3, 2)
-        rhs += B.transpose(0, 3, 1, 2)
-
-        P2 = np.einsum("i,ipq,jkq->pijk",lam, self.S, b2,optimize=True)
-        rhs += P2
-        rhs += P2.transpose(0, 2, 1, 3)
-        rhs += P2.transpose(0, 2, 3, 1)
-
-        P1 = np.einsum("i,ipq,qk->pik",lam, self.S, b1,optimize=True)
-        P0 = np.einsum("i,ipq,q->pi",lam, self.S, beta,optimize=True)
-
+        # rhs is symmetric in (i, j, k); each grouped term is summed over the
+        # three partitions {(i,j),k}, {(i,k),j}, {(j,k),i}.
+        rhs = np.einsum("np,n,ni,nj,nk->pijk", self.X, w2, eta1, eta1, eta1, optimize=True)
+        rhs += np.einsum("np,n,nij,nk->pijk", self.X, w1, eta2, eta1, optimize=True)
+        rhs += np.einsum("np,n,nik,nj->pijk", self.X, w1, eta2, eta1, optimize=True)
+        rhs += np.einsum("np,n,njk,ni->pijk", self.X, w1, eta2, eta1, optimize=True)
+        rhs += np.einsum("i,ipq,jkq->pijk", lam, self.S, b2, optimize=True)
+        rhs += np.einsum("j,jpq,ikq->pijk", lam, self.S, b2, optimize=True)
+        rhs += np.einsum("k,kpq,ijq->pijk", lam, self.S, b2, optimize=True)
+        P1 = np.einsum("i,ipq,qk->pik", lam, self.S, b1, optimize=True)
+        P0 = np.einsum("i,ipq,q->pi", lam, self.S, beta, optimize=True)
         np.einsum("piik->pik", rhs)[:] += P1
         np.einsum("piji->pij", rhs)[:] += P1
         np.einsum("pijj->pji", rhs)[:] += P1
         np.einsum("piii->pi", rhs)[:] += P0
-
         c, low = sp.linalg.cho_factor(A, lower=True, check_finite=False)
-        b3 = -sp.linalg.cho_solve((c, low), rhs.reshape(self.nx, -1),check_finite=False)
-
-        b3 = b3.reshape(self.nx, self.ns, self.ns, self.ns).transpose(1, 2, 3, 0)
-        return b3
+        b3 = -sp.linalg.cho_solve((c, low), rhs.reshape(self.nx, -1), check_finite=False)
+        # Match b2 layout: (ns, ns, ns, nx) so callers can index b3[i, j, k, :].
+        return b3.reshape(self.nx, self.ns, self.ns, self.ns).transpose(1, 2, 3, 0)
 
     def grad_dev_beta(self, beta, S):
         """
@@ -467,13 +466,11 @@ class GAM:
         XA = X.dot(A)
         q = (XA * X).sum(axis=1)  # x_n' A x_n
 
-        # tr1[i, j] = trace(AM_i AM_j) where AM_k = A (H1_k + λ_k S_k)
-        if self.ns:
-            AM = np.stack([A.dot(wcrossp(X, dw_deta * eta1[:, k]) + lam[k] * self.S[k])
-                           for k in range(self.ns)])
-            tr1 = np.einsum('iab,jba->ij', AM, AM)
-        else:
-            tr1 = np.zeros((0, 0))
+        # tr1[i, j] = trace(AM_i AM_j) where AM_k = A (X' diag(w1 η₁_k) X + λ_k S_k).
+        M = np.einsum("np,nq,nk->kpq", X, X, dw_deta[:, None] * eta1, optimize=True)
+        M += lam[:, None, None] * self.S
+        AM = np.einsum("pl,klq->kpq", A, M, optimize=True)
+        tr1 = np.einsum("iab,jba->ij", AM, AM)
 
         # trAH2[i, j] = trace(A · H2_ij) computed without forming H2
         p1, p2 = d2w_deta2 * q, dw_deta * q
