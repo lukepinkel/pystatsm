@@ -1,26 +1,11 @@
-"""LMM2 gradient/loglike scaling benchmark.
-
-Sweeps configurations along three axes — number of levels per factor, number of
-variates per term, and factor structure (single, crossed, nested) — and reports
-wall time alongside structural sparsity (nnz of Z, C, L). The multipliers
-ms/nnz(L) and ms/n_pars expose whether we're scaling as theory predicts.
-
-Theory floor for the dominant cost: one solve_L on an n_ranef × n_ranef sparse
-RHS is ≈ nnz(L) × n_ranef FLOPs. Wall_time / (nnz(L) × n_ranef) should be
-roughly constant — a "GFLOPS"-equivalent we can compare across configs.
-
-Run: PYTHONPATH=<repo> python lmm2_scaling.py
-"""
 import time
 import numpy as np
 import pandas as pd
 import scipy as sp
-import scipy.sparse
 
-from pystatsm.pylmm.sim_lmm2 import (
-    SimSpec, RanefSpec, CovariateSpec, MixedModelSim,
-    Grouping, Nested, build_groupings,
-)
+from pystatsm.pylmm.sim_lmm2 import (SimSpec, RanefSpec, CovariateSpec,
+                                     MixedModelSim, Grouping,
+                                     Nested, build_groupings)
 from pystatsm.pylmm.re_mod import LMM2
 from pystatsm.utilities.random import r_lkj
 
