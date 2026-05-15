@@ -180,8 +180,6 @@ class BaseProductCovariance(metaclass=ABCMeta):
 
     @abstractmethod
     def _update_gdata(self, G0, inv, out):
-        """Write the structured covariance entries into the data buffer
-        `out` (a 1-D ndarray with the same layout as `self.G.data`)."""
         pass
 
     @abstractmethod
@@ -197,9 +195,6 @@ class BaseProductCovariance(metaclass=ABCMeta):
         return out
 
     def update_gcov(self, params, inv=False, G=None):
-        """Refresh G's data in place at the given params. Default uses
-        `_update_gdata` against G's data buffer; subclasses with non-standard
-        layouts can override."""
         G = self.G if G is None else G
         self.update_gdata(params, inv, G.data)
         return G
@@ -306,20 +301,10 @@ class KronIG(BaseProductCovariance):
 
     def accumulate_gradient(self, par_offset, sl, ZtRZ, L_zz, T_zx, v_y,
                             T_xx_inv, reml, grad, L_zz_sl=None):
-        """If `L_zz_sl` is supplied it is the row-slice of L_zz already
-        restricted to this term — used by the v2 gradient path to avoid ever
-        materializing global L_zz. When None, slice from the global L_zz
-        (legacy v1 path)."""
         ng, nv = self.n_lv, self.n_rv
-
-        # _zr_index_map is built once in MMEBlocked.__init__; if it's missing,
-        # we have a setup bug — let AttributeError fire rather than silently
-        # falling back to a slower path.
         ZtRZ_sum = ZtRZ.data[self._zr_index_map].sum(axis=0)
-
         L_blk = (L_zz_sl if L_zz_sl is not None else L_zz[sl]).tocsr()
         LL_sum = block_diag_self_dot(L_blk, ng, nv)
-
         T_blk = np.asarray(T_zx[sl].toarray() if sp.sparse.issparse(T_zx) else T_zx[sl])
         T3 = T_blk.reshape(ng, nv, -1)
         v_blk = np.asarray(v_y[sl].toarray() if sp.sparse.issparse(v_y) else v_y[sl]).reshape(ng, nv)
@@ -328,10 +313,7 @@ class KronIG(BaseProductCovariance):
         if reml:
             M_sum = M_sum - np.einsum('jap,pq,jbq->ab', T3, T_xx_inv, T3,
                                       optimize=True)
-        # np.matrix leaks from upstream sparse-dense ops; strip so the
-        # element-wise multiply below doesn't dispatch to matrix.__mul__.
         M_sum = np.asarray(getattr(M_sum, 'A', M_sum))
-
         ucov = self.unstructured_cov
         ri, ci = ucov.r_inds, ucov.c_inds
         mult = np.where(ucov.d_mask, 1.0, 2.0)
@@ -358,7 +340,6 @@ class KronAG(BaseProductCovariance):
         return G
 
     def _update_gdata(self, G0, inv, out):
-        # `out` is a data buffer; wrap so the kernel's `C.data` access works.
         A = self.a_inv if inv else self.a_cov
         sparse_dense_kron_inplace(A, G0, _DataView(out))
 
@@ -687,16 +668,19 @@ class BaseMME:
         raise NotImplementedError("Subclasses must implement this method")
 
     def _loglike(self, theta, reml=True):
-        l = self.update_chol_diag(theta)
-        ytPy = l[-1]**2
+        # logdet_C is log|Z'R^{-1}Z + G^{-1}| straight from cholmod; L22_diag
+        # is the (n_fixef+1)-vector from the small dense Schur cholesky.
+        # y'Py = L22_diag[-1]^2 (Meyer 1989); log|X'V^{-1}X| picks up only
+        # the first n_fixef entries of L22_diag for REML.
+        logdet_C, L22_diag = self.update_chol_diag(theta)
+        ytPy = L22_diag[-1] ** 2
         logdetG = self.re_mod.lndet_gmat(theta)
-        logdetR = self.re_mod.lndet_rmat(theta)#logdetR = np.log(theta[-1]) * self.n_obs
+        logdetR = self.re_mod.lndet_rmat(theta)
         if reml:
-            logdetC = np.sum(2 * np.log(l[:-1]))
-            ll = logdetR + logdetC + logdetG + ytPy
+            logdetXtVinvX = 2.0 * np.sum(np.log(L22_diag[:-1]))
+            ll = logdetR + logdet_C + logdetXtVinvX + logdetG + ytPy
         else:
-            logdetV = np.sum(2 * np.log(l[:self.n_ranef]))
-            ll = logdetR + logdetV + logdetG + ytPy
+            ll = logdetR + logdet_C + logdetG + ytPy
         return ll
 
     def _loglike_reparam(self, eta, reml=True):
@@ -714,8 +698,6 @@ class MMEBlocked(BaseMME):
         self._scalar_resid = isinstance(re_mod.tterms[-1], DiagResidualCovTerm)
         super().__init__(X, y, re_mod)
         self.update_crossprods(self.re_mod.theta)
-        # ZtRZ already sorted in _initialize_unweighted (scalar resid path);
-        # for the non-trivial path it comes out sorted from cs_matmul_inplace.
         for k, term in enumerate(self.re_mod.gterms):
             term.cov_structure.precompute_grad_caches(
                 self.ZtRZ, self.re_mod.ranef_sl[k])
@@ -728,11 +710,6 @@ class MMEBlocked(BaseMME):
         self.C = self.ZtRZ + self.G
 
     def _initialize_unweighted(self):
-        # ZtZ / ZtXy / XytXy are theta-independent (R = σ²I drops out into a
-        # scalar). We sort ZtZ once and keep persistent ZtRZ / ZtRXy / XytRXy
-        # buffers with the same structure; _update_crossprods_scalar then
-        # writes data in place via np.multiply, avoiding both allocation and
-        # the per-call sort_indices that re-running `ZtZ * scale` triggers.
         ZtR = self.Zt.dot(self.R).tocsc()
         ZtRdR = ZtR.copy()
         ZtR_dR_RZ = sp.sparse.csc_array.dot(ZtRdR, ZtR.T).tocsc()
@@ -775,7 +752,6 @@ class MMEBlocked(BaseMME):
     def _setup_cholesky(self):
         self.chol_fac = analyze(self.C, ordering_method="best")
         self._p = np.argsort(self.chol_fac.P())
-        self.dg = np.zeros(self.n_fixef + self.n_ranef + 1, dtype=np.double)
 
     def update_crossprods(self, theta):
         if self._scalar_resid:
@@ -784,17 +760,12 @@ class MMEBlocked(BaseMME):
             self._update_crossprods_nontrv(theta)
 
     def _update_crossprods_scalar(self, theta):
-        # In-place data updates on the persistent ZtRZ / ZtRXy / XytRXy buffers
-        # set up in _initialize_unweighted. Avoids reallocating sparse objects
-        # and the sort_indices that ZtZ * scalar would otherwise trigger.
         scale = 1.0 / theta[-1]
         np.multiply(self.ZtZ.data, scale, out=self.ZtRZ.data)
         np.multiply(self.ZtXy, scale, out=self.ZtRXy)
         np.multiply(self.XytXy, scale, out=self.XytRXy)
 
     def _update_crossprods_nontrv(self, theta):
-        # ZtRZ etc. need R^{-1} (the weighted normal-equations form), so the
-        # _update_rcov call must invert R in-place before downstream products.
         self._update_rcov(theta, inv=True)
         cs_matmul_inplace(self.Zt, self.R, self.ZtR)
         cs_matmul_inplace(self.ZtR, self.Z, self.ZtRZ)
@@ -835,36 +806,29 @@ class MMEBlocked(BaseMME):
 
     def _chol_sparse_diag(self, C):
         self.chol_fac.cholesky_inplace(C)
-        L11 = self.chol_fac.L()
-        L11_diag = L11[self._p, self._p]
+        sld = self.chol_fac.slogdet()
+        logdet_C = float(sld[1]) if hasattr(sld, '__len__') else float(sld)
         L21 = self.chol_fac.apply_Pt(
                 self.chol_fac.solve_L(
                     self.chol_fac.apply_P(self.ZtRXy), False)).T
         L22_diag = np.diag(np.linalg.cholesky(self.XytRXy - L21.dot(L21.T)))
-        return L11_diag, L21, L22_diag
+        return logdet_C, L22_diag
 
     def _chol_dense_diag(self, C):
         C_dense = C.toarray()
         L11 = np.linalg.cholesky(C_dense)
+        logdet_C = 2.0 * float(np.sum(np.log(np.diag(L11))))
         L21 = sp.linalg.solve_triangular(L11, self.ZtRXy, trans=0, lower=True).T
         L22_diag = np.diag(np.linalg.cholesky(self.XytRXy - L21.dot(L21.T)))
-        L11_diag = np.diag(L11)
-        return L11_diag, L21, L22_diag
+        return logdet_C, L22_diag
 
-    def update_chol_diag(self, theta, out=None):
-        out = self.dg if out is None else out
-
+    def update_chol_diag(self, theta):
         self.update_crossprods(theta)
         Ginv = self.re_mod.update_gcov(theta, inv=True, G=self.G)
         cs_add_inplace(self.ZtRZ, Ginv, self.C)
-
         if sparsity(self.C) < self.sparse_threshold:
-            L11_diag, L21, L22_diag = self._chol_sparse_diag(self.C)
-        else:
-            L11_diag, L21, L22_diag = self._chol_dense_diag(self.C)
-        out[:self.n_ranef] = L11_diag
-        out[self.n_ranef:] = L22_diag
-        return out
+            return self._chol_sparse_diag(self.C)
+        return self._chol_dense_diag(self.C)
 
     def _gradient(self, theta, reml=True):
         self.update_crossprods(theta)
@@ -883,12 +847,6 @@ class MMEBlocked(BaseMME):
             self.chol_fac.apply_P(ZtRZ), False)).T
         L_zxyt = self.chol_fac.apply_Pt(self.chol_fac.solve_L(
             self.chol_fac.apply_P(ZtRXy), False))
-
-        # `L_zxt` / `L_zyt` are csc_array when ZtRXy is sparse and ndarray when
-        # ZtRXy is dense (the scalar-resid path with R = σ²I keeps it dense).
-        # The transpose is a free view in either case, so we drop the
-        # L_zx = L_zxt.T.tocsc() round-trip — that allocated a fresh csc_array
-        # per gradient call and crashed in the dense path.
         L_zxt = L_zxyt[:, :-1]
         L_zyt = L_zxyt[:, [-1]]   # list-index keeps 2D in scipy 1.15+
 
@@ -907,10 +865,7 @@ class MMEBlocked(BaseMME):
                 self.re_mod.theta_sl[k].start, self.re_mod.ranef_sl[k],
                 ZtRZ, L_zz, T_zx, v_y, T_xx_inv, reml, grad)
 
-        # Residual gradient: dispatched on the residual term's structure.
-        # DiagResidualCovTerm uses a closed-form γ-reparam identity (cheap);
-        # any future general residual term should override this with the
-        # trace-based path below (`_resid_gradient_trace`).
+
         self.re_mod.tterms[-1].accumulate_gradient(
             self, theta, reml, grad,
             T_xx_inv=T_xx_inv, u_xy=u_xy, v_y=v_y, ZtRX=ZtRX)
