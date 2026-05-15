@@ -10,7 +10,10 @@ import pandas as pd
 import numpy as np
 import formulaic
 import scipy as sp
+import matplotlib as mpl
+import matplotlib.pyplot as plt
 from abc import ABCMeta, abstractmethod
+from scipy.interpolate import interp1d
 
 from ..utilities.python_wrappers import (sparse_dot,
                                          sparse_pattern_trace,
@@ -32,6 +35,7 @@ from ..utilities.linalg_operations import (invech_chol,
 from ..utilities.formula import parse_random_effects
 from ..utilities.indexing_utils import vech_inds_reverse
 from ..utilities.param_transforms import CholeskyCov, CombinedTransform
+from ..utilities.numerical_derivs import so_gc_cd
 
 def sizes_to_inds(sizes):
     return np.r_[0, np.cumsum(sizes)]
@@ -74,10 +78,6 @@ def sparsity(a):
 
 
 def _resolve_a(a_cov):
-    """Return (csc a_cov, csc a_inv) using a Cholesky factorization. Sparse
-    a_cov is inverted via sksparse cholmod against a sparse identity; dense
-    a_cov goes through cho_solve. Replaces the prior `pinv(a_cov.toarray())`
-    path which failed quietly for indefinite or large matrices."""
     n = a_cov.shape[0]
     if sp.sparse.issparse(a_cov):
         a_csc = a_cov.tocsc()
@@ -150,17 +150,6 @@ class UnstructuredCovariance(BaseCovarianceStructure):
         _, lnd = np.linalg.slogdet(cov)
         return lnd
 
-class _DataView:
-    """Minimal stand-in for a sparse matrix exposing only `.data`. The C-level
-    *_kron_inplace kernels look at the third arg's `.data` attribute and
-    nothing else; wrapping the output buffer here lets us keep the canonical
-    `_update_gdata(G0, inv, out)` contract (out = data array) without forcing
-    the kernels to know about ndarray vs sparse-matrix."""
-    __slots__ = ('data',)
-    def __init__(self, data):
-        self.data = data
-
-
 class BaseProductCovariance(metaclass=ABCMeta):
 
     def __init__(self, n_rv, n_lv):
@@ -208,15 +197,10 @@ class BaseProductCovariance(metaclass=ABCMeta):
             self.G_derivs.append(self.dcov_dparams(None, i))
 
     def precompute_grad_caches(self, ZtRZ, sl):
-        """Hook for one-time, structure-aware caches that need ZtRZ's pattern.
-        Default does nothing; subclasses override when they can amortize work."""
         pass
 
     def accumulate_gradient(self, par_offset, sl, ZtRZ, L_zz, T_zx, v_y,
                             T_xx_inv, reml, grad):
-        """Compute grad[par_offset : par_offset + n_pars] for this term.
-        Default: per-parameter contraction using self.G_derivs. Subclasses
-        override for structure-aware fast paths (e.g. block-diagonal)."""
         L_zz_blk_t = L_zz[sl].T.tocsc()
         ZtRZ_blk = ZtRZ[sl, sl]
         T_zx_blk = T_zx[sl]
@@ -280,12 +264,6 @@ class KronIG(BaseProductCovariance):
         return dGi
 
     def precompute_grad_caches(self, ZtRZ, sl):
-        """Cache positions in ZtRZ.data for the (j, a, b) entries of each
-        diagonal block. KronIG within-term means each column has exactly nv
-        in-term rows at [offset+j*nv .. offset+(j+1)*nv), block-diagonal across
-        levels. Cross-term coupling (other G-terms in a multi-term Z) puts
-        rows < offset before the in-term run after sort_indices, so we find
-        the in-term start per column via searchsorted."""
         ng, nv = self.n_lv, self.n_rv
         offset = sl.start
         indptr, indices = ZtRZ.indptr, ZtRZ.indices
@@ -305,22 +283,17 @@ class KronIG(BaseProductCovariance):
         ZtRZ_sum = ZtRZ.data[self._zr_index_map].sum(axis=0)
         L_blk = (L_zz_sl if L_zz_sl is not None else L_zz[sl]).tocsr()
         LL_sum = block_diag_self_dot(L_blk, ng, nv)
-        T_blk = np.asarray(T_zx[sl].toarray() if sp.sparse.issparse(T_zx) else T_zx[sl])
-        T3 = T_blk.reshape(ng, nv, -1)
-        v_blk = np.asarray(v_y[sl].toarray() if sp.sparse.issparse(v_y) else v_y[sl]).reshape(ng, nv)
+        T3 = T_zx[sl].reshape(ng, nv, -1)
+        v_blk = v_y[sl].reshape(ng, nv)
         bb_sum = v_blk.T.dot(v_blk)
         M_sum = ZtRZ_sum - LL_sum - bb_sum
         if reml:
             M_sum = M_sum - np.einsum('jap,pq,jbq->ab', T3, T_xx_inv, T3,
                                       optimize=True)
-        M_sum = np.asarray(getattr(M_sum, 'A', M_sum))
         ucov = self.unstructured_cov
         ri, ci = ucov.r_inds, ucov.c_inds
         mult = np.where(ucov.d_mask, 1.0, 2.0)
         grad[par_offset:par_offset + ucov.n_pars] = M_sum[ri, ci] * mult
-
-
-#TODO: class KronGI(BaseProductCovariance):
 
 
 
@@ -341,7 +314,7 @@ class KronAG(BaseProductCovariance):
 
     def _update_gdata(self, G0, inv, out):
         A = self.a_inv if inv else self.a_cov
-        sparse_dense_kron_inplace(A, G0, _DataView(out))
+        sparse_dense_kron_inplace(A, G0, out)
 
     def get_logdet(self, params, out=0.0):
         G0 = invech(params)
@@ -372,7 +345,7 @@ class KronGA(BaseProductCovariance):
 
     def _update_gdata(self, G0, inv, out):
         A = self.a_inv if inv else self.a_cov
-        ds_kron_inplace(G0, A, _DataView(out))
+        ds_kron_inplace(G0, A, out)
 
     def get_logdet(self, params, out=0.0):
         G0 = invech(params)
@@ -429,13 +402,10 @@ class RandomEffectTerm:
         return coo_to_csc(z_rows, z_cols, z_data, z_size, return_array=True)
 
     def update_gdata(self, theta, inv=False, out=None):
-        # When `out` is None we mutate self.G.data in place; return that buffer
-        # rather than the None we were handed, so the value is usable.
         if out is None:
             out = self.G.data
         self.cov_structure.update_gdata(theta, inv, out)
         return out
-
 
     def update_gcov(self, theta, inv=False, G=None):
         G = self.G if G is None else G
@@ -474,8 +444,6 @@ class DiagResidualCovTerm:
         return cls(None, gr_arr, a_cov)
 
     def update_gdata(self, theta, inv=False, out=None):
-        # When `out` is None we mutate self.G.data in place; return that buffer
-        # rather than the None we were handed.
         if out is None:
             out = self.G.data
         self.cov_structure.update_gdata(theta, inv, out)
@@ -494,19 +462,6 @@ class DiagResidualCovTerm:
 
     def accumulate_gradient(self, mme, theta, reml, grad, T_xx_inv, u_xy, v_y,
                             **kwargs):
-        """Residual-variance gradient (scalar i.i.d. R = σ² I) via the
-        γ-reparametrization identity. With γ_k = θ_G,k / σ², the σ² piece of
-        -2 log L has the closed form
-
-            ∂(-2 log L)/∂σ² (γ-param) = n_eff/σ² − y'r/σ⁴
-
-        where n_eff = n−p (REML) or n (ML) and r = y − Xβ̂ − Zû. Chain rule
-        back to (θ_G, σ²) gives
-
-            ∂f/∂σ² = n_eff/σ² − y'r/σ⁴ − (1/σ²) θ_G · g_θ_G
-
-        so we never form solve_A on the n_ranef×n_ranef block. Identity
-        requires G linear in θ_G (vech parametrization)."""
         sigma2 = float(theta[-1])
         b = T_xx_inv.dot(u_xy)
         G = mme.re_mod.update_gcov(theta, inv=False, G=mme.G)
@@ -523,9 +478,6 @@ class DiagResidualCovTerm:
 
 class RandomEffects:
     def __init__(self, re_terms, data, a_covs=None):
-        # `resid_cov` was a placeholder for non-scalar residual covariance and
-        # was never wired up; removed to keep the API honest. Adding it back
-        # means populating the residual term branch below with a real class.
         self._create_terms(re_terms, data, a_covs)
         self._construct_matrices()
 
@@ -668,10 +620,6 @@ class BaseMME:
         raise NotImplementedError("Subclasses must implement this method")
 
     def _loglike(self, theta, reml=True):
-        # logdet_C is log|Z'R^{-1}Z + G^{-1}| straight from cholmod; L22_diag
-        # is the (n_fixef+1)-vector from the small dense Schur cholesky.
-        # y'Py = L22_diag[-1]^2 (Meyer 1989); log|X'V^{-1}X| picks up only
-        # the first n_fixef entries of L22_diag for REML.
         logdet_C, L22_diag = self.update_chol_diag(theta)
         ytPy = L22_diag[-1] ** 2
         logdetG = self.re_mod.lndet_gmat(theta)
@@ -806,8 +754,7 @@ class MMEBlocked(BaseMME):
 
     def _chol_sparse_diag(self, C):
         self.chol_fac.cholesky_inplace(C)
-        sld = self.chol_fac.slogdet()
-        logdet_C = float(sld[1]) if hasattr(sld, '__len__') else float(sld)
+        logdet_C = float(self.chol_fac.slogdet()[1])
         L21 = self.chol_fac.apply_Pt(
                 self.chol_fac.solve_L(
                     self.chol_fac.apply_P(self.ZtRXy), False)).T
@@ -848,17 +795,16 @@ class MMEBlocked(BaseMME):
         L_zxyt = self.chol_fac.apply_Pt(self.chol_fac.solve_L(
             self.chol_fac.apply_P(ZtRXy), False))
         L_zxt = L_zxyt[:, :-1]
-        L_zyt = L_zxyt[:, [-1]]   # list-index keeps 2D in scipy 1.15+
+        L_zyt = L_zxyt[:, [-1]]
 
-        T_zx = ZtRX - L_zz.dot(L_zxt)            # was L_zz @ L_zx.T
-        T_xx = XtRX - L_zxt.T.dot(L_zxt)         # was L_zx @ L_zx.T
+        T_zx = ZtRX - L_zz.dot(L_zxt)
+        T_xx = XtRX - L_zxt.T.dot(L_zxt)
         T_xx_inv = np.linalg.inv(T_xx)
-        u_xy = XtRy - L_zxt.T.dot(L_zyt)         # was L_zx @ L_zy.T
-        u_zy = ZtRy - L_zz.dot(L_zyt)            # was L_zz @ L_zy.T
+        u_xy = XtRy - L_zxt.T.dot(L_zyt)
+        u_zy = ZtRy - L_zz.dot(L_zyt)
         v_y = u_zy - T_zx.dot(T_xx_inv.dot(u_xy))
         grad = np.zeros_like(theta)
 
-        #TODO: get rid of this for loop
         for k in range(self.re_mod.n_gterms):
             term = self.re_mod.gterms[k]
             term.cov_structure.accumulate_gradient(
@@ -872,10 +818,6 @@ class MMEBlocked(BaseMME):
         return grad
 
     def _resid_gradient_trace(self, theta, reml, grad, T_xx_inv, u_xy, v_y, ZtRX):
-        """General trace-based residual gradient. One solve_A on the
-        n_ranef×n_ranef block per residual parameter. This is the fallback
-        for residual covariance structures that aren't a scalar variance —
-        kept here so future ResidualCovTerm subclasses can delegate to it."""
         self._update_rcov(theta, inv=True)
         Rinv, X, Z, y = self.R, self.X, self.Z, self.y
         b = T_xx_inv.dot(u_xy)
@@ -912,23 +854,7 @@ class MMEBlocked(BaseMME):
         theta = self.re_mod.reparam.rvs(eta)
         return self._gradient(theta, reml)
 
-    # ---- v2 gradient: per-term Schur form (skip global L_zz materialization)
-
     def _gradient_v2(self, theta, reml=True):
-        """Same gradient as `_gradient`, computed without ever forming the
-        global L_zz = solve_L(P · ZtRZ). Uses Henderson-Schur identities
-
-            T_zx = ZtRX − ZtRZ · MZtRX
-            T_xx = XtRX − ZtRX' · MZtRX
-            u_xy = XtRy − ZtRX' · MZtRy
-            u_zy = ZtRy − ZtRZ · MZtRy
-
-        with MZtRX = solve_A(ZtRX), MZtRy = solve_A(ZtRy) — both small RHS.
-        For each G-term k we solve_L on ZtRZ[:, sl_k] only (its column block),
-        avoiding the global n_ranef × n_ranef solve_L. Sum of per-term solve_L
-        cost is the same as the global solve_L total work, but skips
-        intermediate sparse-matrix object construction and L_zz slicing in
-        accumulate_gradient. Math fidelity is exact."""
         self.update_crossprods(theta)
         Ginv = self.re_mod.update_gcov(theta, inv=True, G=self.G)
         C = cs_add_inplace(self.ZtRZ, Ginv, self.C)
@@ -941,8 +867,6 @@ class MMEBlocked(BaseMME):
         XtRX = self.XytRXy[:-1, :-1]
         XtRy = self.XytRXy[:-1, [-1]]
 
-        # Schur substitutions: solve_A on small dense RHS (n_ranef × n_fixef
-        # and n_ranef × 1). Pass dense directly to avoid wrapping in csc.
         MZtRX = self.chol_fac.solve_A(ZtRX)
         MZtRy = self.chol_fac.solve_A(ZtRy)
 
@@ -957,7 +881,6 @@ class MMEBlocked(BaseMME):
         for k in range(self.re_mod.n_gterms):
             term = self.re_mod.gterms[k]
             sl = self.re_mod.ranef_sl[k]
-            # ZtRZ[:, sl] is already csc_array (slicing csc_array). No wrap.
             Mk = self.chol_fac.apply_Pt(self.chol_fac.solve_L(
                 self.chol_fac.apply_P(ZtRZ[:, sl]), False))
             L_zz_k = Mk.T   # (n_ranef_k, n_ranef): only this term's row block
@@ -966,7 +889,6 @@ class MMEBlocked(BaseMME):
                 ZtRZ, None, T_zx, v_y, T_xx_inv, reml, grad,
                 L_zz_sl=L_zz_k)
 
-        # Residual gradient via the same dispatch as v1.
         self.re_mod.tterms[-1].accumulate_gradient(
             self, theta, reml, grad,
             T_xx_inv=T_xx_inv, u_xy=u_xy, v_y=v_y, ZtRX=ZtRX)
@@ -976,25 +898,16 @@ class MMEBlocked(BaseMME):
         theta = self.re_mod.reparam.rvs(eta)
         return self._gradient_v2(theta, reml)
 
-    # ---- V^{-1} and P operators (caller must refresh chol_fac at theta) -----
-
     def vinv_apply(self, vec, theta):
-        """Apply V^{-1} to vec via Woodbury, where V = ZGZ' + R. Assumes
-        scalar residual (R = sigma2 I) and that chol_fac currently factors
-        C = Z'R^{-1}Z + G^{-1} at this theta. sigma2 is read from theta[-1]."""
         if not self._scalar_resid:
             raise NotImplementedError("vinv_apply requires scalar residual")
         inv_s2 = 1.0 / float(theta[-1])
         Rinv_v = vec * inv_s2
         rhs = np.asarray(self.Zt.dot(Rinv_v)).reshape(-1, 1)
-        Cinv = self.chol_fac.solve_A(rhs)
-        Cinv = np.asarray(Cinv.toarray() if sp.sparse.issparse(Cinv) else Cinv).reshape(-1)
+        Cinv = np.asarray(self.chol_fac.solve_A(rhs)).reshape(-1)
         return Rinv_v - inv_s2 * np.asarray(self.Z.dot(Cinv)).reshape(-1)
 
     def p_apply(self, vec, theta, T_xx_inv, reml=True):
-        """Apply the projection P = V^{-1} - V^{-1}X (X'V^{-1}X)^{-1} X'V^{-1}
-        for REML, or just V^{-1} for ML. Caller supplies T_xx_inv =
-        (X'V^{-1}X)^{-1}, typically from compute_effects()."""
         Vv = self.vinv_apply(vec, theta)
         if not reml:
             return Vv
@@ -1047,9 +960,6 @@ class _VarCorrReparam:
         return theta
 
     def jac_rvs(self, tau):
-        """Dense J = dtheta/dtau. Identity on variance and residual rows;
-        on each correlation row o with parents (a, b), J[o, *] has at most
-        three nonzeros at columns (a, b, o)."""
         n = int(np.asarray(tau).shape[0])
         J = np.eye(n)
         if not len(self.off_ix):
@@ -1063,14 +973,12 @@ class _VarCorrReparam:
         sech2 = 1.0 - tanh_o * tanh_o
         ratio_ba = np.sqrt(np.where(safe, tb / np.maximum(ta, tiny), 0.0))
         ratio_ab = np.sqrt(np.where(safe, ta / np.maximum(tb, tiny), 0.0))
-        J[o, o] = sqrt_ab * sech2  # overwrites the np.eye() 1.0 (correct: 0 if unsafe)
+        J[o, o] = sqrt_ab * sech2
         J[o, a] = 0.5 * tanh_o * ratio_ba
         J[o, b] = 0.5 * tanh_o * ratio_ab
         return J
 
     def jvp_T(self, tau, g):
-        """Compute J.T @ g without materializing J. Used in profile-likelihood
-        chain-rule gradients to avoid the n×n dense build per evaluation."""
         g_tau = np.asarray(g, dtype=float).copy()
         if not len(self.off_ix):
             return g_tau
@@ -1089,53 +997,11 @@ class _VarCorrReparam:
         return g_tau
 
 
-class LMMSummary:
-    """Lightweight container for an LMM2 fit summary. Holds three DataFrames
-    (`fe`, `re`, `ic`) and pretty-prints via __repr__/_repr_html_."""
-
-    def __init__(self, fe, re, ic, header=None, n_obs=None, formula=None):
-        self.fe, self.re, self.ic = fe, re, ic
-        self.header = header or 'Linear Mixed Model'
-        self.n_obs, self.formula = n_obs, formula
-
-    def __repr__(self):
-        sep = '=' * 78
-        meta = []
-        if self.formula is not None: meta.append(f'Formula: {self.formula}')
-        if self.n_obs is not None: meta.append(f'N: {self.n_obs}')
-        return '\n'.join([
-            sep, self.header, *meta, sep,
-            'Fixed effects:', self.fe.to_string(float_format='%.4f'), '',
-            'Random-effects parameters:',
-            self.re.to_string(float_format='%.4f'), '',
-            'Information criteria:',
-            self.ic.to_string(float_format='%.2f'), sep,
-        ])
-
-    def __str__(self):
-        return self.__repr__()
-
-    def _repr_html_(self):
-        meta = ''
-        if self.formula is not None: meta += f'<p><b>Formula:</b> {self.formula}</p>'
-        if self.n_obs is not None: meta += f'<p><b>N:</b> {self.n_obs}</p>'
-        return ('<div><h3>{header}</h3>{meta}'
-                '<h4>Fixed effects</h4>{fe}'
-                '<h4>Random-effects parameters</h4>{re}'
-                '<h4>Information criteria</h4>{ic}</div>').format(
-                    header=self.header, meta=meta,
-                    fe=self.fe.to_html(float_format='%.4f'),
-                    re=self.re.to_html(float_format='%.4f'),
-                    ic=self.ic.to_html(float_format='%.4f'))
-
 
 class LMM2(object):
 
     def __init__(self, formula, data, mme_kws=None):
-        # `residual_formula` was a placeholder for heteroscedastic / structured
-        # residual covariance (e.g. AR(1)) but never had an implementation
-        # behind it; removed until the corresponding ResidualCovTerm subclasses
-        # exist. The single DiagResidualCovTerm path is the only one wired up.
+
         model_info = parse_random_effects(formula)
         re_terms = model_info["re_terms"]
         re_mod = RandomEffects(re_terms, data=data)
@@ -1149,11 +1015,8 @@ class LMM2(object):
         self.formula = formula
         self.fe_form = fe_form
         self.y_vars = y_vars
-        self.fe_names = list(X_df.columns) if hasattr(X_df, 'columns') else \
-            [f"X{i}" for i in range(X.shape[1])]
+        self.fe_names = list(X_df.columns)
         self.re_terms = re_terms
-
-    # ---- objectives ---------------------------------------------------------
 
     def loglike(self, theta, reml=True):
         return self.mme._loglike(theta, reml)
@@ -1162,9 +1025,6 @@ class LMM2(object):
         return self.mme._gradient(theta, reml)
 
     def gradient_v2(self, theta, reml=True):
-        """Per-term Schur-form gradient — alternative implementation that
-        skips global L_zz materialization. Mathematically equivalent to
-        `gradient`; provided for benchmarking against the legacy path."""
         return self.mme._gradient_v2(theta, reml)
 
     def loglike_reparam(self, eta, reml=True):
@@ -1183,9 +1043,6 @@ class LMM2(object):
 
 
     def _factor_C(self, theta):
-        """Update C = Z'R^{-1}Z + G^{-1} at the given theta and refactor
-        the in-place Cholesky on it. Used by every method that needs
-        chol_fac at a particular theta."""
         self.mme.update_crossprods(theta)
         Ginv = self.mme.re_mod.update_gcov(theta, inv=True, G=self.mme.G)
         C = cs_add_inplace(self.mme.ZtRZ, Ginv, self.mme.C)
@@ -1193,11 +1050,8 @@ class LMM2(object):
         return Ginv
 
     def compute_effects(self, theta=None):
-        if theta is None:
-            theta = getattr(self, 'theta', self.mme.re_mod.theta)
+        theta = self.theta if theta is None else theta
         self._factor_C(theta)
-        # ZtRXy is dense ndarray (scalar resid path), so all slices are dense;
-        # solve_A on dense returns dense — no sparse-vs-dense gymnastics needed.
         ZtRX = self.mme.ZtRXy[:, :-1]
         ZtRy = self.mme.ZtRXy[:, [-1]]
         XtRX = self.mme.XytRXy[:-1, :-1]
@@ -1213,32 +1067,25 @@ class LMM2(object):
         v_y = u_zy - T_zx.dot(T_xx_inv.dot(u_xy))
         beta = T_xx_inv.dot(u_xy).reshape(-1)
         G = self.mme.re_mod.update_gcov(theta, inv=False, G=self.mme.G)
-        u = np.asarray(G.dot(v_y)).reshape(-1)
+        u = G.dot(v_y).reshape(-1)
         return beta, T_xx_inv, u
 
     def predict(self, X=None, Z=None, beta=None, u=None):
-        X = self.mme.X if X is None else np.asarray(X)
+        X = self.mme.X if X is None else X
         Z = self.mme.Z if Z is None else Z
         beta = self.beta if beta is None else beta
         u = self.u if u is None else u
-        return X.dot(beta) + np.asarray(Z.dot(u)).reshape(-1)
+        return X.dot(beta) + Z.dot(u)
 
     def vinvcrossprod(self, A, B, theta=None):
-        theta = self.theta if hasattr(self, 'theta') and theta is None else theta
+        theta = self.theta if theta is None else theta
         self._factor_C(theta)
         self.mme._update_rcov(theta, inv=True)
         Rinv = self.mme.R
-        # Coerce A, B to dense once at the entry point so all downstream ops
-        # are ndarray and we don't need issparse guards on every line.
-        A2 = A.toarray() if sp.sparse.issparse(A) else np.asarray(A)
-        B2 = B.toarray() if sp.sparse.issparse(B) else np.asarray(B)
-        ZtRA = np.asarray(self.mme.Zt.dot(Rinv.dot(A2)))
-        ZtRB = np.asarray(self.mme.Zt.dot(Rinv.dot(B2)))
+        ZtRA = self.mme.Zt.dot(Rinv.dot(A))
+        ZtRB = self.mme.Zt.dot(Rinv.dot(B))
         M_B = self.mme.chol_fac.solve_A(ZtRB)
-        AtRB = A2.T.dot(Rinv.dot(B2))
-        return np.asarray(AtRB) - ZtRA.T.dot(M_B)
-
-    # ---- fit pipeline -------------------------------------------------------
+        return A.T.dot(Rinv.dot(B)) - ZtRA.T.dot(M_B)
 
     def fit(self, reml=True, method='l-bfgs-b', opt_kws=None,
             theta_init=None):
@@ -1254,7 +1101,6 @@ class LMM2(object):
         return self
 
     def _post_fit(self, theta_hat, opt, reml):
-        from ..utilities.numerical_derivs import so_gc_cd
         self.theta = theta_hat
         self.eta = opt.x
         self.opt = opt
@@ -1262,18 +1108,15 @@ class LMM2(object):
         self.beta, self.XtVinvX_inv, self.u = self.compute_effects(theta_hat)
         self.se_beta = np.sqrt(np.diag(self.XtVinvX_inv))
 
-        try:
-            H = self.average_information(theta_hat, reml=reml)
-        except NotImplementedError:
-            H = so_gc_cd(self.gradient, theta_hat, args=(reml,))
+        H = so_gc_cd(self.gradient, theta_hat, args=(reml,))
         self.H_theta = H
         self.Hinv_theta = np.linalg.pinv(H / 2.0)
-        self.se_theta = np.sqrt(np.clip(np.diag(self.Hinv_theta), 0, None))
+        self.se_theta = np.sqrt(np.diag(self.Hinv_theta))
 
         n_obs = self.mme.n_obs
         n_fe = self.mme.n_fixef
         n_pars = len(theta_hat)
-        nll = float(opt.fun)  # -2 logL_(R)EML evaluated at θ̂
+        nll = float(opt.fun)
         if reml:
             llconst = (n_obs - n_fe) * np.log(2 * np.pi)
             n_eff, d = n_obs - n_fe, n_pars
@@ -1284,65 +1127,39 @@ class LMM2(object):
         self.ll = llconst + nll
         self.llf = -self.ll / 2.0
         self.AIC = self.ll + 2 * d
-        self.AICC = (self.ll + 2 * d * n_eff / (n_eff - d - 1)
-                     if n_eff - d - 1 > 0 else np.nan)
+        self.AICC = self.ll + 2 * d * n_eff / (n_eff - d - 1)
         self.BIC = self.ll + d * np.log(n_eff)
         self.CAIC = self.ll + d * (np.log(n_eff) + 1)
 
         re_mod = self.mme.re_mod
         self.re_covs, self.re_corrs = {}, {}
+        param_names = list(self.fe_names)
         for k in range(re_mod.n_gterms):
-            theta_k = theta_hat[re_mod.theta_sl[k]]
-            G_k = invech(theta_k)
+            G_k = invech(theta_hat[re_mod.theta_sl[k]])
             self.re_covs[k] = G_k
-            std = np.sqrt(np.clip(np.diag(G_k), 1e-30, None))
-            self.re_corrs[k] = G_k / np.outer(std, std)
-
-        self._build_summary_frames()
-
-    def _build_summary_frames(self):
-        from ..utilities.output import get_param_table
-        re_mod = self.mme.re_mod
-        df_t = self.mme.n_obs - self.mme.n_fixef
-        self.summary_fe = get_param_table(self.beta, self.se_beta, degfree=df_t,
-                                          index=self.fe_names,
-                                          parameter_label='estimate')
-        labels, ests, ses = [], [], []
-        for k in range(re_mod.n_gterms):
+            v = np.diag(np.sqrt(1 / np.diag(G_k)))
+            self.re_corrs[k] = v.dot(G_k).dot(v)
             term = re_mod.gterms[k]
             ucov = term.cov_structure.unstructured_cov
-            sl = re_mod.theta_sl[k]
-            gname = getattr(term, 're_grouping', f'g{k}')
-            vnames = getattr(term, 'var_names',
-                             [f'v{i}' for i in range(term.n_revars)])
             for j in range(ucov.n_pars):
-                a, b = int(ucov.r_inds[j]), int(ucov.c_inds[j])
-                labels.append(f"{gname}.var({vnames[a]})" if a == b
-                              else f"{gname}.cov({vnames[a]},{vnames[b]})")
-                ests.append(self.theta[sl.start + j])
-                ses.append(self.se_theta[sl.start + j])
-        labels.append('resid.var')
-        ests.append(self.theta[-1]); ses.append(self.se_theta[-1])
-        re_full = get_param_table(np.asarray(ests), np.asarray(ses),
-                                  degfree=np.inf, index=labels,
-                                  parameter_label='estimate')
-        # Variance components are bounded ≥ 0 — z/p columns are misleading.
-        self.summary_re = re_full.drop(columns=['t', 'p'])
-        self.ic = pd.DataFrame(
+                a, b = ucov.r_inds[j], ucov.c_inds[j]
+                param_names.append(f"{term.re_grouping}:G[{a}][{b}]")
+        param_names.append('resid_cov')
+        self.param_names = param_names
+        self.params = np.concatenate([self.beta, theta_hat])
+        self.se_params = np.concatenate([self.se_beta, self.se_theta])
+        res = pd.DataFrame(np.vstack([self.params, self.se_params]).T,
+                           index=param_names, columns=['estimate', 'SE'])
+        res['t'] = res['estimate'] / res['SE']
+        res['p'] = sp.stats.t(n_obs - n_fe).sf(np.abs(res['t']))
+        res['degfree'] = float(n_obs - n_fe)
+        self.res = res
+        self.sumstats = pd.DataFrame(
             {'value': [self.ll, self.llf, self.AIC, self.AICC, self.BIC, self.CAIC]},
             index=['ll', 'llf', 'AIC', 'AICC', 'BIC', 'CAIC'])
 
-    def summary(self):
-        """Return an `LMMSummary` object holding fixed-effect, random-effect,
-        and information-criterion tables. Pretty-prints in the terminal and
-        renders as HTML in notebooks."""
-        return LMMSummary(self.summary_fe, self.summary_re, self.ic,
-                          header=f'Linear Mixed Model ({"REML" if self.reml else "ML"})',
-                          n_obs=self.mme.n_obs, formula=self.formula)
 
     def confint(self, alpha=0.05):
-        """Two-sided (1 - alpha) Wald CIs for fixed effects (t-distributed
-        on n_obs - n_fixef df)."""
         df = self.mme.n_obs - self.mme.n_fixef
         q = sp.stats.t(df).ppf(1.0 - alpha / 2.0)
         lo = self.beta - q * self.se_beta
@@ -1373,19 +1190,14 @@ class LMM2(object):
                 frames.append(df)
             return pd.concat(frames)
         if as_frame == 'long':
-            se = None
-            try:
-                se = self.random_effects_se()
-            except Exception:
-                pass
+            se = self.random_effects_se()
             rows = []
             for k in range(re_mod.n_gterms):
                 term = re_mod.gterms[k]
                 sl = re_mod.ranef_sl[k]
                 nv, ng = term.n_revars, term.n_levels
                 u_blk = self.u[sl].reshape(ng, nv)
-                se_blk = (se[sl].reshape(ng, nv) if se is not None
-                          else np.full((ng, nv), np.nan))
+                se_blk = se[sl].reshape(ng, nv)
                 for j in range(ng):
                     for a in range(nv):
                         rows.append((k, j, f'v{a}', u_blk[j, a], se_blk[j, a]))
@@ -1395,25 +1207,18 @@ class LMM2(object):
         raise ValueError(f"unknown as_frame={as_frame!r}")
 
     def random_effects_array(self):
-        """û as a flat 1-D numpy array (length sum_k ng_k * nv_k)."""
         return np.asarray(self.u)
 
     def random_effects_se(self, theta=None, full=True):
         theta = self.theta if theta is None else theta
         self._factor_C(theta)
-        # ZtRXy is dense ndarray; pass directly to solve_A.
         ZtRX = self.mme.ZtRXy[:, :-1]
         M_X = self.mme.chol_fac.solve_A(ZtRX)
         T_xx_inv = self.XtVinvX_inv
-        # diag(M_X T_xx_inv M_X^T) = einsum('ik,kl,il->i', M_X, T_xx_inv, M_X)
         var_x = np.einsum('ik,kl,il->i', M_X, T_xx_inv, M_X, optimize=True)
 
         if not full:
             return np.sqrt(np.clip(var_x, 0.0, None))
-
-        # diag(C^{-1}) via n_ranef single-column solves on a dense buffer; we
-        # mutate `e` in place and pass the dense column to solve_A. The slow
-        # part here is the n_ranef solves themselves, not the wrapping.
         n_ranef = self.mme.Z.shape[1]
         diag_Cinv = np.zeros(n_ranef)
         e = np.zeros((n_ranef, 1))
@@ -1456,118 +1261,55 @@ class LMM2(object):
             'total':       total,
         }
 
-    # ---- second-order: Hessian and df approximations -----------------------
-
     def hessian(self, theta=None, reml=True):
-        raise NotImplementedError("Nah dawg")
+        raise NotImplementedError
 
-    def average_information(self, theta=None, reml=True):
-        if not self.mme._scalar_resid:
-            raise NotImplementedError("nah fam")
-        theta = (np.asarray(self.theta if hasattr(self, 'theta')
-                            else self.mme.re_mod.theta)
-                 if theta is None else np.asarray(theta))
-
+    def _dC_dtheta(self, theta, C):
         re_mod = self.mme.re_mod
-        n_obs = self.mme.n_obs
-        n_pars = int(len(theta))
-        n_ranef = re_mod.Z.shape[1]
-        X, Z = self.mme.X, self.mme.Z
-        y = self.mme.y.reshape(-1)
-
-        beta, T_xx_inv, u = self.compute_effects(theta)  # refreshes chol_fac
-        r = y - X.dot(beta) - np.asarray(Z.dot(u)).reshape(-1)
-        Py = r / float(theta[-1])  # scalar resid: Rinv @ r = r / sigma2
-        v_y = np.asarray(Z.T.dot(Py)).reshape(-1)
-
-        # u_mat[:, i] = A_i @ Py. For G-params, A_i = Z dG_i Z'; for resid, A = I.
-        u_mat = np.zeros((n_obs, n_pars))
+        X, Z, Zt = self.mme.X, self.mme.Z, self.mme.Zt
+        self._factor_C(theta)
+        self.mme._update_rcov(theta, inv=True)
+        Rinv = self.mme.R
+        chol_fac = self.mme.chol_fac
+        RinvX = Rinv.dot(X)
+        ZtRinvX = Zt.dot(RinvX)
+        M_ZtRinvX = chol_fac.solve_A(ZtRinvX)
+        J = []
         for k in range(re_mod.n_gterms):
             term = re_mod.gterms[k]
-            ucov = term.cov_structure.unstructured_cov
             sl = re_mod.ranef_sl[k]
-            par_sl = re_mod.theta_sl[k]
-            ng, nv = term.n_levels, term.n_revars
-            v_y_blk = v_y[sl].reshape(ng, nv)
-            for jp in range(ucov.n_pars):
-                a, b = int(ucov.r_inds[jp]), int(ucov.c_inds[jp])
-                blk = np.zeros((ng, nv))
-                if a == b:
-                    blk[:, a] = v_y_blk[:, a]
-                else:
-                    blk[:, a] = v_y_blk[:, b]
-                    blk[:, b] = v_y_blk[:, a]
-                full = np.zeros(n_ranef)
-                full[sl] = blk.reshape(-1)
-                u_mat[:, par_sl.start + jp] = np.asarray(Z.dot(full)).reshape(-1)
-        u_mat[:, -1] = Py
-
-        Pu_mat = np.empty_like(u_mat)
-        for j in range(n_pars):
-            Pu_mat[:, j] = self.mme.p_apply(u_mat[:, j], theta, T_xx_inv,
-                                             reml=reml)
-
-        AI = 0.5 * u_mat.T.dot(Pu_mat)
-        AI = 0.5 * (AI + AI.T)
-        return 2.0 * AI
-
-    def _fd_dC_dtheta(self, theta, eps=None):
-        """Central-difference list [dC/dθ_i] where C = (X'V^{-1}X)^{-1}.
-        Each evaluation re-factorizes chol_fac at theta ± eps, so cost scales
-        linearly with len(theta). Used by approx_degfree."""
-        eps = (np.finfo(float).eps) ** (1.0 / 3.0) if eps is None else eps
-        n_pars = theta.size
-        X = self.mme.X
-        out = []
-        for i in range(n_pars):
-            tp = theta.copy(); tp[i] += eps
-            tm = theta.copy(); tm[i] -= eps
-            Cp = np.linalg.inv(np.asarray(self.vinvcrossprod(X, X, tp)))
-            Cm = np.linalg.inv(np.asarray(self.vinvcrossprod(X, X, tm)))
-            out.append((Cp - Cm) / (2.0 * eps))
-        # Restore chol_fac at the original theta so subsequent calls aren't
-        # left holding a perturbed factorisation.
-        self._factor_C(theta)
-        return out
+            Zk = Z[:, sl]
+            RinvZk = Rinv.dot(Zk)
+            XtRZk = X.T.dot(RinvZk.toarray() if sp.sparse.issparse(RinvZk) else RinvZk)
+            ZtRZk = Zt.dot(RinvZk)
+            M_ZtRZk = chol_fac.solve_A(ZtRZk)
+            if sp.sparse.issparse(M_ZtRZk):
+                M_ZtRZk = M_ZtRZk.toarray()
+            XtVinvZk = XtRZk - ZtRinvX.T.dot(M_ZtRZk)
+            CXtVZk = C.dot(XtVinvZk)
+            for dGj in term.cov_structure.G_derivs:
+                J.append(CXtVZk.dot(dGj.dot(CXtVZk.T)))
+        RinvZ_MZX = Rinv.dot(Z).dot(M_ZtRinvX)
+        if sp.sparse.issparse(RinvZ_MZX):
+            RinvZ_MZX = RinvZ_MZX.toarray()
+        VinvX = RinvX - RinvZ_MZX
+        CVinvX = C.dot(VinvX.T)
+        J.append(CVinvX.dot(CVinvX.T))
+        return J
 
     def approx_degfree(self, L_list=None, theta=None, beta=None,
                        method='satterthwaite', reml=True):
-        # Only Satterthwaite is implemented; Kenward-Roger would need the
-        # second-derivative correction term (W_2 in Kenward & Roger 1997)
-        # which we don't have a closed form for here.
-        if method == 'kenward-roger':
-            raise NotImplementedError("Kenward-Roger not implemented; "
-                                      "use method='satterthwaite'.")
-        if method != 'satterthwaite':
-            raise ValueError(f"unknown method={method!r}; "
-                             f"expected 'satterthwaite' or 'kenward-roger'.")
-
         n_fe = self.mme.n_fixef
-        if L_list is None:
-            L_list = [np.eye(n_fe)[[i]] for i in range(n_fe)]
+        L_list = [np.eye(n_fe)[[i]] for i in range(n_fe)] if L_list is None else L_list
         theta = self.theta if theta is None else theta
         beta = self.beta if beta is None else beta
-
         self._factor_C(theta)
-        C = np.asarray(np.linalg.inv(np.asarray(self.vinvcrossprod(self.mme.X,
-                                                                    self.mme.X,
-                                                                    theta))))
-
-        # Vtheta = (½ H)^{-1}. Reuse cached Hinv_theta if we've fit; else
-        # use the exact AI matrix (NotImplementedError fallback to numerical H).
+        C = np.linalg.inv(self.vinvcrossprod(self.mme.X, self.mme.X, theta))
         if hasattr(self, 'Hinv_theta'):
             Vtheta = self.Hinv_theta
         else:
-            try:
-                H = self.average_information(theta=theta, reml=reml)
-            except NotImplementedError:
-                from ..utilities.numerical_derivs import so_gc_cd
-                H = so_gc_cd(self.gradient, theta, args=(reml,))
-            Vtheta = np.linalg.pinv(H / 2.0)
-
-        # J_i = dC/dθ_i via central differences.
-        J = self._fd_dC_dtheta(theta)
-
+            Vtheta = np.linalg.pinv(so_gc_cd(self.gradient, theta, args=(reml,)) / 2.0)
+        J = self._dC_dtheta(theta, C)
         out = []
         for L in L_list:
             L = np.atleast_2d(np.asarray(L, dtype=float))
@@ -1579,70 +1321,47 @@ class LMM2(object):
             P = Q.T.dot(L)
             t2 = (P.dot(beta)) ** 2 / np.maximum(u, np.finfo(float).tiny)
             f = float(np.sum(t2) / q)
-            # Per-direction Satterthwaite df.
-            D = np.array([[float(x.dot(Ji).dot(x)) for Ji in J]
-                          for x in P[:q]])
+            D = np.array([[float(x.dot(Ji).dot(x)) for Ji in J] for x in P[:q]])
             nu_d = np.array([D[i].dot(Vtheta).dot(D[i]) for i in range(q)])
             nu_m = u[:q] ** 2 / np.maximum(nu_d, np.finfo(float).tiny)
             keep = nu_m > 2
             E = float(np.sum(nu_m[keep] / (nu_m[keep] - 2.0)))
-            nu = float(2.0 * E / (E - q)) if E > q else float('nan')
-            p = (float(sp.stats.f(q, nu).sf(f)) if np.isfinite(nu)
-                 else float('nan'))
+            nu = float(2.0 * E / (E - q)) if E > q else np.nan
+            p = float(sp.stats.f(q, nu).sf(f)) if np.isfinite(nu) else np.nan
             out.append({'F': f, 'df1': q, 'df2': nu, 'p': p})
         return out
 
-    # ---- profile likelihood -----------------------------------------------
-
-    def profile_likelihood(self, n_points=11, n_se=3.0, parameters=None,
-                           method='l-bfgs-b', verbose=False):
-
+    def profile(self, n_points=11, tb=3.0):
         if not hasattr(self, 'theta'):
-            raise RuntimeError("Call .fit() before .profile_likelihood().")
+            raise RuntimeError("Call .fit() before .profile().")
         reparam = _VarCorrReparam(self.mme.re_mod)
         tau_hat = reparam.fwd(self.theta)
-
-        # SE(tau) via chain rule from Hinv_theta. Var(tau) = J^{-1} V_theta J^{-T}
-        # where J = dtheta/dtau.
-        J = reparam.jac_rvs(tau_hat)
-        try:
-            J_inv = np.linalg.inv(J)
-            var_tau = J_inv.dot(self.Hinv_theta).dot(J_inv.T)
-        except np.linalg.LinAlgError:
-            var_tau = self.Hinv_theta
-        se_tau = np.sqrt(np.clip(np.diag(var_tau), 0, None))
-
-        n = len(tau_hat)
-        if parameters is None:
-            parameters = list(range(n))
-        ll_full = self.nll  # -2 log L_(R)EML at the fitted theta_hat
-        var_set = set(reparam.diag_ix.tolist()) | {n - 1}
-
-        rows = []
-        for i in parameters:
-            center = float(tau_hat[i])
-            width = n_se * max(float(se_tau[i]), 1e-3)
-            lo = max(center - width, 1e-6) if i in var_set else center - width
-            hi = center + width
-            grid = np.linspace(lo, hi, n_points)
-            for t0 in grid:
-                if verbose:
-                    print(f"  profile param {i}, tau={t0:.4f}", flush=True)
+        n_theta = len(tau_hat)
+        var_set = set(reparam.diag_ix.tolist()) | {n_theta - 1}
+        llmax = self.nll
+        J_inv = np.linalg.inv(reparam.jac_rvs(tau_hat))
+        var_tau = J_inv.dot(self.Hinv_theta).dot(J_inv.T)
+        se_tau = np.sqrt(np.diag(var_tau))
+        thetas = np.zeros((n_theta * n_points, n_theta))
+        zetas = np.zeros(n_theta * n_points)
+        k = 0
+        for i in range(n_theta):
+            t_mle = tau_hat[i]
+            width = tb * max(se_tau[i], 1e-3)
+            lb = max(t_mle - width, 1e-6) if i in var_set else t_mle - width
+            ub = t_mle + width
+            for t0 in np.linspace(lb, ub, n_points):
                 theta_r, ll_r = self._fit_with_fixed_tau(
-                    reparam, tau_hat, i, t0, method=method)
-                LR = ll_r - ll_full
-                LR = max(LR, 0.0)
-                zeta = float(np.sign(t0 - center) * np.sqrt(LR))
-                rows.append({'param': i, 'tau': float(t0),
-                             'theta_i': float(theta_r[i]),
-                             'LR': float(LR), 'zeta': zeta,
-                             'theta': theta_r.copy()})
-        return pd.DataFrame(rows)
+                    reparam, tau_hat, i, t0)
+                LR = max(ll_r - llmax, 0.0)
+                zetas[k] = np.sqrt(LR) * np.sign(t0 - t_mle)
+                thetas[k] = theta_r
+                k += 1
+        ix = np.repeat(np.arange(n_theta), n_points)
+        return thetas, zetas, ix
 
     def _fit_with_fixed_tau(self, reparam, tau_init, fixed_idx, fixed_value,
-                            method='l-bfgs-b'):
-        """One profile point: optimize -2 log L over tau with tau[fixed_idx]
-        held at `fixed_value`. Uses the chain-rule gradient through reparam."""
+                            method='trust-constr'):
         n = len(tau_init)
         free = np.ones(n, dtype=bool)
         free[fixed_idx] = False
@@ -1665,212 +1384,67 @@ class LMM2(object):
             theta = reparam.rvs(tau)
             ll = self.loglike(theta, reml=reml_flag)
             g_theta = self.gradient(theta, reml=reml_flag)
-            # dL/dtau = J.T @ dL/dtheta  (J = dtheta/dtau), without building J.
             g_tau = reparam.jvp_T(tau, g_theta)
             return ll, g_tau[free]
 
         x0 = tau_init[free].copy()
         opt = sp.optimize.minimize(fg, x0, jac=True, method=method,
-                                   bounds=bounds, options={'maxiter': 200})
+                                   bounds=bounds,options=dict(verbose=3,
+                                                              initial_tr_radius=0.5))
         tau_r = tau_init.copy()
         tau_r[free] = opt.x
         tau_r[fixed_idx] = fixed_value
         return reparam.rvs(tau_r), float(opt.fun)
 
-    def plot_profile(self, profile_df=None, parameters=None, quantiles=None,
-                     figsize=None, axes=None, sharey=True,
-                     line_kws=None, scatter_kws=None, cmap='bwr',
-                     show_wald=True, show_ci_bands=True,
-                     param_names=None, n_points=21, n_se=3.0,
-                     zeta_lim=5.0, colorbar=False):
-        """Plot profile-likelihood ζ(θᵢ) curves with confidence bands and
-        Wald-CI overlay scatter (one panel per parameter).
-
-        Parameters
-        ----------
-        profile_df : DataFrame from profile_likelihood(), or None to compute.
-        parameters : iterable of int or None
-            Subset of parameters to plot. Defaults to all in profile_df.
-        quantiles : array-like in (0, 100) or None
-            Confidence levels for the colored bands. Default
-            {60, 70, 80, 90, 95, 99} (two-sided, mirrored).
-        figsize : tuple or None
-            Figure size; default scales with the number of panels.
-        axes : array of Axes or None
-            Pre-existing axes (e.g. from a parent layout). If None, a fresh
-            figure is created.
-        sharey : bool
-            Share y-axis across panels.
-        line_kws, scatter_kws : dict
-            Extra kwargs for the profile line and the Wald scatter.
-        cmap : str
-            Colormap for the CI bands and Wald points.
-        show_wald : bool
-            Overlay Wald-CI scatter at θ̂ + q·SE(θ̂) on the zero line.
-        show_ci_bands : bool
-            Draw the colored confidence-level segments at the band quantiles.
-        param_names : list[str] or None
-            Custom axis titles, indexed by full parameter index. If None,
-            uses 'θ[i]' or, when available, the entries of summary_re.
-        n_points, n_se : ints / floats
-            Forwarded to profile_likelihood() if profile_df is None.
-        zeta_lim : float
-            Truncate the y-axis to ±zeta_lim and drop points outside that.
-        colorbar : bool
-            Add a colorbar showing the band quantiles.
-
-        Returns (fig, axes).
-        """
-        #What the fuck
-        import matplotlib.pyplot as plt
-        import matplotlib as mpl
-        from scipy.interpolate import interp1d
-
-        if profile_df is None:
-            profile_df = self.profile_likelihood(
-                n_points=n_points, n_se=n_se, parameters=parameters)
-
-        if parameters is None:
-            parameters = sorted(int(p) for p in profile_df['param'].unique())
-
+    def plot_profile(self, thetas, zetas, ix, quantiles=None, figsize=(14, 4)):
         if quantiles is None:
-            q_levels = np.array([60.0, 70.0, 80.0, 90.0, 95.0, 99.0])
-            quantiles = np.concatenate([(100.0 - q_levels[::-1]) / 2.0,
-                                         100.0 - (100.0 - q_levels) / 2.0])
-        quantiles = np.asarray(quantiles, dtype=float)
-        q = sp.stats.norm(0, 1).ppf(quantiles / 100.0)
-
-        n_panels = len(parameters)
-        if axes is None:
-            if figsize is None:
-                figsize = (max(3.5 * n_panels, 5.0), 3.6)
-            fig, axes = plt.subplots(ncols=n_panels, figsize=figsize,
-                                     sharey=sharey)
-            if n_panels == 1:
-                axes = np.array([axes])
-            plt.subplots_adjust(wspace=0.08, left=0.08, right=0.95,
-                                bottom=0.15)
-        else:
-            axes = np.atleast_1d(axes)
-            fig = axes.flat[0].figure
-
-        line_defaults = {'color': 'C0', 'lw': 1.8}
-        line_defaults.update(line_kws or {})
-        scatter_defaults = {'s': 28, 'edgecolor': 'k', 'linewidth': 0.4,
-                            'zorder': 5}
-        scatter_defaults.update(scatter_kws or {})
-
-        norm = mpl.colors.TwoSlopeNorm(vcenter=0, vmin=q.min(), vmax=q.max())
-        cmap_obj = plt.get_cmap(cmap)
-
-        # Default axis labels: prefer summary_re if available.
-        if param_names is None and hasattr(self, 'summary_re'):
-            try:
-                names_full = list(self.summary_re.index)
-                param_names = {i: names_full[i] for i in range(len(names_full))}
-            except Exception:
-                param_names = None
-
-        for ax, p in zip(axes.flat, parameters):
-            sub = (profile_df[profile_df['param'] == p]
-                   .sort_values('tau').reset_index(drop=True))
-            x = np.asarray(sub['theta_i'].values, dtype=float)
-            y = np.asarray(sub['zeta'].values, dtype=float)
-            keep = (y > -zeta_lim) & (y < zeta_lim) & np.isfinite(y) & np.isfinite(x)
-            x, y = x[keep], y[keep]
-
-            ax.plot(x, y, **line_defaults)
-            ax.axhline(0, color='k', lw=0.7)
-            if hasattr(self, 'theta'):
-                ax.axvline(float(self.theta[p]), color='k', lw=0.7)
-
-            label = (param_names.get(p, f'θ[{p}]')
-                     if isinstance(param_names, dict) else
-                     (param_names[p] if param_names else f'θ[{p}]'))
-            ax.set_title(label, fontsize=11)
-            ax.set_xlabel(label)
-            if p == parameters[0]:
-                ax.set_ylabel(r'$\zeta(\theta)$')
-
-            if x.size < 3:
-                continue
-
-            if show_ci_bands:
-                # Need ζ to be increasing in θ_i for inversion. Sort by ζ
-                # and clip to monotone range.
-                order = np.argsort(y)
-                ys, xs = y[order], x[order]
-                _, uniq = np.unique(ys, return_index=True)
-                ys, xs = ys[uniq], xs[uniq]
-                try:
-                    rtef_inv = interp1d(ys, xs, kind='linear',
-                                     bounds_error=False, fill_value=np.nan)
-                    xq = f_inv(q)
-                    valid = np.isfinite(xq)
-                    if valid.any():
-                        sgs = np.zeros((int(valid.sum()), 2, 2))
-                        sgs[:, 0, 0] = sgs[:, 1, 0] = xq[valid]
-                        sgs[:, 0, 1] = 0.0
-                        sgs[:, 1, 1] = q[valid]
-                        lc = mpl.collections.LineCollection(sgs, cmap=cmap_obj,
-                                                            norm=norm)
-                        lc.set_array(q[valid])
-                        lc.set_linewidth(2)
-                        ax.add_collection(lc)
-                except Exception:
-                    pass
-
-            if show_wald and hasattr(self, 'theta') and hasattr(self, 'se_theta'):
-                xqw = float(self.theta[p]) + q * float(self.se_theta[p])
-                ax.scatter(xqw, np.zeros_like(xqw), c=q, cmap=cmap_obj,
-                           norm=norm, **scatter_defaults)
-
-            ax.set_ylim(-zeta_lim, zeta_lim)
-
-        if colorbar:
-            sm = mpl.cm.ScalarMappable(norm=norm, cmap=cmap_obj)
-            sm.set_array([])
-            cbar = fig.colorbar(sm, ax=axes.tolist() if hasattr(axes, 'tolist')
-                                else list(axes.flat),
-                                fraction=0.025, pad=0.02)
-            cbar.set_label('z-quantile')
-
+            quantiles = np.array([60, 70, 80, 90, 95, 99])
+            quantiles = np.concatenate([(100 - quantiles[::-1]) / 2,
+                                        100 - (100 - quantiles) / 2])
+        theta = self.theta.copy()
+        se_theta = self.se_theta.copy()
+        n_thetas = thetas.shape[1]
+        q = sp.stats.norm(0, 1).ppf(np.array(quantiles) / 100)
+        fig, axes = plt.subplots(figsize=figsize, ncols=n_thetas, sharey=True)
+        plt.subplots_adjust(wspace=0.05, left=0.05, right=0.95)
+        for i in range(n_thetas):
+            ax = axes[i]
+            x = thetas[ix == i, i]
+            y = zetas[ix == i]
+            trunc = (y > -5) & (y < 5)
+            x, y = x[trunc], y[trunc]
+            f_interp = interp1d(y, x, fill_value='extrapolate')
+            xq = f_interp(q)
+            ax.plot(x, y)
+            ax.set_xlim(x.min(), x.max())
+            ax.axhline(0, color='k')
+            sgs = np.zeros((len(q), 2, 2))
+            sgs[:, 0, 0] = sgs[:, 1, 0] = xq
+            sgs[:, 1, 1] = q
+            xqt = theta[i] + q * se_theta[i]
+            ax.axvline(theta[i], color='k')
+            norm = mpl.colors.TwoSlopeNorm(vcenter=0, vmin=q.min(), vmax=q.max())
+            lc = mpl.collections.LineCollection(sgs, cmap=plt.cm.bwr, norm=norm)
+            lc.set_array(q)
+            lc.set_linewidth(2)
+            ax.add_collection(lc)
+            ax.scatter(xqt, np.zeros_like(xqt), c=q, cmap=plt.cm.bwr,
+                       norm=norm, s=20)
+        ax.set_ylim(-5, 5)
         return fig, axes
 
-    def profile_confint(self, alpha=0.05, profile_df=None, n_points=11,
-                        n_se=3.0, parameters=None):
-        """Profile-likelihood CIs at level (1 - alpha). Inverts the profile
-        zeta to find the parameter values where zeta = ±z_{1 - alpha/2}.
-        Returns DataFrame indexed by parameter with columns
-            ['theta_lo', 'theta_hi', 'tau_lo', 'tau_hi'].
-        Reports both the natural-scale (theta) and the tau-scale CI bounds.
-        Pass an existing `profile_df` to avoid recomputing."""
-        if profile_df is None:
-            profile_df = self.profile_likelihood(
-                n_points=n_points, n_se=n_se, parameters=parameters)
+    def profile_confint(self, thetas, zetas, ix, alpha=0.05):
         z = float(sp.stats.norm.ppf(1.0 - alpha / 2.0))
-        from scipy.interpolate import interp1d
-        out_rows = {}
-        for i, sub in profile_df.groupby('param'):
-            sub = sub.sort_values('tau').reset_index(drop=True)
-            # zeta is monotone in tau (locally) — interpolate inverse.
-            tau_at_zeta = interp1d(sub['zeta'].values, sub['tau'].values,
-                                   kind='linear', bounds_error=False,
-                                   fill_value='extrapolate')
-            theta_at_tau = interp1d(sub['tau'].values, sub['theta_i'].values,
-                                    kind='linear', bounds_error=False,
-                                    fill_value='extrapolate')
-            tau_lo = float(tau_at_zeta(-z))
-            tau_hi = float(tau_at_zeta(z))
-            out_rows[int(i)] = {'tau_lo': tau_lo, 'tau_hi': tau_hi,
-                                'theta_lo': float(theta_at_tau(tau_lo)),
-                                'theta_hi': float(theta_at_tau(tau_hi))}
-        return pd.DataFrame(out_rows).T
+        n_thetas = thetas.shape[1]
+        lo, hi = np.zeros(n_thetas), np.zeros(n_thetas)
+        for i in range(n_thetas):
+            x = thetas[ix == i, i]
+            y = zetas[ix == i]
+            f_inv = interp1d(y, x, kind='linear', fill_value='extrapolate')
+            lo[i], hi[i] = float(f_inv(-z)), float(f_inv(z))
+        return pd.DataFrame({'lo': lo, 'hi': hi})
 
     def lrt(self, other):
-        """Likelihood-ratio test: 2(ll_other - ll_self) ~ chi2(df) where
-        df = #pars in self minus #pars in other (positive when self is the
-        richer model). Both models must have been fitted with the same reml."""
         if self.reml != getattr(other, 'reml', None):
             raise ValueError("LRT requires both models fit with same reml")
         df = max(0, self.theta.size - other.theta.size)
