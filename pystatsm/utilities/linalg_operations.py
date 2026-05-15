@@ -42,12 +42,18 @@ def _to_csc(A):
 class _FactorProxy:
     """Wraps sksparse 0.5+ CholeskyFactor to expose the v0.4 method names used
     throughout pystatsm: L, P, apply_P/Pt, solve_A/L/Lt, cholesky_inplace,
-    slogdet, inv."""
+    slogdet, inv. The permutation never changes after the symbolic analyze,
+    so we cache `perm` and its inverse to avoid `np.argsort(perm)` on every
+    apply_Pt call (a real cost when apply_Pt is in the gradient hot path)."""
 
-    __slots__ = ("_f",)
+    __slots__ = ("_f", "_perm", "_inv_perm")
 
     def __init__(self, factor):
         self._f = factor
+        # Cache permutation arrays once — they're a function of the symbolic
+        # factor only and don't change with subsequent numeric refactorizations.
+        self._perm = factor.perm
+        self._inv_perm = np.argsort(self._perm)
 
     def _ensure_ll(self):
         if not self._f.is_ll:
@@ -61,14 +67,24 @@ class _FactorProxy:
         self._ensure_ll()
         return self._f.get_factor(kind="LL", lower=True)
 
+    def D(self):
+        """LDLᵀ diagonal in the permuted ordering, returned as a 1-D ndarray.
+        In sksparse 0.5+, `factor.D` is an *attribute* of type `dia_array`,
+        so we extract the actual diagonal entries via `.diagonal()`. Use this
+        in preference to L()[p, p] when you only need the L-equivalent
+        diagonal (or equivalently, log|C|) — it avoids the L-matrix CSC
+        construction entirely."""
+        self._ensure_ldl()
+        return self._f.D.diagonal()
+
     def P(self):
-        return self._f.get_perm()
+        return self._perm
 
     def apply_P(self, b):
-        return b[self._f.perm]
+        return b[self._perm]
 
     def apply_Pt(self, b):
-        return b[np.argsort(self._f.perm)]
+        return b[self._inv_perm]
 
     def solve_A(self, b):
         return self._f.solve(b)
@@ -89,6 +105,11 @@ class _FactorProxy:
 
     def cholesky_inplace(self, A):
         self._f.factorize(_to_csc(A))
+        # Tried pinning kind to LDL here to make D() free downstream — but
+        # solve_L (called next with `use_LDLt_decomposition=False`) flips it
+        # back to LL via _ensure_ll, so we were paying a conversion both ways
+        # and net got slower. Leave the kind to cholmod's default and use
+        # whichever of L().diagonal() / slogdet works best at the call site.
         return self
 
     def slogdet(self):
@@ -131,6 +152,12 @@ class _DenseCholFactor:
 
     def L(self):
         return sp.sparse.csc_matrix(self._L)
+
+    def D(self):
+        """For the dense fallback, the cholesky is LL' (not LDL'); the
+        equivalent of the LDL' D vector is the squared diagonal of L."""
+        d = np.diag(self._L)
+        return d * d
 
     def P(self):
         return np.arange(self._n, dtype=np.int64)
