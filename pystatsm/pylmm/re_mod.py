@@ -1332,12 +1332,12 @@ class LMM2(object):
         return out
 
     def profile(self, n_points=11, tb=3.0):
-        if not hasattr(self, 'theta'):
-            raise RuntimeError("Call .fit() before .profile().")
         reparam = _VarCorrReparam(self.mme.re_mod)
         tau_hat = reparam.fwd(self.theta)
         n_theta = len(tau_hat)
-        var_set = set(reparam.diag_ix.tolist()) | {n_theta - 1}
+        is_var = np.zeros(n_theta, dtype=bool)
+        is_var[reparam.diag_ix] = True
+        is_var[-1] = True
         llmax = self.nll
         J_inv = np.linalg.inv(reparam.jac_rvs(tau_hat))
         var_tau = J_inv.dot(self.Hinv_theta).dot(J_inv.T)
@@ -1348,11 +1348,11 @@ class LMM2(object):
         for i in range(n_theta):
             t_mle = tau_hat[i]
             width = tb * max(se_tau[i], 1e-3)
-            lb = max(t_mle - width, 1e-6) if i in var_set else t_mle - width
+            lb = max(t_mle - width, 1e-6) if is_var[i] else t_mle - width
             ub = t_mle + width
             for t0 in np.linspace(lb, ub, n_points):
                 theta_r, ll_r = self._fit_with_fixed_tau(
-                    reparam, tau_hat, i, t0)
+                    reparam, tau_hat, i, t0, is_var)
                 LR = max(ll_r - llmax, 0.0)
                 zetas[k] = np.sqrt(LR) * np.sign(t0 - t_mle)
                 thetas[k] = theta_r
@@ -1361,20 +1361,12 @@ class LMM2(object):
         return thetas, zetas, ix
 
     def _fit_with_fixed_tau(self, reparam, tau_init, fixed_idx, fixed_value,
-                            method='trust-constr'):
+                            is_var):
         n = len(tau_init)
         free = np.ones(n, dtype=bool)
         free[fixed_idx] = False
-        var_set = set(reparam.diag_ix.tolist()) | {n - 1}
-        bounds = []
-        for i in range(n):
-            if not free[i]:
-                continue
-            if i in var_set:
-                bounds.append((1e-6, None))
-            else:
-                bounds.append((None, None))
-
+        bounds = [(1e-6, None) if is_var[i] else (None, None)
+                  for i in range(n) if free[i]]
         reml_flag = self.reml
 
         def fg(tau_free):
@@ -1384,13 +1376,12 @@ class LMM2(object):
             theta = reparam.rvs(tau)
             ll = self.loglike(theta, reml=reml_flag)
             g_theta = self.gradient(theta, reml=reml_flag)
-            g_tau = reparam.jvp_T(tau, g_theta)
-            return ll, g_tau[free]
+            return ll, reparam.jvp_T(tau, g_theta)[free]
 
         x0 = tau_init[free].copy()
-        opt = sp.optimize.minimize(fg, x0, jac=True, method=method,
-                                   bounds=bounds,options=dict(verbose=3,
-                                                              initial_tr_radius=0.5))
+        opt = sp.optimize.minimize(fg, x0, jac=True, bounds=bounds,
+                                   method='trust-constr',
+                                   options=dict(initial_tr_radius=0.5))
         tau_r = tau_init.copy()
         tau_r[free] = opt.x
         tau_r[fixed_idx] = fixed_value
