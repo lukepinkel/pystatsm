@@ -66,19 +66,16 @@ class OrthoRotation:
         rr, cc = np.triu_indices(m, 1)
         row_i, col_j = cc, rr
         n_c = row_i.size
-        U = np.zeros((p * m, 2 * n_c))
-        for k in range(n_c):
-            i, j = row_i[k], col_j[k]
-            U[j * p:(j + 1) * p, 2 * k]     = L[:, i]
-            U[i * p:(i + 1) * p, 2 * k + 1] = L[:, j]
-        Y = crit.d2Q_apply(L, U)
-        dCdL = np.empty((n_c, p * m))
-        for k in range(n_c):
-            i, j = row_i[k], col_j[k]
-            T = _invec(Y[:, 2 * k], p, m) - _invec(Y[:, 2 * k + 1], p, m)
-            T[:, i] += G[:, j]
-            T[:, j] -= G[:, i]
-            dCdL[k, :] = _vec(T)
+        k_idx = np.arange(n_c)
+        U = np.zeros((2 * n_c, p, m))
+        U[2 * k_idx,     :, col_j] = L[:, row_i].T
+        U[2 * k_idx + 1, :, row_i] = L[:, col_j].T
+        Y = crit.d2Q_apply(L, _vec(U).T)
+        T = _invec(Y.T, p, m)
+        T = T[0::2] - T[1::2]
+        T[k_idx, :, row_i] += G[:, col_j].T
+        T[k_idx, :, col_j] -= G[:, row_i].T
+        dCdL = _vec(T)
         dCdPhi = np.zeros((n_c, m * (m - 1) // 2))
         return dCdL, dCdPhi
 
@@ -131,17 +128,17 @@ class ObliqueRotation:
         V = np.linalg.inv(Phi)
         G = crit.dQ(L)
         GV = np.matmul(G, V)
-        ij = [(i, j) for j in range(m) for i in range(m) if i != j]
-        n_c = len(ij)
-        U = np.empty((p * m, n_c))
-        for k, (i, j) in enumerate(ij):
-            U[:, k] = _vec(np.outer(L[:, i], V[:, j]))
-        Y = crit.d2Q_apply(L, U)
-        dCdL = np.empty((n_c, p * m))
-        for k, (i, j) in enumerate(ij):
-            T = _invec(Y[:, k],p, m)
-            T[:, i] += GV[:, j]
-            dCdL[k, :] = _vec(T)
+        i_flat = np.tile(np.arange(m), m)
+        j_flat = np.repeat(np.arange(m), m)
+        mask = i_flat != j_flat
+        i_idx, j_idx = i_flat[mask], j_flat[mask]
+        n_c = i_idx.size
+        k_idx = np.arange(n_c)
+        U = L[:, i_idx].T[:, :, None] * V[:, j_idx].T[:, None, :]
+        Y = crit.d2Q_apply(L, _vec(U).T)
+        T = _invec(Y.T, p, m)
+        T[k_idx, :, i_idx] += GV[:, j_idx].T
+        dCdL = _vec(T)
         dCdPhi = self._dM_dPhi_stril(L, G, V)[self._odiag_mask]
         return dCdL, dCdPhi
 
@@ -149,8 +146,6 @@ class ObliqueRotation:
         m = self.m
         M = np.matmul(np.matmul(L.T, G), V)
         ri, ci = tril_indices(m, -1)
-        cols = np.empty((m * m, ri.size))
-        for k, (x, y) in enumerate(zip(ri, ci)):
-            J = -np.outer(M[:, x], V[y, :]) - np.outer(M[:, y], V[x, :])
-            cols[:, k] = _vec(J)
-        return cols
+        J = (-M[:, ri].T[:, :, None] * V[ci, :][:, None, :]
+             - M[:, ci].T[:, :, None] * V[ri, :][:, None, :])
+        return _vec(J).T
