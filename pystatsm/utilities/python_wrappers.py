@@ -227,8 +227,8 @@ def ds_kron(A, B, out=None):
 def ds_kron_inplace(A, B, C):
     Anr, Anc = A.shape
     Bnr, Bnc = B.shape
-    
-    cs_kron_ds_inplace_wrapper(A, B.indptr, B.indices, B.data, Bnr, Bnc, C.data)
+    Cx = C if isinstance(C, np.ndarray) else C.data
+    cs_kron_ds_inplace_wrapper(A, B.indptr, B.indices, B.data, Bnr, Bnc, Cx)
     return C
 
 def naive_matmul_inplace(A, B, C=None): 
@@ -324,8 +324,7 @@ def block_diag_self_dot(L_csr, ng, nv, out=None):
 def sparse_dense_kron_inplace(A, B, C):
     Anr, Anc = A.shape
     Bnr, Bnc = B.shape
-    
     Ap, Ai, Ax = A.indptr, A.indices, A.data
-    Cx = C.data
+    Cx = C if isinstance(C, np.ndarray) else C.data
     cs_kron_sd_inplace_wrapper(Ap, Ai, Ax, Anr, Anc, B, Bnr, Bnc, Cx)
     return C
