@@ -54,9 +54,11 @@ def cs_add_inplace(A, B, C, alpha=1.0, beta=1.0):
     Bp, Bi, Bx = B.indptr, B.indices, B.data
     Cp, Ci, Cx = C.indptr, C.indices, C.data
     Cnr, Cnc = C.shape
-    
+
     cs_add_inplace_wrapper(Ap, Ai, Ax, Bp, Bi, Bx, alpha, beta, Cp, Ci, Cx, Cnr, Cnc)
-    C.eliminate_zeros()
+    # Don't eliminate_zeros — cholmod's factorize does its own cleaning, and
+    # the explicit zeros (entries that summed to zero from a + b) are harmless
+    # downstream. Each eliminate_zeros pass was ~0.4 ms on the hot path.
     return C
 
 
