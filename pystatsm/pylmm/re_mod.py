@@ -5,6 +5,7 @@ Created on Fri Jun  7 14:11:35 2024
 
 @author: lukepinkel
 """
+import tqdm
 import patsy
 import pandas as pd
 import numpy as np
@@ -13,7 +14,6 @@ import scipy as sp
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from abc import ABCMeta, abstractmethod
-from scipy.interpolate import interp1d
 
 from ..utilities.python_wrappers import (sparse_dot,
                                          sparse_pattern_trace,
@@ -1087,7 +1087,7 @@ class LMM2(object):
         M_B = self.mme.chol_fac.solve_A(ZtRB)
         return A.T.dot(Rinv.dot(B)) - ZtRA.T.dot(M_B)
 
-    def fit(self, reml=True, method='l-bfgs-b', opt_kws=None,
+    def fit(self, reml=True, method='trust-constr', opt_kws=None,
             theta_init=None):
         re_mod = self.mme.re_mod
         theta_init = re_mod.theta if theta_init is None else theta_init
@@ -1345,6 +1345,8 @@ class LMM2(object):
         thetas = np.zeros((n_theta * n_points, n_theta))
         zetas = np.zeros(n_theta * n_points)
         k = 0
+        pbar = tqdm.tqdm(total=n_theta * n_points)
+
         for i in range(n_theta):
             t_mle = tau_hat[i]
             width = tb * max(se_tau[i], 1e-3)
@@ -1357,6 +1359,8 @@ class LMM2(object):
                 zetas[k] = np.sqrt(LR) * np.sign(t0 - t_mle)
                 thetas[k] = theta_r
                 k += 1
+                pbar.update(1)
+        pbar.close()
         ix = np.repeat(np.arange(n_theta), n_points)
         return thetas, zetas, ix
 
@@ -1404,7 +1408,7 @@ class LMM2(object):
             y = zetas[ix == i]
             trunc = (y > -5) & (y < 5)
             x, y = x[trunc], y[trunc]
-            f_interp = interp1d(y, x, fill_value='extrapolate')
+            f_interp = sp.interpolate.interp1d(y, x, fill_value='extrapolate')
             xq = f_interp(q)
             ax.plot(x, y)
             ax.set_xlim(x.min(), x.max())
@@ -1431,7 +1435,7 @@ class LMM2(object):
         for i in range(n_thetas):
             x = thetas[ix == i, i]
             y = zetas[ix == i]
-            f_inv = interp1d(y, x, kind='linear', fill_value='extrapolate')
+            f_inv = sp.interpolate.interp1d(y, x, kind='linear', fill_value='extrapolate')
             lo[i], hi[i] = float(f_inv(-z)), float(f_inv(z))
         return pd.DataFrame({'lo': lo, 'hi': hi})
 
