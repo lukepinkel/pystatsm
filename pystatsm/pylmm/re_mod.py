@@ -959,7 +959,7 @@ class _VarCorrReparam:
                                   * np.tanh(tau[self.off_ix]))
         return theta
 
-    def jac_rvs(self, tau):
+    def jacobian(self, tau):
         n = int(np.asarray(tau).shape[0])
         J = np.eye(n)
         if not len(self.off_ix):
@@ -977,24 +977,6 @@ class _VarCorrReparam:
         J[o, a] = 0.5 * tanh_o * ratio_ba
         J[o, b] = 0.5 * tanh_o * ratio_ab
         return J
-
-    def jvp_T(self, tau, g):
-        g_tau = np.asarray(g, dtype=float).copy()
-        if not len(self.off_ix):
-            return g_tau
-        o, a, b = self.off_ix, self.off_da, self.off_db
-        ta, tb, to = tau[a], tau[b], tau[o]
-        safe = (ta > 0) & (tb > 0)
-        tiny = np.finfo(float).tiny
-        sqrt_ab = np.where(safe, np.sqrt(ta * tb), 0.0)
-        tanh_o = np.tanh(to)
-        sech2 = 1.0 - tanh_o * tanh_o
-        ratio_ba = np.sqrt(np.where(safe, tb / np.maximum(ta, tiny), 0.0))
-        ratio_ab = np.sqrt(np.where(safe, ta / np.maximum(tb, tiny), 0.0))
-        g_tau[o] = g[o] * sqrt_ab * sech2
-        np.add.at(g_tau, a, g[o] * 0.5 * tanh_o * ratio_ba)
-        np.add.at(g_tau, b, g[o] * 0.5 * tanh_o * ratio_ab)
-        return g_tau
 
 
 
@@ -1339,14 +1321,13 @@ class LMM2(object):
         is_var[reparam.diag_ix] = True
         is_var[-1] = True
         llmax = self.nll
-        J_inv = np.linalg.inv(reparam.jac_rvs(tau_hat))
+        J_inv = np.linalg.inv(reparam.jacobian(tau_hat))
         var_tau = J_inv.dot(self.Hinv_theta).dot(J_inv.T)
         se_tau = np.sqrt(np.diag(var_tau))
         thetas = np.zeros((n_theta * n_points, n_theta))
         zetas = np.zeros(n_theta * n_points)
         k = 0
-        pbar = tqdm.tqdm(total=n_theta * n_points)
-
+        pbar = tqdm.tqdm(total=n_theta * n_points, smoothing=1e-3)
         for i in range(n_theta):
             t_mle = tau_hat[i]
             width = tb * max(se_tau[i], 1e-3)
@@ -1380,7 +1361,7 @@ class LMM2(object):
             theta = reparam.rvs(tau)
             ll = self.loglike(theta, reml=reml_flag)
             g_theta = self.gradient(theta, reml=reml_flag)
-            return ll, reparam.jvp_T(tau, g_theta)[free]
+            return ll, reparam.jacobian(tau).T.dot(g_theta)[free]
 
         x0 = tau_init[free].copy()
         opt = sp.optimize.minimize(fg, x0, jac=True, bounds=bounds,
@@ -1440,8 +1421,6 @@ class LMM2(object):
         return pd.DataFrame({'lo': lo, 'hi': hi})
 
     def lrt(self, other):
-        if self.reml != getattr(other, 'reml', None):
-            raise ValueError("LRT requires both models fit with same reml")
         df = max(0, self.theta.size - other.theta.size)
         stat = -(self.ll - other.ll)
         p = sp.stats.chi2(df).sf(stat) if df > 0 else 1.0
