@@ -1,11 +1,27 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Multivariate (weighted) least squares with a log-Cholesky precision
+parameterization.  Beyond estimation the model reports classic measures
+of multivariate association and MANOVA-style tests of the general linear
+hypothesis L B M = 0.
+
+@author: lukepinkel
+"""
 import numpy as np
 import scipy as sp
+import scipy.linalg
+import scipy.stats
 import pandas as pd
 from .regression_model import RegressionMixin
 from .likelihood_model import LikelihoodModel
 from ..utilities.linalg_operations import _vec
 
 LN2PI = np.log(2 * np.pi)
+
+MANOVA_STATS = ['Wilks lambda', 'Pillai trace',
+                'Hotelling-Lawley trace', 'Roy greatest root']
+MANOVA_COLUMNS = ['Value', 'Num DF', 'Den DF', 'F Value', 'P Value']
 
 
 class MMRParameterPacker:
@@ -101,12 +117,116 @@ def _omega_first_stack(L, packer):
     return Omega, factor
 
 
+def _wilks_ftest(wilks, n_y, df_h, df_e):
+    """Rao's F approximation for Wilks' lambda."""
+    base = n_y * n_y + df_h * df_h - 5.0
+    t = np.sqrt((n_y * n_y * df_h * df_h - 4.0) / base) if base > 0 else 1.0
+    r = df_e - (n_y - df_h + 1.0) / 2.0
+    u = (n_y * df_h - 2.0) / 4.0
+    num_df = n_y * df_h
+    den_df = r * t - 2.0 * u
+    lam_t = wilks ** (1.0 / t)
+    f = (1.0 - lam_t) / lam_t * den_df / num_df
+    return f, num_df, den_df
+
+
+def _pillai_ftest(pillai, s, m_par, n_par):
+    """F approximation for Pillai's trace."""
+    num_df = s * (2.0 * m_par + s + 1.0)
+    den_df = s * (2.0 * n_par + s + 1.0)
+    f = den_df / num_df * pillai / (s - pillai)
+    return f, num_df, den_df
+
+
+def _hotelling_ftest(hotelling, s, m_par, n_par, n_y, df_h):
+    """F approximation for the Hotelling-Lawley trace."""
+    if n_par > 0:
+        b = (n_y + 2.0 * n_par) * (df_h + 2.0 * n_par)
+        b = b / (2.0 * (2.0 * n_par + 1.0) * (n_par - 1.0))
+        num_df = n_y * df_h
+        den_df = 4.0 + (n_y * df_h + 2.0) / (b - 1.0)
+        c = (den_df - 2.0) / (2.0 * n_par)
+        f = den_df / num_df * hotelling / c
+    else:
+        num_df = s * (2.0 * m_par + s + 1.0)
+        den_df = s * (s * n_par + 1.0)
+        f = den_df / num_df / s * hotelling
+    return f, num_df, den_df
+
+
+def _roy_ftest(roy, n_y, df_h, df_e):
+    """F approximation (an upper bound) for Roy's greatest root."""
+    r = max(n_y, df_h)
+    num_df = r
+    den_df = df_e - r + df_h
+    f = den_df / num_df * roy
+    return f, num_df, den_df
+
+
+def _canonical_eigenvalues(H, E, tol=1e-9):
+    """Eigenvalues of (E + H)^{-1} H, i.e. squared canonical correlations.
+
+    H and E are symmetric SSCP matrices; the result is sorted in
+    descending order and clipped to [0, 1).
+    """
+    eigvals = sp.linalg.eigh(H, E + H, eigvals_only=True)
+    eigvals = np.clip(np.real(eigvals), 0.0, 1.0 - tol)
+    return np.sort(eigvals)[::-1]
+
+
+def _manova_stats(eigvals, n_y, df_h, df_e):
+    """Four classic MANOVA statistics with their approximate F tests.
+
+    Parameters
+    ----------
+    eigvals : array
+        Eigenvalues of (E + H)^{-1} H.
+    n_y : int
+        Number of response dimensions (rank of E).
+    df_h, df_e : int
+        Hypothesis and error degrees of freedom.
+
+    Returns
+    -------
+    DataFrame
+        Rows are the four statistics; columns hold the value, the
+        numerator and denominator degrees of freedom, the approximate
+        F statistic and its p-value.
+    """
+    rho2 = np.asarray(eigvals, dtype=float)
+    rho2 = rho2[rho2 > 1e-9]
+    eig_h = rho2 / (1.0 - rho2)
+    s = min(n_y, df_h)
+    m_par = (abs(n_y - df_h) - 1.0) / 2.0
+    n_par = (df_e - n_y - 1.0) / 2.0
+    wilks = float(np.prod(1.0 - rho2))
+    pillai = float(np.sum(rho2))
+    hotelling = float(np.sum(eig_h))
+    roy = float(np.max(eig_h)) if eig_h.size else 0.0
+    rows = [(wilks,) + _wilks_ftest(wilks, n_y, df_h, df_e),
+            (pillai,) + _pillai_ftest(pillai, s, m_par, n_par),
+            (hotelling,) + _hotelling_ftest(hotelling, s, m_par, n_par,
+                                            n_y, df_h),
+            (roy,) + _roy_ftest(roy, n_y, df_h, df_e)]
+    table = pd.DataFrame(rows, index=MANOVA_STATS,
+                         columns=['Value', 'F Value', 'Num DF', 'Den DF'])
+    table['P Value'] = sp.stats.f.sf(table['F Value'].to_numpy(),
+                                     table['Num DF'].to_numpy(),
+                                     table['Den DF'].to_numpy())
+    return table[MANOVA_COLUMNS]
+
+
 class MVOLS(RegressionMixin, LikelihoodModel):
     """Multivariate Gaussian regression with log-Cholesky precision.
 
     Model: y_i ~ N_q(B' x_i, Sigma), where Sigma = Omega^{-1} and Omega
     has lower Cholesky L.  Parameters theta = (vec_F(B), lambda) with
     lambda the log-Cholesky parameterization of Omega.
+
+    Fitting populates coefficient inference (``res``), per-response and
+    multivariate measures of association (``rsquared``, ``assoc``,
+    ``canonical_corr``) and MANOVA-style term tests (``mv_tests``).
+    Arbitrary linear hypotheses are tested with ``test_hypothesis``.
 
     Parameters
     ----------
@@ -276,41 +396,178 @@ class MVOLS(RegressionMixin, LikelihoodModel):
 
     def fit(self, method='closed_form', opt_kws=None):
         self.params, self.opt = self._fit(method, opt_kws=opt_kws)
-        n, n_params = self.n, len(self.params)
-        nb = self.packer.n_beta
-        self.n_params = n_params
+        self._store_estimates()
+        self._store_association()
+        self.mv_tests = self.multivariate_tests()
+        self._store_summary()
+
+    def _store_estimates(self):
+        """Unpack the fitted theta into coefficients, covariances and
+        residual quantities."""
+        n, nb = self.n, self.packer.n_beta
+        self.n_params = len(self.params)
+        self.n_beta = nb
         self.params_hess = self.hessian(self.params)
         self.params_cov = np.linalg.pinv(self.params_hess)
         self.params_se = np.sqrt(np.diag(self.params_cov))
         self.res = self._parameter_inference(self.params, self.params_se,
-                                             n - n_params, self.param_labels)
+                                             n - self.n_params,
+                                             self.param_labels)
         self.beta = self.coefs = self.packer.unpack_beta(self.params)
-        self.precision_chol = self.packer.unpack_precision_chol(self.params)
-        self.precision = np.dot(self.precision_chol, self.precision_chol.T)
-        Linv = _triangular_inv(self.precision_chol)
-        self.sigma_mle = np.dot(Linv.T, Linv)
         self.beta_cov = self.coefs_cov = self.params_cov[:nb, :nb]
         self.beta_se = self.coefs_se = self.params_se[:nb]
-        self.n_beta = nb
+        self.precision_chol = self.packer.unpack_precision_chol(self.params)
+        self.precision = np.dot(self.precision_chol, self.precision_chol.T)
+        precision_chol_inv = _triangular_inv(self.precision_chol)
+        self.sigma_mle = np.dot(precision_chol_inv.T, precision_chol_inv)
         self.fitted_values = np.dot(self.X, self.beta)
         self.residuals = self.Y - self.fitted_values
         self.llf = -self.loglike(self.params)
-        E = self.residuals
-        S_e = np.dot(E.T, E * self.weights[:, None])
-        df_resid = max(float(n - self.p), 1.0)
-        self.sigma_unbiased = S_e / df_resid
-        Yc = self.Y - self.Y.mean(axis=0)
-        sse_tr = float(np.trace(np.dot(E.T, E)))
-        sst_tr = float(np.trace(np.dot(Yc.T, Yc)))
-        try:
-            r2_det = 1.0 - (np.linalg.det(np.dot(E.T, E))
-                            / np.linalg.det(np.dot(Yc.T, Yc)))
-        except np.linalg.LinAlgError:
-            r2_det = np.nan
+        self._store_sscp()
+
+    def _store_sscp(self):
+        """Cross-product matrices used by the association measures and
+        the multivariate hypothesis tests."""
+        weighted_x = self.X * self.weights[:, None]
+        weighted_resid = self.residuals * self.weights[:, None]
+        self.df_resid = max(self.n - self.p, 1)
+        self.gram = np.dot(self.X.T, weighted_x)
+        gram_chol_inv = _triangular_inv(np.linalg.cholesky(self.gram))
+        self.gram_inv = np.dot(gram_chol_inv.T, gram_chol_inv)
+        self.resid_sscp = np.dot(self.residuals.T, weighted_resid)
+        self.sigma_unbiased = self.resid_sscp / self.df_resid
+        centered_y = self.Y - np.average(self.Y, axis=0, weights=self.weights)
+        self.total_sscp = np.dot(centered_y.T, centered_y * self.weights[:, None])
+
+    @staticmethod
+    def _hypothesis_sscp(beta, gram_inv, resid_sscp, L, M=None):
+        """Hypothesis SSCP H and error SSCP E for the linear hypothesis
+        L B M = 0."""
+        coef = beta if M is None else np.dot(beta, M)
+        error = resid_sscp if M is None else np.dot(M.T, np.dot(resid_sscp, M))
+        lbm = np.dot(L, coef)
+        middle = np.dot(L, np.dot(gram_inv, L.T))
+        hypothesis = np.dot(lbm.T, np.linalg.solve(middle, lbm))
+        return hypothesis, error
+
+    def test_hypothesis(self, L, M=None):
+        """Multivariate test of the general linear hypothesis L B M = 0.
+
+        Parameters
+        ----------
+        L : array_like
+            Contrast matrix with one column per predictor (p columns).
+        M : array_like, optional
+            Response transform with one row per response (q rows).  When
+            omitted the responses are left untransformed.
+
+        Returns
+        -------
+        DataFrame
+            The four MANOVA statistics with their approximate F tests.
+        """
+        L = np.atleast_2d(np.asarray(L, dtype=float))
+        M = None if M is None else np.atleast_2d(np.asarray(M, dtype=float))
+        H, E = self._hypothesis_sscp(self.beta, self.gram_inv,
+                                     self.resid_sscp, L, M)
+        df_h = int(np.linalg.matrix_rank(L))
+        eigvals = _canonical_eigenvalues(H, E)
+        return _manova_stats(eigvals, E.shape[0], df_h, self.df_resid)
+
+    def _term_contrasts(self):
+        """Contrast matrix L for each non-intercept design term."""
+        if self.x_design_info is not None:
+            names = self.x_design_info.term_names
+            spans = [(nm, self.x_design_info.term_name_slices[nm])
+                     for nm in names if nm != 'Intercept']
+        else:
+            constant = np.ptp(self.X, axis=0) == 0
+            spans = [(self.term_names[i], slice(i, i + 1))
+                     for i in range(self.p) if not constant[i]]
+        columns = np.arange(self.p)
+        contrasts = {}
+        for name, span in spans:
+            idx = columns[span]
+            L = np.zeros((len(idx), self.p))
+            L[np.arange(len(idx)), idx] = 1.0
+            contrasts[name] = L
+        return contrasts
+
+    def multivariate_tests(self, M=None):
+        """MANOVA-style tests for each design term and for the joint
+        hypothesis that every slope is zero.
+
+        Returns
+        -------
+        DataFrame
+            A frame indexed by (term, statistic).  The 'Regression'
+            block holds the joint test of all slopes.
+        """
+        contrasts = self._term_contrasts()
+        tables = {name: self.test_hypothesis(L, M=M)
+                  for name, L in contrasts.items()}
+        if len(contrasts) > 1:
+            L_all = np.concatenate(list(contrasts.values()), axis=0)
+            tables['Regression'] = self.test_hypothesis(L_all, M=M)
+        if not tables:
+            return pd.DataFrame(columns=MANOVA_COLUMNS)
+        return pd.concat(tables, names=['Term', 'Statistic'])
+
+    def _measures_of_association(self):
+        """Multivariate effect-size measures for the all-slopes
+        hypothesis.  Returns the table, the canonical correlations and
+        the generalized R-squared 1 - Wilks."""
+        contrasts = self._term_contrasts()
+        if not contrasts:
+            return pd.DataFrame(columns=['Value']), np.array([]), np.nan
+        L = np.concatenate(list(contrasts.values()), axis=0)
+        H, E = self._hypothesis_sscp(self.beta, self.gram_inv,
+                                     self.resid_sscp, L)
+        df_h = np.linalg.matrix_rank(L)
+        rho2 = _canonical_eigenvalues(H, E)
+        rho2 = rho2[rho2 > 1e-9]
+        s = max(min(self.q, df_h), 1)
+        wilks = float(np.prod(1.0 - rho2)) if rho2.size else 1.0
+        pillai = float(np.sum(rho2))
+        hotelling = float(np.sum(rho2 / (1.0 - rho2)))
+        roy = float(np.max(rho2 / (1.0 - rho2))) if rho2.size else 0.0
+        measures = {
+            "Wilks' lambda": wilks,
+            "Pillai's trace": pillai,
+            'Hotelling-Lawley trace': hotelling,
+            "Roy's greatest root": roy,
+            'Generalized R2 (1 - Wilks)': 1.0 - wilks,
+            'Eta-squared (Wilks)': 1.0 - wilks ** (1.0 / s),
+            'Eta-squared (Pillai)': pillai / s,
+            'Eta-squared (Hotelling)': (hotelling / s) / (1.0 + hotelling / s),
+            'Eta-squared (Roy)': roy / (1.0 + roy),
+            'Mean squared canonical corr':
+                float(np.mean(rho2)) if rho2.size else 0.0}
+        table = pd.DataFrame({'Value': measures})
+        return table, np.sqrt(rho2), 1.0 - wilks
+
+    def _response_rsquared(self):
+        """Per-response coefficient of determination and its adjustment."""
+        sse = np.diag(self.resid_sscp)
+        sst = np.diag(self.total_sscp)
+        r2 = 1.0 - sse / sst
+        r2_adj = 1.0 - (1.0 - r2) * (self.n - 1.0) / self.df_resid
+        return pd.DataFrame({'R2': r2, 'R2_adj': r2_adj},
+                            index=self.response_names)
+
+    def _store_association(self):
+        """Compute and store univariate and multivariate measures of
+        association."""
+        self.rsquared = self._response_rsquared()
+        self.assoc, self.canonical_corr, self.r2_det =  self._measures_of_association()
+        sse_tr = np.sum(np.diag(self.resid_sscp))
+        sst_tr = np.sum(np.diag(self.total_sscp))
         self.r2_trace = 1.0 - sse_tr / sst_tr
-        self.r2_det = r2_det
+
+    def _store_summary(self):
+        """Information criteria and a compact summary table."""
         self.aic, self.aicc, self.bic, self.caic = self._get_information(
-            self.llf, n_params, n)
+            -self.llf, self.n_params, self.n)
         sumstats = {'AIC': self.aic, 'AICC': self.aicc, 'BIC': self.bic,
                     'CAIC': self.caic, 'LLF': self.llf,
                     'R2_trace': self.r2_trace, 'R2_det': self.r2_det}
