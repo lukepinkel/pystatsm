@@ -124,7 +124,7 @@ def primitive_timings(model, theta, n=30):
     return rows
 
 
-def main():
+
     print('=== Build model (realistic 1x: n=60000, n_ranef=11100) ===')
     model = build_realistic(scale=1.0)
     theta = model.mme.re_mod.theta.copy()
@@ -168,6 +168,3 @@ def main():
     for label, ms in rows:
         print(f'  {label:<{width}}  {ms:7.3f} ms')
 
-
-if __name__ == '__main__':
-    main()
