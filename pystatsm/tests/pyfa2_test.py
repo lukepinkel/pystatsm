@@ -480,24 +480,3 @@ def test_factor_model_sample_shape_and_mean():
 
 
 # ---------- runner ----------------------------------------------------------
-
-def main():
-    tests = [v for k, v in globals().items() if k.startswith('test_') and callable(v)]
-    fails = []
-    for t in tests:
-        try:
-            t()
-            print(f"  ok   {t.__name__}")
-        except AssertionError as e:
-            print(f"  FAIL {t.__name__}: {e}")
-            fails.append(t.__name__)
-        except Exception as e:
-            print(f"  ERR  {t.__name__}: {type(e).__name__}: {e}")
-            fails.append(t.__name__)
-    print(f"\n{len(tests) - len(fails)}/{len(tests)} passed")
-    return 0 if not fails else 1
-
-
-if __name__ == "__main__":
-    import sys
-    sys.exit(main())
