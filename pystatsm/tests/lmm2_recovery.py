@@ -112,13 +112,10 @@ def study_reml_vs_ml(n_reps=30):
         _summarize(theta_hat[valid], MixedModelSim(spec).theta_true, names)
 
 
-def main():
-    t_start = time.perf_counter()
-    study_recovery_vs_n_groups()
-    study_recovery_intercept_only()
-    study_reml_vs_ml()
-    print(f"\ntotal wall time: {_fmt_secs(time.perf_counter() - t_start)}")
+
+t_start = time.perf_counter()
+study_recovery_vs_n_groups()
+study_recovery_intercept_only()
+study_reml_vs_ml()
 
 
-if __name__ == '__main__':
-    main()
