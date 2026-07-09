@@ -598,6 +598,11 @@ class GAM:
         else:
             hess = self.hessian
         x = self.theta.copy()
+
+        lb = np.concatenate([np.full(self.ns, -30.0), [-50.0]])
+        ub = np.concatenate([np.full(self.ns, 22.0), [50.0]])
+        opt_kws = dict(opt_kws)
+        opt_kws.setdefault("bounds", sp.optimize.Bounds(lb, ub))
         opt = sp.optimize.minimize(self.reml, x, jac=self.gradient,
                                    hess=hess, method='trust-constr',
                                    **opt_kws)
@@ -607,9 +612,8 @@ class GAM:
         beta, eta, mu, dev, _, _ = self.pirls(lambda_)
         _, w = self.get_wz(eta)
         X, Slambda = self.X, self.get_penalty_mat(lambda_)
-        # Convention (b): observed information per φ unit for the data part
-        # (Hphi) and full bread K = (X'WX + S)/φ. Vb is the inverse of K
-        # directly; the score (when used downstream) carries the matching 1/φ.
+
+
         Hbeta = wcrossp(X, w)
         Hphi = Hbeta / scale
         K = Hphi + Slambda / scale
