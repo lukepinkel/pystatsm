@@ -649,6 +649,7 @@ class MMEBlocked(BaseMME):
         for k, term in enumerate(self.re_mod.gterms):
             term.cov_structure.precompute_grad_caches(
                 self.ZtRZ, self.re_mod.ranef_sl[k])
+        self._init_blockdiag_gradient()
 
     def _initialize_matrices(self):
         if self._scalar_resid:
@@ -777,7 +778,82 @@ class MMEBlocked(BaseMME):
             return self._chol_sparse_diag(self.C)
         return self._chol_dense_diag(self.C)
 
+    def _init_blockdiag_gradient(self):
+        # Fast-path setup for the score.  With a single I (x) Sigma term and
+        # scalar residual, C = Z'R^{-1}Z + G^{-1} is block diagonal with q
+        # dense p x p blocks, so the whole gradient reduces to the per-level
+        # sufficient statistic S = sum_g [(Z'VZ)_gg - (T_zx Txx^{-1} T_zx')_gg
+        # - v_g v_g'] computed with batched dense ops -- the sparse-RHS
+        # solve_L half-solve (the O(q^2) hot spot) is never needed.
+        self._use_blockdiag_grad = False
+        re_mod = self.re_mod
+        if not self._scalar_resid or re_mod.n_gterms != 1 or self.ZtZ is None:
+            return
+        term = re_mod.gterms[0]
+        if not isinstance(term.cov_structure, KronIG):
+            return
+        p, q = term.n_revars, term.n_levels
+        ZtZ = self.ZtZ
+        cols = np.repeat(np.arange(ZtZ.shape[1]), np.diff(ZtZ.indptr))
+        g_ix, a_ix = cols // p, cols % p
+        r_ix = ZtZ.indices - g_ix * p
+        if r_ix.size and (r_ix.min() < 0 or r_ix.max() >= p):
+            return
+        B0 = np.zeros((q, p, p))
+        B0[g_ix, r_ix, a_ix] = ZtZ.data
+        k = self.n_fixef + 1
+        ucov = term.cov_structure.unstructured_cov
+        self._bd_p, self._bd_q, self._bd_k = p, q, k
+        self._bd_B0 = B0
+        self._bd_P0 = np.ascontiguousarray(self.ZtXy.reshape(q, p, k))
+        self._bd_D0 = np.asarray(self.XytXy)
+        self._bd_rhs = np.empty((q, p, p + k))
+        self._bd_rinds, self._bd_cinds = ucov.r_inds, ucov.c_inds
+        self._bd_mult = np.where(ucov.d_mask, 1.0, 2.0)
+        self._bd_y = np.asarray(self.y).reshape(-1)
+        self._use_blockdiag_grad = True
+
+    def _gradient_blockdiag(self, theta, reml=True):
+        p, k = self._bd_p, self._bd_k
+        pf = k - 1
+        s = 1.0 / theta[-1]
+        Sig = invech(theta[:-1])
+        rhs = self._bd_rhs
+        np.multiply(self._bd_B0, s, out=rhs[:, :, :p])
+        np.multiply(self._bd_P0, s, out=rhs[:, :, p:])
+        B, P = rhs[:, :, :p], rhs[:, :, p:]
+        C = B + np.linalg.inv(Sig)
+        M = np.linalg.solve(C, rhs)
+        CB, CP = M[:, :, :p], M[:, :, p:]
+        S_full = self._bd_D0 * s - np.einsum("gij,gik->jk", P, CP)
+        T_xx = S_full[:pf, :pf]
+        u_xy = S_full[:pf, -1]
+        T_xx_inv = np.linalg.inv(T_xx)
+        T_zx = P[:, :, :pf] - np.matmul(B, CP[:, :, :pf])
+        u_zy = P[:, :, -1] - np.matmul(B, CP[:, :, -1:])[:, :, 0]
+        b = T_xx_inv.dot(u_xy)
+        v = u_zy - T_zx.dot(b)
+        S = (B - np.matmul(B, CB)).sum(axis=0) - v.T.dot(v)
+        if reml:
+            S = S - np.einsum("gap,pq,gbq->ab", T_zx, T_xx_inv, T_zx,
+                              optimize=True)
+        grad = np.zeros_like(theta)
+        grad[:-1] = S[self._bd_rinds, self._bd_cinds] * self._bd_mult
+        u_hat = v.dot(Sig).reshape(-1)
+        resid = (self._bd_y - self.X.dot(b)
+                 - np.asarray(self.Z.dot(u_hat)).reshape(-1))
+        s2 = float(theta[-1])
+        n_eff = self.n_obs - self.n_fixef if reml else self.n_obs
+        grad[-1] = (n_eff / s2 - self._bd_y.dot(resid) / s2 ** 2
+                    - float(np.dot(theta[:-1], grad[:-1])) / s2)
+        return grad
+
     def _gradient(self, theta, reml=True):
+        if self._use_blockdiag_grad:
+            return self._gradient_blockdiag(theta, reml)
+        return self._gradient_sparse(theta, reml)
+
+    def _gradient_sparse(self, theta, reml=True):
         self.update_crossprods(theta)
         Ginv = self.re_mod.update_gcov(theta, inv=True, G=self.G)
         C = cs_add_inplace(self.ZtRZ, Ginv, self.C)
