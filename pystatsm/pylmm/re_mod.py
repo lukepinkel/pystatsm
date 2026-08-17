@@ -36,6 +36,8 @@ from ..utilities.formula import parse_random_effects
 from ..utilities.indexing_utils import vech_inds_reverse
 from ..utilities.param_transforms import CholeskyCov, CombinedTransform
 from ..utilities.numerical_derivs import so_gc_cd
+from ..utilities.selected_inverse import (selected_inverse_data,
+                                          lookup_positions)
 
 def sizes_to_inds(sizes):
     return np.r_[0, np.cumsum(sizes)]
@@ -217,7 +219,50 @@ class BaseProductCovariance(metaclass=ABCMeta):
                 T2 = 0.0
             grad[par_offset + j] = T1 + T2 + T3
 
+    def cinv_gather_spec(self):
+        p, ng = self.n_rv, self.n_lv
+        ar = np.arange(p)
+        a_rep, b_til = np.repeat(ar, p), np.tile(ar, p)
+        dest_blk = a_rep * p + b_til
+        if self.a_inv is None:
+            g = np.repeat(np.arange(ng), p * p)
+            rows = g * p + np.tile(a_rep, ng)
+            cols = g * p + np.tile(b_til, ng)
+            wts = np.ones(ng * p * p)
+            dest = np.tile(dest_blk, ng)
+        else:
+            Ainv = sp.sparse.coo_matrix(self.a_inv)
+            m = Ainv.row.shape[0]
+            rows = np.repeat(Ainv.row * p, p * p) + np.tile(a_rep, m)
+            cols = np.repeat(Ainv.col * p, p * p) + np.tile(b_til, m)
+            wts = np.repeat(Ainv.data, p * p)
+            dest = np.tile(dest_blk, m)
+        return rows, cols, wts, dest
 
+    def accumulate_gradient_selinv(self, theta, S_cinv, T_blk, v_blk,
+                                   T_xx_inv, reml, grad, par_offset):
+        p, ng = self.n_rv, self.n_lv
+        Sig_inv = np.linalg.inv(invech(theta))
+        M = ng * Sig_inv - Sig_inv.dot(S_cinv).dot(Sig_inv)
+        V = np.asarray(v_blk).reshape(ng, p)
+        T = np.asarray(T_blk).reshape(ng, p, -1)
+        if self.a_inv is None:
+            M = M - V.T.dot(V)
+            if reml:
+                M = M - np.einsum("gap,pq,gbq->ab", T, T_xx_inv, T,
+                                  optimize=True)
+        else:
+            AV = np.asarray(self.a_cov.dot(V))
+            M = M - V.T.dot(AV)
+            if reml:
+                U = np.asarray(self.a_cov.dot(
+                    T.reshape(ng, -1))).reshape(T.shape)
+                M = M - np.einsum("gap,pq,gbq->ab", U, T_xx_inv, T,
+                                  optimize=True)
+        ucov = self.unstructured_cov
+        mult = np.where(ucov.d_mask, 1.0, 2.0)
+        grad[par_offset:par_offset + ucov.n_pars] = \
+            M[ucov.r_inds, ucov.c_inds] * mult
 
 
 class KronIG(BaseProductCovariance):
@@ -314,7 +359,7 @@ class KronAG(BaseProductCovariance):
 
     def _update_gdata(self, G0, inv, out):
         A = self.a_inv if inv else self.a_cov
-        sparse_dense_kron_inplace(A, G0, out)
+        sparse_dense_kron_inplace(A, np.asfortranarray(G0), out)
 
     def get_logdet(self, params, out=0.0):
         G0 = invech(params)
@@ -322,7 +367,8 @@ class KronAG(BaseProductCovariance):
         return out
 
     def dcov_dparams(self, params, i):
-        dG0_i = self.unstructured_cov.dcov_dparams(params, i).copy()
+        dG0_i = np.asfortranarray(
+            self.unstructured_cov.dcov_dparams(params, i))
         dGi = sparse_dense_kron(self.a_cov, dG0_i)
         dGi.eliminate_zeros()
         return dGi
@@ -339,13 +385,13 @@ class KronGA(BaseProductCovariance):
 
     def _make_initial_matrix(self):
         n_rv = self.n_rv
-        G0 = np.eye(n_rv)
+        G0 = np.asfortranarray(np.eye(n_rv))
         G = ds_kron(G0, self.a_cov)
         return G
 
     def _update_gdata(self, G0, inv, out):
         A = self.a_inv if inv else self.a_cov
-        ds_kron_inplace(G0, A, out)
+        ds_kron_inplace(np.asfortranarray(G0), A, out)
 
     def get_logdet(self, params, out=0.0):
         G0 = invech(params)
@@ -353,7 +399,8 @@ class KronGA(BaseProductCovariance):
         return out
 
     def dcov_dparams(self, params, i):
-        dG0_i = self.unstructured_cov.dcov_dparams(params, i).copy()
+        dG0_i = np.asfortranarray(
+            self.unstructured_cov.dcov_dparams(params, i))
         dGi = ds_kron(dG0_i, self.a_cov)
         dGi.eliminate_zeros()
         return dGi
@@ -650,13 +697,22 @@ class MMEBlocked(BaseMME):
             term.cov_structure.precompute_grad_caches(
                 self.ZtRZ, self.re_mod.ranef_sl[k])
         self._init_blockdiag_gradient()
+        self._init_selinv_gradient()
 
     def _initialize_matrices(self):
         if self._scalar_resid:
             self._initialize_unweighted()
         else:
             self._initialize_weighted()
-        self.C = self.ZtRZ + self.G
+        Zt_pat = self.ZtRZ.copy()
+        Zt_pat.data = np.ones_like(Zt_pat.data)
+        G_pat = self.G.copy()
+        G_pat.data = np.ones_like(G_pat.data)
+        C = sp.sparse.csc_array(Zt_pat + G_pat)
+        C.sort_indices()
+        C.data = np.zeros_like(C.data)
+        self.C = C
+        cs_add_inplace(self.ZtRZ, self.G, self.C)
 
     def _initialize_unweighted(self):
         ZtR = self.Zt.dot(self.R).tocsc()
@@ -779,12 +835,6 @@ class MMEBlocked(BaseMME):
         return self._chol_dense_diag(self.C)
 
     def _init_blockdiag_gradient(self):
-        # Fast-path setup for the score.  With a single I (x) Sigma term and
-        # scalar residual, C = Z'R^{-1}Z + G^{-1} is block diagonal with q
-        # dense p x p blocks, so the whole gradient reduces to the per-level
-        # sufficient statistic S = sum_g [(Z'VZ)_gg - (T_zx Txx^{-1} T_zx')_gg
-        # - v_g v_g'] computed with batched dense ops -- the sparse-RHS
-        # solve_L half-solve (the O(q^2) hot spot) is never needed.
         self._use_blockdiag_grad = False
         re_mod = self.re_mod
         if not self._scalar_resid or re_mod.n_gterms != 1 or self.ZtZ is None:
@@ -848,9 +898,94 @@ class MMEBlocked(BaseMME):
                     - float(np.dot(theta[:-1], grad[:-1])) / s2)
         return grad
 
+    def _init_selinv_gradient(self):
+        self._selinv_cache = None
+        self._use_selinv_grad = self._scalar_resid and all(
+            isinstance(t.cov_structure, (KronIG, KronAG))
+            for t in self.re_mod.gterms)
+
+    def _build_selinv_cache(self, Lp, Li):
+        perm = np.asarray(self.chol_fac.P())
+        iperm = np.argsort(perm)
+        re_mod = self.re_mod
+        pos_l, wts_l, dest_l, np_l = [], [], [], []
+        for k, term in enumerate(re_mod.gterms):
+            off = re_mod.ranef_sl[k].start
+            rows, cols, wts, dest = term.cov_structure.cinv_gather_spec()
+            pi, pj = iperm[rows + off], iperm[cols + off]
+            pos = lookup_positions(Lp, Li, np.maximum(pi, pj),
+                                   np.minimum(pi, pj))
+            if pos.size and pos.min() < 0:
+                raise ValueError("selected-inverse pattern miss")
+            pos_l.append(pos)
+            wts_l.append(wts)
+            dest_l.append(dest)
+            np_l.append(term.cov_structure.n_rv)
+        di = iperm[np.arange(self.n_ranef)]
+        diag_pos = lookup_positions(Lp, Li, di, di)
+        if diag_pos.size and diag_pos.min() < 0:
+            raise ValueError("selected-inverse pattern miss")
+        self._selinv_cache = dict(Lp=Lp.copy(), Li=Li.copy(), pos=pos_l,
+                                  wts=wts_l, dest=dest_l, n_rv=np_l,
+                                  diag_pos=diag_pos)
+
+    def _selinv_values(self):
+        L = sp.sparse.csc_matrix(self.chol_fac.L())
+        L.sort_indices()
+        Lp = np.asarray(L.indptr)
+        Li = np.asarray(L.indices)
+        if (self._selinv_cache is None
+                or not np.array_equal(Li, self._selinv_cache["Li"])):
+            self._build_selinv_cache(Lp, Li)
+        return selected_inverse_data(Lp, Li, np.asarray(L.data))
+
+    def cinv_diagonal(self):
+        # diag(C^{-1}) for the current factorization (used by BLUP SEs).
+        Sx = self._selinv_values()
+        return Sx[self._selinv_cache["diag_pos"]]
+
+    def _gradient_selinv(self, theta, reml=True):
+        self.update_crossprods(theta)
+        Ginv = self.re_mod.update_gcov(theta, inv=True, G=self.G)
+        C = cs_add_inplace(self.ZtRZ, Ginv, self.C)
+        self.chol_fac.cholesky_inplace(C)
+        Sx = self._selinv_values()
+        cache = self._selinv_cache
+        ZtRX = self.ZtRXy[:, :-1]
+        ZtRy = self.ZtRXy[:, [-1]]
+        M_X = np.asarray(self.chol_fac.solve_A(ZtRX))
+        M_y = np.asarray(self.chol_fac.solve_A(ZtRy))
+        T_xx = self.XytRXy[:-1, :-1] - ZtRX.T.dot(M_X)
+        T_xx_inv = np.linalg.inv(T_xx)
+        u_xy = self.XytRXy[:-1, [-1]] - ZtRX.T.dot(M_y)
+        T_zx = ZtRX - self.ZtRZ.dot(M_X)
+        u_zy = ZtRy - self.ZtRZ.dot(M_y)
+        v_y = u_zy - T_zx.dot(T_xx_inv.dot(u_xy))
+        grad = np.zeros_like(theta)
+        re_mod = self.re_mod
+        for k in range(re_mod.n_gterms):
+            term = re_mod.gterms[k]
+            sl = re_mod.ranef_sl[k]
+            p = cache["n_rv"][k]
+            vals = Sx[cache["pos"][k]] * cache["wts"][k]
+            S_cinv = np.bincount(cache["dest"][k], weights=vals,
+                                 minlength=p * p).reshape(p, p)
+            term.cov_structure.accumulate_gradient_selinv(
+                theta[re_mod.theta_sl[k]], S_cinv, T_zx[sl], v_y[sl],
+                T_xx_inv, reml, grad, re_mod.theta_sl[k].start)
+        re_mod.tterms[-1].accumulate_gradient(
+            self, theta, reml, grad, T_xx_inv=T_xx_inv, u_xy=u_xy, v_y=v_y,
+            ZtRX=ZtRX)
+        return grad
+
     def _gradient(self, theta, reml=True):
         if self._use_blockdiag_grad:
             return self._gradient_blockdiag(theta, reml)
+        if self._use_selinv_grad:
+            try:
+                return self._gradient_selinv(theta, reml)
+            except ValueError:
+                self._use_selinv_grad = False
         return self._gradient_sparse(theta, reml)
 
     def _gradient_sparse(self, theta, reml=True):
@@ -1277,6 +1412,12 @@ class LMM2(object):
 
         if not full:
             return np.sqrt(np.clip(var_x, 0.0, None))
+        if self.mme._use_selinv_grad or self.mme._use_blockdiag_grad:
+            try:
+                diag_Cinv = self.mme.cinv_diagonal()
+                return np.sqrt(np.clip(diag_Cinv + var_x, 0.0, None))
+            except ValueError:
+                pass
         n_ranef = self.mme.Z.shape[1]
         diag_Cinv = np.zeros(n_ranef)
         e = np.zeros((n_ranef, 1))
