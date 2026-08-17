@@ -2,6 +2,7 @@ import numba
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
+from .repweights import jackknife_multipliers, bootstrap_multipliers
 
 
 @numba.jit(nopython=True)
@@ -120,6 +121,10 @@ class SampleDesign:
         self.weight = weight
         self.layout = _build_layout(df, strata, psuind, fpc)
         self.w = w
+        self.row_psu = np.repeat(np.arange(self.layout.n_grp),
+                                 np.diff(self.layout.ind_psu))
+        self.psu_stratum = np.repeat(np.arange(self.layout.n_str),
+                                     self.layout.n_psu_per_str)
 
     @property
     def n(self):
@@ -133,6 +138,14 @@ class SampleDesign:
     def n_grp(self):
         return self.layout.n_grp
 
+    def degf(self):
+        # R survey::degf semantics: PSUs minus strata, counted over units
+        # with positive weight, so zero-weight domain subsets shed the PSUs
+        # and strata they empty out.
+        pos = np.bincount(self.row_psu, weights=(self.w > 0).astype(np.float64),
+                          minlength=self.layout.n_grp) > 0
+        return int(pos.sum()) - np.unique(self.psu_stratum[pos]).size
+
     def meat(self, U):
         U = np.ascontiguousarray(U, dtype=np.float64)
         if U.ndim != 2 or U.shape[0] != self.n:
@@ -140,6 +153,19 @@ class SampleDesign:
         L = self.layout
         return _grouped_cov(U, L.n_str, L.n_grp, L.ind_str, L.ind_psu,
                             L.n_psu_per_str, L.ssf)
+
+    def jackknife_replicates(self):
+        # (mult, rscales, scale) triple; row-level weights for replicate r
+        # are self.w * mult[r, self.row_psu] (or self.replicate_weights).
+        mult, rscales = jackknife_multipliers(self.layout)
+        return mult, rscales, 1.0
+
+    def bootstrap_replicates(self, n_rep=500, rng=None):
+        mult = bootstrap_multipliers(self.layout, n_rep, rng=rng)
+        return mult, np.ones(n_rep), 1.0 / n_rep
+
+    def replicate_weights(self, mult):
+        return self.w * mult[:, self.row_psu]
 
     def subset(self, mask):
         # Subpopulation: zero out weights outside `mask` while preserving the
@@ -154,6 +180,8 @@ class SampleDesign:
         out.weight = self.weight
         out.layout = self.layout
         out.w = np.where(mask, self.w, 0.0)
+        out.row_psu = self.row_psu
+        out.psu_stratum = self.psu_stratum
         return out
 
     def __repr__(self):
