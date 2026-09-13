@@ -253,7 +253,7 @@ def id_sp_kron(m, B):
     Ci = np.zeros(m * nnz, dtype=np.int32)
     Cx = np.zeros(m * nnz, dtype=np.float64)
     
-    cs_kron_id_sp_wrapper(m, Bx, Bi, Bp, Bnc, Bnc, Cx, Ci, Cp)
+    cs_kron_id_sp_wrapper(m, Bx, Bi, Bp, Bnr, Bnc, Cx, Ci, Cp)
     
     return sp.sparse.csc_matrix((Cx, Ci, Cp), shape=(m * Bnr, m * Bnc))
 
@@ -263,7 +263,7 @@ def id_sp_kron_inplace(m, B, C):
     Bp, Bi, Bx = B.indptr, B.indices, B.data
     Cp, Ci, Cx = C.indptr, C.indices, C.data
    
-    cs_kron_id_sp_inplace_wrapper(m, Bx, Bi, Bp, Bnc, Bnc, Cx, Ci, Cp)
+    cs_kron_id_sp_inplace_wrapper(m, Bx, Bi, Bp, Bnr, Bnc, Cx, Ci, Cp)
     
     return C
 
