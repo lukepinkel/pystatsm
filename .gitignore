@@ -141,3 +141,8 @@ pystatsm/utilities/cython_wrappers.c
 pystatsm/pyfa2/tests.py
 pystatsm/utilities/cython_wrappers.c
 /pystatsm/pysem3
+pystatsm/tests/pysem3_graph_test.py
+pystatsm/tests/pysem3_import_test.py
+pystatsm/tests/pysem3_linalg_test.py
+pystatsm/tests/pysem3_model_test.py
+pystatsm/tests/pysem3_transforms_test.py
