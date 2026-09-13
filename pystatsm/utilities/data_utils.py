@@ -405,7 +405,7 @@ def flat_cross_tabulate(arr, column_dim=-1):
     axis_positions.append(axis_positions.pop(column_dim))
     axis_locations = [axis_positions.index(i) for i in range(counts.ndim)]
     counts = np.moveaxis(counts, list(range(counts.ndim)), axis_locations)
-    counts = counts.reshape(np.product(counts.shape[:-1]), counts.shape[-1], order='C')
+    counts = counts.reshape(np.prod(counts.shape[:-1]), counts.shape[-1], order='C')
     row_labels = np.array(list(itertools.product(*levels)))
     return counts, row_labels, col_labels, axis_locations
     
