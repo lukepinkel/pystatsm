@@ -17,7 +17,7 @@ class GPA:
         self.n_iters = n_iters
         self.ls_iters = ls_iters
 
-    def solve(self, A, T0=None):
+    def fit(self, A, T0=None):
         crit, rot = self.crit, self.rot
         m = A.shape[1]
         T = np.eye(m) if T0 is None else T0
@@ -69,7 +69,7 @@ class CayleySolver:
         g_T = self.rot.grad(A, T, self.crit.dQ(L))
         return f, self.rot.d_rotation(theta, g_T)
 
-    def solve(self, A, T0=None):
+    def fit(self, A, T0=None):
         if T0 is None:
             theta0 = np.zeros(self.rot.constraint_dim)
         else:
@@ -78,7 +78,7 @@ class CayleySolver:
                                    jac=lambda t: self._fg(t, A)[1],
                                    method=self.method, **self.opt_kws)
         T = self.rot.unconstrained_to_rotation(opt.x)
-        return T, {"f": opt.fun, "opt": opt, "theta": opt.x}
+        return T, opt
 
 
 # Backward-compat function form: build solver, call solve. Existing callers
