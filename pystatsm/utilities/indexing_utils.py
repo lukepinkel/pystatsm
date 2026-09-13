@@ -10,7 +10,52 @@ import numpy as np
 import scipy as sp
 import scipy.special
 import itertools
-from .ordered_indices import ascending_indices, generate_indices
+
+try:
+    # Optional compiled extension.  Note that ``ascending_indices`` is
+    # deliberately *not* imported here: a pure-Python definition below is
+    # preferred (and previously shadowed the Cython import anyway).
+    from .ordered_indices import generate_indices
+except ImportError:
+    def generate_indices(shape, ascending=True, first_indices_change_fastest=True,
+                         strict=False):
+        """
+        Pure-Python fallback for ``ordered_indices.generate_indices`` used
+        when the compiled Cython extension is not built.
+
+        Generate the list of monotone index tuples for a multidimensional
+        array of the given shape.
+
+        Parameters
+        ----------
+        shape : tuple of int
+            Shape of the multidimensional array.
+        ascending : bool, optional
+            If True keep (weakly) ascending index tuples, otherwise
+            (weakly) descending ones. The default is True.
+        first_indices_change_fastest : bool, optional
+            If False, sort the result so the last index changes fastest.
+            The default is True.
+        strict : bool, optional
+            If True require strict monotonicity. The default is False.
+
+        Returns
+        -------
+        filtered_indices : list of tuples of int
+        """
+        if ascending:
+            in_order = (lambda a, b: a < b) if strict else (lambda a, b: a <= b)
+        else:
+            in_order = (lambda a, b: a > b) if strict else (lambda a, b: a >= b)
+        filtered_indices = [
+            indices for indices in itertools.product(*[range(s) for s in shape])
+            if all(in_order(indices[i], indices[i + 1])
+                   for i in range(len(shape) - 1))
+        ]
+        if not first_indices_change_fastest:
+            filtered_indices = sorted(filtered_indices,
+                                      key=lambda x: tuple(reversed(x)))
+        return filtered_indices
 
 def diag_indices(n, k=0):
     """
@@ -130,10 +175,10 @@ class ndindex:
     def __init__(self, *shape, order='F'):
         if len(shape) == 1 and isinstance(shape[0], tuple):
             shape = shape[0]
-        x = np.lib.stride_tricks.as_strided(np.core.numeric.zeros(1),
+        x = np.lib.stride_tricks.as_strided(np.zeros(1),
                                             shape=shape,
-                                            strides=np.core.numeric.zeros_like(shape))
-        self._it = np.core.numeric.nditer(x, flags=['multi_index', 'zerosize_ok'],
+                                            strides=np.zeros_like(shape))
+        self._it = np.nditer(x, flags=['multi_index', 'zerosize_ok'],
                               order=order)
 
     def __iter__(self):
